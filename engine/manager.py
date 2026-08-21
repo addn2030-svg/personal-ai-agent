@@ -135,7 +135,7 @@ def fast_cycle():
                if p.get("الحالة") == "نشط" and (_as_date(p["آخر تقدم"]) < t.date() - dt.timedelta(days=STALLED_DAYS))]
     stalled_names = {p["المشروع"] for p in stalled}
     for dr in drs:
-        if dr["status"] == "PENDING" and dr.get("project") not in stalled_names:
+        if dr["status"] == "PENDING" and dr.get("project") and dr.get("project") not in stalled_names:
             dr["status"] = "SUPERSEDED"
             changed = True
             summary["superseded"] += 1
