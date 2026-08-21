@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>🎙️ صندوق اليوم — Voice → Action</title>
+<style>
+*{box-sizing:border-box}
+body{font-family:'Segoe UI',Tahoma,sans-serif;direction:rtl;margin:0;background:#edf1f6;color:#1c2b36}
+.topbar{background:linear-gradient(120deg,#0e4a50,#137a74);color:#fff;padding:12px 22px;display:flex;align-items:center;gap:14px}
+.logo{width:40px;height:40px;border-radius:12px;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;font-size:19px}
+.brand b{font-size:16px}.brand span{display:block;font-size:11.5px;opacity:.85}
+.spacer{flex:1}
+.badge{background:#8fe3b0;color:#0b3d24;font-size:11.5px;font-weight:700;border-radius:20px;padding:4px 12px}
+.wrap{max-width:860px;margin:0 auto;padding:20px 18px 30px}
+.card{background:#fff;border:1px solid #e3e9f0;border-radius:14px;padding:16px 20px;margin-bottom:14px}
+h2{margin:0 0 10px;font-size:16px;color:#0e4a50;padding-right:10px;border-right:4px solid #17a2a0}
+textarea{width:100%;min-height:110px;border:1.5px solid #cdd9e2;border-radius:12px;padding:12px 14px;font-family:inherit;font-size:15px;line-height:1.8;resize:vertical;background:#fbfdfe}
+textarea:focus{outline:none;border-color:#17a2a0}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+button{border:none;border-radius:10px;padding:10px 16px;font-size:13.5px;font-weight:700;cursor:pointer;font-family:inherit}
+.b1{background:#0e4a50;color:#fff}.b1:hover{background:#0b3a3f}
+.b2{background:#eef4f7;color:#0e4a50}.b2:hover{background:#dfeaf0}
+.b3{background:#f2c14e;color:#4a3608}
+.rec{background:#fff;border:1px solid #dfe7ee;border-radius:12px;padding:12px 14px;margin:9px 0}
+.rec input[type=text]{width:100%;border:none;border-bottom:1.5px dashed #cdd9e2;font-family:inherit;font-size:14.5px;padding:5px 2px;background:transparent}
+select,input[type=date]{border:1.5px solid #cdd9e2;border-radius:8px;padding:6px 8px;font-family:inherit;font-size:13px;background:#fff;color:#1c2b36}
+select:focus,input:focus{outline:none;border-color:#17a2a0}
+.f{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:7px;font-size:12.5px;color:#5c6f7e}
+.del{background:#fdeeec;color:#a93226;border-radius:8px;padding:5px 10px;font-size:12px}
+.tag{display:inline-block;border-radius:20px;padding:2px 11px;font-size:11.5px;font-weight:700}
+.t-task{background:#e0f2f1;color:#0e4a50}.t-idea{background:#fdf6e3;color:#9c6d10}
+.t-clin{background:#e8e3f5;color:#4b3f80}.t-dec{background:#fdeeec;color:#a93226}
+.hint{font-size:12.5px;color:#6b7c8a;line-height:1.8}
+.privacy{background:#fdf6e3;border:1px solid #eadfc0;border-radius:10px;padding:10px 14px;font-size:13px;line-height:1.7}
+.hidden{display:none}
+footer{text-align:center;font-size:12px;color:#6b7c8a;padding:6px 10px 24px;line-height:1.8}
+#status{font-size:13px;color:#1e6b44;font-weight:700;min-height:20px}
+</style>
+</head>
+<body>
+<div class="topbar"><div class="logo">🎙️</div>
+<div class="brand"><b>صندوق اليوم — Voice → Action</b><span>قل أو اكتب أي شيء → يتحول تلقائيًا إلى مهمة / فكرة / سريري / قرار</span></div>
+<div class="spacer"></div><span class="badge">✅ يعمل دون اتصال</span></div>
+<div class="wrap">
+
+<div class="card">
+  <h2>١. قل أو اكتب ما في بالك (بعفوية)</h2>
+  <textarea id="txt" placeholder="مثال: ذكّرني أتواصل مع شركة الأجهزة الأسبوع القادم، وفكرة نضيفها لمشروع Life Pulse تنبيه ذكي، والمريض أحمد يحتاج مراجعة للخطة، وقررنا تأجيل شراء أداة التفريغ للشهر القادم"></textarea>
+  <div class="row">
+    <button class="b1" onclick="analyze()">🔍 حلّل وصنّف</button>
+    <button class="b2" id="mic" onclick="mic()" style="display:none">🎙️ تسجيل صوتي</button>
+    <button class="b2" onclick="loadExample()">✨ جرّب المثال</button>
+    <button class="b2" onclick="clearAll()">🗑️ تفريغ</button>
+  </div>
+  <div id="status"></div>
+  <p class="hint">💡 اكتب كل فكرة مفصولة بفاصلة أو سطر جديد. الأداة تفصلها وتصنفها وتستخرج المواعيد تلقائيًا («الأسبوع القادم»، «غدًا»، تاريخ 30/8...). يمكنك تعديل أي بند قبل التصدير.</p>
+</div>
+
+<div class="card hidden" id="resCard">
+  <h2>٢. راجع وصحّح (القرار لك)</h2>
+  <div id="items"></div>
+  <div class="row" style="margin-top:12px">
+    <button class="b1" onclick="addRow('مهمة','')">➕ بند إضافي</button>
+    <button class="b3" onclick="downloadCSV()">💾 تنزيل inbox.csv</button>
+    <button class="b2" onclick="copyTSV()">📋 نسخ للّصق في الشيت</button>
+    <button class="b2" onclick="copyCSV()">📋 نسخ محتوى CSV</button>
+  </div>
+  <p class="hint">التشغيل الكامل: ضع <b>inbox.csv</b> في مجلد <b>data</b> بجانب الشيت ثم شغّل <b>python3 engine/import_inbox.py</b> ← تُضاف البنود للتبويبات الصحيحة ← شغّل المحرك لتحديث لوحة القيادة.</p>
+</div>
+
+<div class="card">
+  <h2>⚙️ القواعد التي تعمل بها الأداة</h2>
+  <div class="privacy">🔐 <b>خصوصية المرضى:</b> إذا ذكرت اسم مريض، تستبدله الأداة تلقائيًا برمز مجهل (P-1XX) — لا يُحفظ الاسم في أي ملف. التصنيف السريري يبقى دائمًا «فرضية تحتاج مراجعتك واعتمادك».</div>
+  <p class="hint" style="margin-top:8px">
+  • <b>مهمة</b> → تبويب «مهام» (ذكّرني، تواصل، جهّز، أسدد...)<br>
+  • <b>فكرة</b> → تبويب «مشاريع» (فكرة، اقتراح، نضيف...) — وإذا ذكرت اسم مشروع قائم تُلحق بملاحظاته<br>
+  • <b>سريري</b> → تبويب «متابعة مرضى» برمز مجهل (مريض، خطة، جلسة، مراجعة...)<br>
+  • <b>قرار</b> → تبويب «قرارات» (قررنا، اعتمدت، أجّلنا...)</p>
+</div>
+
+</div>
+<footer>Abdulrahman AI OS v0.1 — أداة الإدخال اليومي | صوت يحتاج اتصالًا (كروم/إيدج)، وكل ما عدا ذلك يعمل دون اتصال</footer>
+
+<script>
+var KINDS = ['قسم','أعمال','AI','سريري','محتوى','تعلم','شخصي'];
+var recBtn = document.getElementById('mic');
+var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+if (SR) { recBtn.style.display = ''; }
+var recognition = null;
+
+function norm(s){
+  return (s||'').replace(/[\u064B-\u0652]/g,'').replace(/[أإآ]/g,'ا').replace(/ى/g,'ي').replace(/ة/g,'ه');
+}
+function daysFromNow(n){
+  var d = new Date(); d.setDate(d.getDate()+n);
+  return d.toISOString().slice(0,10);
+}
+function extractDue(t){
+  var s = norm(t);
+  var m = s.match(/(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?/);
+  if (m) { var y = m[3] ? (m[3].length==2?'20'+m[3]:m[3]) : String(new Date().getFullYear());
+    return y+'-'+String(+m[2]).padStart(2,'0')+'-'+String(+m[1]).padStart(2,'0'); }
+  if (/اليوم|حالا|الان/.test(s)) return daysFromNow(0);
+  if (/بعد غد/.test(s)) return daysFromNow(2);
+  if (/غدا|بكره|بكرا/.test(s)) return daysFromNow(1);
+  if (/اسبوع|أسبوع/.test(s) && /قادم|قادمه|الجاي|بعد/.test(s)) return daysFromNow(7);
+  if (/بعد اسبوعين|اسبوعين/.test(s)) return daysFromNow(14);
+  if (/شهر/.test(s) && /قادم|قادمه|الجاي|بعد/.test(s)) return daysFromNow(30);
+  if (/نهايه الشهر/.test(s)) { var d=new Date(); return new Date(d.getFullYear(), d.getMonth()+1, 0).toISOString().slice(0,10); }
+  return '';
+}
+function classify(t){
+  var s = norm(t);
+  var type='مهمة', kind='قسم';
+  if (/قررت|قررنا|اعتمدت|وافقت|اجلنا|اجلت|الغينا|الغيت/.test(s)) { type='قرار'; kind='أعمال'; }
+  else if (/مريض|المريض|جلسه|خطه|تمرين|تقييم|HEP|متابعه سريري/.test(s)) { type='سريري'; kind='سريري'; }
+  else if (/فكره|اقتراح|نضيف|نطور|لماذا لا|يمكن ن/.test(s)) { type='فكرة'; kind='AI'; }
+  else {
+    if (/مشروع|AI|وكيل|تطبيق|API/.test(s)) kind='AI';
+    else if (/عميل|عرض|سعر|شركه|تواصل|اتصل|راسل|مورد|عقد/.test(s)) kind='أعمال';
+    else if (/فيديو|محتوى|بوست|تدوين/.test(s)) kind='محتوى';
+    else if (/بحث|دوره|كتاب|ورشه|تعلم/.test(s)) kind='تعلم';
+    else if (/راتب|سداد|تسديد|بيت|اهل|نادي/.test(s)) kind='شخصي';
+  }
+  var prio = /عاجل|مهم جدا|ضروري/.test(s) ? 'عالية' : 'متوسطة';
+  if (type=='قرار'||type=='سريري') prio='عالية';
+  var due = extractDue(s);
+  var note='';
+  var code='';
+  if (type=='سريري') {
+    var mm = t.match(/المريض\s+(\S+)/) || t.match(/مريض\s+(\S+)/);
+    if (mm) { code = 'P-' + (106 + Math.floor(Math.random()*3));
+      note = 'رُمِّز تلقائيًا (' + code + ') — سجل الرمز عندك'; }
+    if (/مراجعه|خطه/.test(s)) note = (note?note+' | ':'') + 'يحتاج مراجعة خطة: نعم';
+  }
+  return {type:type, kind:kind, prio:prio, due:due, note:note, code:code};
+}
+var items = [];
+function splitText(t){
+  return t.split(/\n+|،|؛|(?<=\.)\s+/).map(function(x){return x.replace(/^\s*و*/,'').trim();})
+          .filter(function(x){return x.length>2;});
+}
+function analyze(){
+  var parts = splitText(document.getElementById('txt').value);
+  if (!parts.length) { setStatus('⚠️ اكتب شيئًا أولًا'); return; }
+  items = parts.map(function(p){ var c = classify(p); return {t:p, c:c}; });
+  render(); setStatus('🔍 حلّلتُ ' + items.length + ' بندًا — راجع التصنيف والمواعيد قبل التصدير');
+}
+function render(){
+  var el = document.getElementById('items'); el.innerHTML = '';
+  document.getElementById('resCard').classList.remove('hidden');
+  items.forEach(function(it, i){
+    var d = document.createElement('div'); d.className='rec';
+    var tagcls = {'مهمة':'t-task','فكرة':'t-idea','سريري':'t-clin','قرار':'t-dec'}[it.c.type];
+    d.innerHTML =
+      '<span class="tag '+tagcls+'">'+it.c.type+'</span>' +
+      '<button class="del" style="float:left" onclick="delItem('+i+')">✕ حذف</button>' +
+      '<input type="text" value="'+it.t.replace(/"/g,'&quot;')+'" oninput="items['+i+'].t=this.value">' +
+      '<div class="f">' +
+      'التصنيف <select onchange="items['+i+'].c.type=this.value">' +
+        ['مهمة','فكرة','سريري','قرار'].map(function(o){return '<option'+(o==it.c.type?' selected':'')+'>'+o+'</option>';}).join('') + '</select>' +
+      'النوع <select onchange="items['+i+'].c.kind=this.value">' +
+        KINDS.map(function(o){return '<option'+(o==it.c.kind?' selected':'')+'>'+o+'</option>';}).join('') + '</select>' +
+      'الأولوية <select onchange="items['+i+'].c.prio=this.value">' +
+        ['عالية','متوسطة','منخفضة'].map(function(o){return '<option'+(o==it.c.kind?'':'')+(o==it.c.prio?' selected':'')+'>'+o+'</option>';}).join('') + '</select>' +
+      'الموعد <input type="date" value="'+it.c.due+'" onchange="items['+i+'].c.due=this.value">' +
+      (it.c.note ? '<br>📝 '+it.c.note : '') +
+      '</div>';
+    el.appendChild(d);
+  });
+}
+function addRow(type, t){
+  items.push({t:t||'', c:classify(t||type)}); render();
+}
+function delItem(i){ items.splice(i,1); render(); }
+function setStatus(s){ document.getElementById('status').textContent = s; }
+function csvOf(){
+  var lines = ['التصنيف,العنوان,النوع,الأولوية,الموعد,ملاحظة'];
+  items.forEach(function(it){
+    lines.push([it.c.type, it.t.replace(/,/g,'،'), it.c.kind, it.c.prio, it.c.due||'', it.c.note||''].join(','));
+  });
+  return lines.join('\n');
+}
+function tsvOf(){
+  var out = '';
+  var g = {'مهمة':[], 'فكرة':[], 'سريري':[], 'قرار':[]};
+  items.forEach(function(it){ g[it.c.type].push(it); });
+  if (g['مهمة'].length) { out += '【تبويب: مهام】\nالعنوان\tالنوع\tالأولوية\tالموعد النهائي\tالحالة\tالسياق/المشروع\tالمصدر\tملاحظات\n';
+    g['مهمة'].forEach(function(it){ out += [it.t,it.c.kind,it.c.prio,it.c.due||'','لم تبدأ','','صندوق الصوت',it.c.note].join('\t')+'\n'; }); }
+  if (g['فكرة'].length) { out += '\n【تبويب: مشاريع — صف جديد لكل فكرة أو ألحقها بملاحظات المشروع القائم】\nفكرة\t'+g['فكرة'].map(function(it){return it.t;}).join(' | ')+'\n'; }
+  if (g['سريري'].length) { out += '\n【تبويب: متابعة مرضى — رموز فقط】\nالحالة السريرية (مجهلة)\tالموعد القادم\tيحتاج مراجعة خطة\tملاحظات\n';
+    g['سريري'].forEach(function(it){ out += [it.t, it.c.due||'', /نعم/.test(it.c.note)?'نعم':'لا', it.c.note].join('\t')+'\n'; }); }
+  if (g['قرار'].length) { out += '\n【تبويب: قرارات】\nالقرار\tالحالة\n';
+    g['قرار'].forEach(function(it){ out += it.t+'\tقيد التنفيذ\n'; }); }
+  return out;
+}
+function fallbackCopy(text, msg){
+  function ok(){ setStatus(msg); }
+  if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(text).then(ok, function(){fb();}); } else fb();
+  function fb(){ var ta=document.createElement('textarea'); ta.value=text; document.body.appendChild(ta); ta.select();
+    try{ document.execCommand('copy'); ok(); }catch(e){ setStatus('⚠️ انسخ يدويًا'); } document.body.removeChild(ta); }
+}
+function copyTSV(){ fallbackCopy(tsvOf(), '📋 تم النسخ — الصقه في التبويب المناسب بالشيت'); }
+function copyCSV(){ fallbackCopy(csvOf(), '📋 تم نسخ محتوى CSV'); }
+function downloadCSV(){
+  var blob = new Blob(['\ufeff'+csvOf()], {type:'text/csv;charset=utf-8'});
+  var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download='inbox.csv';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setStatus('💾 نُزّل inbox.csv — ضعه في مجلد data ثم شغّل import_inbox.py');
+}
+function loadExample(){
+  document.getElementById('txt').value = 'ذكّرني أتواصل مع شركة الأجهزة الأسبوع القادم، وفكرة نضيفها لمشروع Life Pulse تنبيه ذكي للمريض، والمريض أحمد يحتاج مراجعة للخطة غدًا، وقررنا تأجيل شراء أداة تفريغ الاجتماعات للشهر القادم، ومهمة: تسجيل فيديو عن وضعية الجلوس';
+  analyze();
+}
+function clearAll(){ document.getElementById('txt').value=''; items=[]; render(); document.getElementById('resCard').classList.add('hidden'); setStatus(''); }
+function mic(){
+  if (!SR) return;
+  if (recognition) { recognition.stop(); recognition=null; recBtn.textContent='🎙️ تسجيل صوتي'; return; }
+  recognition = new SR(); recognition.lang='ar-SA'; recognition.continuous=true; recognition.interimResults=false;
+  recognition.onresult = function(e){ var t='';
+    for (var i=e.resultIndex;i<e.results.length;i++) t += e.results[i][0].transcript;
+    document.getElementById('txt').value += (document.getElementById('txt').value?' ':'') + t; };
+  recognition.onend = function(){ recognition=null; recBtn.textContent='🎙️ تسجيل صوتي'; };
+  recognition.onerror = function(){ setStatus('⚠️ التعرف الصوتي يحتاج اتصالًا بالإنترنت (كروم/إيدج) — يمكنك الكتابة بدلًا منه'); };
+  recognition.start(); recBtn.textContent='⏹️ إيقاف التسجيل';
+}
+</script>
+</body>
+</html>
