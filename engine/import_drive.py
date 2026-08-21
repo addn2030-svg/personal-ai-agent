@@ -152,7 +152,84 @@ def import_plan():
 
 
 
-def import_sources(url):
+def import_sources(url, tab=None):
+    """يستورد تبويب «المصادر والتعلم العلمي» — يدعم تخطيطي الأعمدة (مدمج أو مفصول) + الحالة والجدولة."""
+    from urllib.parse import quote
+    base = url.strip().replace("/edit", "").replace("?usp=drivesdk", "")
+    csv_url = base + "/gviz/tq?tqx=out:csv" + (f"&sheet={quote(tab)}" if tab else "")
+    print("⏳ قراءة شيت المصادر من Google Sheets" + (f" — تبويب «{tab}»" if tab else "") + "...")
+    data = urllib.request.urlopen(csv_url, timeout=25).read().decode("utf-8")
+    rows = list(csv.reader(io.StringIO(data)))
+    hdr_i = 0
+    for i, r in enumerate(rows[:5]):
+        if any("المصدر" in c for c in r):
+            hdr_i = i
+            break
+    hdr = rows[hdr_i]
+    ix = {h: hdr.index(h) for h in hdr if h}
+    store = Store()
+    S = store.rows_all()
+    existing = {k.get("source") for k in S.get("knowledge_sources", [])}
+    added, started = 0, 0
+    for r in rows[hdr_i + 1:]:
+        g = lambda k: (r[ix[k]].strip() if k in ix and ix[k] < len(r) else "")
+        src = g("المصدر")
+        idea, apply = g("الفكرة الرئيسية"), g("التطبيق خلال 24 ساعة")
+        if not src or not (idea or apply or g("النوع")):
+            continue  # صفوف العناوين/الفواصل
+        if src in existing:
+            continue
+        kind = g("النوع والموضوع") or " — ".join(x for x in (g("النوع"), g("الموضوع")) if x)
+        status = g("الحالة") or "جديد"
+        if status == "بدأ":
+            started += 1
+        S["knowledge_sources"].append({
+            "source": src, "type_topic": kind, "key_idea": idea, "apply_24h": apply,
+            "schedule": g("موعد المراجعة"), "status": status,
+            "proof": g("دليل التطبيق"), "summary": g("الملخص"), "youtube": g("رابط يوتيوب"),
+            "linked_concept": None, "added_at": TODAY.isoformat()})
+        added += 1
+    if added:
+        store.commit(S, "knowledge_sources_import", sources=added, started=started)
+        log_event("KNOWLEDGE_SOURCES_IMPORTED", sources=added, started=started)
+    print(f"✅ أُضيف {added} مصدرًا | حالتها «بدأ»: {started} | المتبقي «لم يبدأ»: {added - started}")
+
+
+def import_weaknesses(url, tab="تعليمات تجاوز نقاط الضعف"):
+    """يستورد تبويب «تعليمات تجاوز نقاط الضعف» — بروتوكول علاج كامل لكل نقطة."""
+    from urllib.parse import quote
+    base = url.strip().replace("/edit", "").replace("?usp=drivesdk", "")
+    csv_url = base + "/gviz/tq?tqx=out:csv" + (f"&sheet={quote(tab)}" if tab else "")
+    data = urllib.request.urlopen(csv_url, timeout=25).read().decode("utf-8")
+    rows = list(csv.reader(io.StringIO(data)))
+    hdr = rows[0]
+    ix = {h: hdr.index(h) for h in hdr if h}
+    first_col = hdr[0]
+    store = Store()
+    S = store.rows_all()
+    existing = {w.get("weakness") for w in S.get("weakness_protocols", [])}
+    added = 0
+    for r in rows[1:]:
+        name = (r[0] or "").strip()
+        g = lambda k: (r[ix[k]].strip() if k in ix and ix[k] < len(r) else "")
+        if not name or name == first_col or name in existing:
+            continue
+        if not g("المحفّز المعتاد") and not g("التعليمات البديلة"):
+            continue
+        S["weakness_protocols"].append({
+            "weakness": name, "trigger": g("المحفّز المعتاد"),
+            "replacement_rules": g("التعليمات البديلة"), "target_behavior": g("السلوك المطلوب"),
+            "weekly_min": g("الحد الأدنى الأسبوعي"), "kpi": g("مؤشر النجاح"),
+            "week_status": g("حالة الأسبوع"), "next_week_decision": g("قرار الأسبوع القادم"),
+            "source": "Google Sheet", "added_at": TODAY.isoformat()})
+        added += 1
+    if added:
+        store.commit(S, "weakness_protocols_import", weaknesses=added)
+        log_event("WEAKNESS_PROTOCOLS_IMPORTED", weaknesses=added)
+    print(f"✅ أُضيف {added} بروتوكول نقاط ضعف (مرجع دائم للنظام)")
+
+
+
     """يستورد شيت «المصادر والتعلم العلمي»: المصدر | النوع والموضوع | الفكرة الرئيسية | التطبيق خلال 24 ساعة."""
     csv_url = url.strip().replace("/edit", "").replace("?usp=drivesdk", "") + "/gviz/tq?tqx=out:csv"
     print("⏳ قراءة شيت المصادر من Google Sheets...")
@@ -193,6 +270,9 @@ if __name__ == "__main__":
     elif "--plan" in sys.argv:
         import_plan()
     elif "--sources" in sys.argv and len(sys.argv) > 2:
-        import_sources(sys.argv[2])
+        tab = sys.argv[3] if len(sys.argv) > 3 else None
+        import_sources(sys.argv[2], tab)
+    elif "--weaknesses" in sys.argv and len(sys.argv) > 2:
+        import_weaknesses(sys.argv[2])
     else:
         print(__doc__)
