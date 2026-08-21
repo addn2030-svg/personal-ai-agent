@@ -228,6 +228,10 @@ def loop():
     while True:
         t = now()
         m = _markers()
+        if m.get("hb_day") != t.date().isoformat():  # نبض يومي — دليل أن الحلقة حية
+            m["hb_day"] = t.date().isoformat()
+            _save_markers(m)
+            log_event("manager_loop_alive", tz=str(TZ))
         due_full = t.replace(hour=MORNING_HOUR, minute=MORNING_MINUTE, second=0, microsecond=0)
         if t >= due_full and m.get("last_full") != t.date().isoformat():
             try:

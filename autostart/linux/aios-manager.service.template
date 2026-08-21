@@ -1,0 +1,12 @@
+[Unit]
+Description=Abdulrahman AI OS — Manager Loop (بريف 6 صباحًا + مسح كل 15 دقيقة)
+
+[Service]
+Type=simple
+WorkingDirectory=__REPO__
+ExecStart=/usr/bin/python3 -u __REPO__/engine/manager.py --loop
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=default.target
