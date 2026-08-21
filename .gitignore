@@ -1,0 +1,13 @@
+# بيانات تشغيل شخصية — لا تُرفع أبدًا (خصوصية)
+data/state.json
+data/audit.jsonl
+data/backups/
+data/inbox.csv
+data/inbox-imported-*.csv
+data/.manager-markers.json
+reports/
+uploads/
+# عام
+__pycache__/
+*.pyc
+.DS_Store
