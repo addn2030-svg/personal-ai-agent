@@ -22,7 +22,7 @@ BACKUP_DIR = os.path.join(BASE, "data", "backups")
 SECTIONS = ["tasks", "projects", "leads", "kpis", "meetings", "decisions",
             "followups", "voice", "learning", "finance", "waiting_for", "action_queue",
             "voice_calls", "contacts", "handoff_requests", "decision_requests",
-            "learning_plans", "learning_concepts", "learning_reviews"]
+            "learning_plans", "learning_concepts", "learning_reviews", "knowledge_sources"]
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _DATETIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?$")

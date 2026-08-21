@@ -150,10 +150,49 @@ def import_plan():
     print(f"✅ خطة الأسبوع: {added_t} مهام بتواريخ 20–26 أغسطس + {added_d} قرارات موثقة (ثقة 70–85%)")
 
 
+
+
+def import_sources(url):
+    """يستورد شيت «المصادر والتعلم العلمي»: المصدر | النوع والموضوع | الفكرة الرئيسية | التطبيق خلال 24 ساعة."""
+    csv_url = url.strip().replace("/edit", "").replace("?usp=drivesdk", "") + "/gviz/tq?tqx=out:csv"
+    print("⏳ قراءة شيت المصادر من Google Sheets...")
+    data = urllib.request.urlopen(csv_url, timeout=25).read().decode("utf-8")
+    rows = list(csv.reader(io.StringIO(data)))
+    hdr_i = 0
+    for i, r in enumerate(rows[:5]):
+        if any("المصدر" in c for c in r):
+            hdr_i = i
+            break
+    hdr = rows[hdr_i]
+    ix = {h: hdr.index(h) for h in hdr if h}
+    store = Store()
+    S = store.rows_all()
+    existing = {k.get("source") for k in S.get("knowledge_sources", [])}
+    added = 0
+    for r in rows[hdr_i + 1:]:
+        g = lambda k: (r[ix[k]].strip() if k in ix and ix[k] < len(r) else "")
+        src = g("المصدر")
+        if not src or src in existing:
+            continue
+        S["knowledge_sources"].append({
+            "source": src, "type_topic": g("النوع والموضوع"),
+            "key_idea": g("الفكرة الرئيسية"),
+            "apply_24h": g("التطبيق خلال 24 ساعة"),
+            "linked_concept": None,
+            "added_at": TODAY.isoformat(), "status": "جديد"})
+        added += 1
+    if added:
+        store.commit(S, "knowledge_sources_import", sources=added)
+        log_event("KNOWLEDGE_SOURCES_IMPORTED", sources=added)
+    print(f"✅ أُضيف {added} مصدرًا علميًا — كل مصدر يحمل تطبيق 24 ساعة حتى يُطبَّق")
+
+
 if __name__ == "__main__":
     if "--sheet" in sys.argv:
         import_sheet()
     elif "--plan" in sys.argv:
         import_plan()
+    elif "--sources" in sys.argv and len(sys.argv) > 2:
+        import_sources(sys.argv[2])
     else:
         print(__doc__)
