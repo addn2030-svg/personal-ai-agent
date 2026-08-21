@@ -67,6 +67,11 @@ python3 engine/chief_of_staff.py
 - شارة أعلى الصفحة تبيّن هل البيانات «تجريبية» أم «حقيقية» — تُضبط من سطر `DEMO = True` داخل `engine/chief_of_staff.py` (اجعلها `False` بعد نقل بياناتك).
 - لتحديثها: حدّث الشيت ثم أعد تشغيل المحرك واحفظ النسخة الجديدة.
 
+## الاستخدام في ChatGPT وVS Code
+راجع `docs/using-the-agent.md` — جسر كامل بين محركك المحلي وعقل LLM:
+- **ChatGPT:** مهمة «🧠 تصدير سياق ChatGPT» ← الصق `reports/chat-context.md` في Project مجهز بحزمة `prompts/chief-of-staff.md` ← بريف وتحليل قرارات وتغذية راجعة (مثال حوار حقيقي داخل الدليل).
+- **VS Code:** مهام جاهزة بنقرة (`.vscode/tasks.json`): تحديث اللوحة، دورة سريعة، استيراد الصندوق، الاعتمادات، مراجعات التعلّم.
+
 ## تفعيل اختبار CI (خطوة واحدة بعد الاستنساخ)
 ملف سير العمل جاهز في `docs/ci-workflow.yml`. لتفعيله: في صفحة المستودع على GitHub ← **Add file ← Create new file** ← المسار `.github/workflows/ci.yml` ← الصق محتوى `docs/ci-workflow.yml` ← Commit. (أو أنشئ رمز PAT بنطاق `workflow` ودفعه برمجيًا). بعدها يعمل اختبار الدخان تلقائيًا مع كل دفعة.
 

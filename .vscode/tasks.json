@@ -1,0 +1,61 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "🔄 تحديث اللوحة والبريف (دورة كاملة)",
+      "type": "shell",
+      "command": "python3 engine/manager.py full",
+      "windows": { "command": "python engine/manager.py full" },
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "⚡ دورة سريعة (15 دقيقة)",
+      "type": "shell",
+      "command": "python3 engine/manager.py fast",
+      "windows": { "command": "python engine/manager.py fast" },
+      "problemMatcher": []
+    },
+    {
+      "label": "📥 استيراد صندوق اليوم ثم تحديث اللوحة",
+      "type": "shell",
+      "command": "python3 engine/import_inbox.py && python3 engine/manager.py full",
+      "windows": { "command": "python engine/import_inbox.py && python engine/manager.py full" },
+      "problemMatcher": []
+    },
+    {
+      "label": "🛂 عرض طابور الاعتمادات",
+      "type": "shell",
+      "command": "python3 engine/approve.py list",
+      "windows": { "command": "python engine/approve.py list" },
+      "problemMatcher": []
+    },
+    {
+      "label": "🧠 تصدير سياق ChatGPT (chat-context.md)",
+      "type": "shell",
+      "command": "python3 engine/export_for_chat.py",
+      "windows": { "command": "python engine/export_for_chat.py" },
+      "problemMatcher": []
+    },
+    {
+      "label": "📚 مراجعات تعلم اليوم",
+      "type": "shell",
+      "command": "python3 engine/learning_engine.py due",
+      "windows": { "command": "python engine/learning_engine.py due" },
+      "problemMatcher": []
+    },
+    {
+      "label": "🗺️ هيكل مادة تدريبية (ILPC) — LP-001",
+      "type": "shell",
+      "command": "python3 engine/learning_engine.py outline LP-001",
+      "windows": { "command": "python engine/learning_engine.py outline LP-001" },
+      "problemMatcher": []
+    },
+    {
+      "label": "🧪 اختبار دخان كامل",
+      "type": "shell",
+      "command": "bash scripts/smoke_test.sh",
+      "problemMatcher": []
+    }
+  ]
+}
