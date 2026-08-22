@@ -9,7 +9,8 @@ WEBHOOK_URL = os.environ.get("GOOGLE_SHEETS_WEBHOOK_URL", "").strip()
 WEBHOOK_SECRET = os.environ.get("GOOGLE_SHEETS_WEBHOOK_SECRET", "").strip()
 _SERVICE = None
 PRIORITY_TABS = [
-    "خطة الإنجاز والمهام","التطوير الشخصي","الهدف المالي E-S-B-I",
+    "Projects","خطة الإنجاز والمهام","Smart_Inbox","Waiting_For","Blockers",
+    "Executive_Brief","التطوير الشخصي","الهدف المالي E-S-B-I",
     "التحليل المالي المختصر","تعليمات تجاوز نقاط الضعف",
     "المصادر والتعلم العلمي","القرارات",
 ]
