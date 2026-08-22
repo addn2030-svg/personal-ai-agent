@@ -1,0 +1,3 @@
+# Runtime dependencies for Abdulrahman AI OS
+openpyxl>=3.1.0
+-r requirements-connectors.txt
