@@ -1,0 +1,153 @@
+version: 0.9
+profile_name: Abdulrahman Chief of Staff Master Professional Profile
+policy:
+  rule: "No durable identity fact without source, confidence, and verification status. User-confirmed facts override older conflicting marketing drafts while preserving conflict history."
+  classes: [CONFIRMED, DOCUMENT_SUPPORTED, INFERRED, VERIFY, HISTORICAL]
+identity:
+  full_name:
+    value: "Abdulrahman Bakor Howsawy"
+    status: CONFIRMED
+    source: "User-confirmed CV profile, 2026-08-22"
+  professional_title:
+    value: "Senior Physical Therapist & Head of Rehabilitation Department"
+    status: CONFIRMED
+    source: "User-confirmed CV profile, 2026-08-22"
+  employer:
+    value: "Royal Commission Health Services Program (RCHSP)"
+    location: "Jubail, Eastern Province, Saudi Arabia"
+    status: CONFIRMED
+  email:
+    value: "abdul200200@gmail.com"
+    status: CONFIRMED
+    privacy: PRIVATE_CONTACT
+  mobile:
+    value: "+966 54 568 4917"
+    status: CONFIRMED
+    privacy: PRIVATE_CONTACT
+  career_start:
+    value: 2005
+    status: CONFIRMED
+    source: "User correction, 2026-08-22"
+  education:
+    degree: "Bachelor of Science in Physical Therapy"
+    institution: "King Faisal University (KFU) – Dammam, KSA"
+    graduation: "September 2004"
+    status: CONFIRMED
+professional_summary:
+  value: "Senior Physical Therapy Leader and Clinical Innovator with progressive healthcare experience across Royal Commission, KFSH-D and Armed Forces settings; rehabilitation leadership, accreditation, service-line development, advanced assessment/manual therapy, digital health automation and AI decision support."
+  status: CONFIRMED
+  source: "User-provided master CV profile, 2026-08-22"
+experience:
+  - organization: "Royal Commission Health Services Program (RCHSP)"
+    location: "Jubail, KSA"
+    role: "Head Section of Rehabilitation Department"
+    period: "2016 – Present"
+    status: CONFIRMED
+    highlights:
+      - "Lead multidisciplinary rehabilitation operations spanning Physical Therapy, Occupational Therapy, and Speech Therapy."
+      - "Conceptualized/launched specialized clinics: Dizziness/Vestibular, Podiatry, and Custom Foot Insole Measurement."
+      - "Led JCI/CBAHI accreditation compliance and departmental Dry Needling accreditation initiative."
+      - "Designed digital automation and database workflows for administration and patient tracking."
+      - "Managed private home-based physical therapy operations and care pathways."
+  - organization: "King Fahd Specialist Hospital (KFSH-D)"
+    location: "Dammam, KSA"
+    role: "Senior Physical Therapist & Education Coordinator"
+    period: "2009 – 2016"
+    status: CONFIRMED
+    highlights:
+      - "Senior PT care across Orthopedics, Neuroscience, Post-Op Oncology, and Multi-Organ Transplant Rehabilitation."
+      - "Directed clinical skill development for 15+ junior physical therapists."
+      - "Delivered CME workshops across KSA, Bahrain, and UAE."
+      - "Most Outstanding Employee (2009)."
+  - organization: "Armed Forces Hospital"
+    location: "Dhahran, KSA"
+    role: "Physical Therapist"
+    period: "2006 – 2008"
+    status: CONFIRMED
+  - organization: "Al-Noor Specialist Hospital"
+    location: "Makkah, KSA"
+    role: "Physical Therapist & Intern Coordinator"
+    period: "2005 – 2006"
+    status: CONFIRMED
+competencies:
+  clinical:
+    status: CONFIRMED
+    items:
+      - "MyoMentor Framework & Integrated Driver System (IDS)"
+      - "Integrated Movement & Tissue Assessment Framework (IMTAF)"
+      - "Pelvic Dysfunction Rehabilitation"
+      - "Needling Therapy in Myofascial Pain Syndrome"
+      - "NeuroKinetic Therapy (NKT)"
+      - "Amino Neuro Frequency (ANF) Therapy"
+      - "Certified Mulligan Practitioner (CMPT)"
+      - "Lymphedema Management (MLD/CDT)"
+  digital_health_ai:
+    status: CONFIRMED
+    items:
+      - "Clinical Decision-Support Systems (Custom GPT / IMTAF 2.0)"
+      - "Applied AI Prompt Engineering"
+      - "Workflow Automation"
+      - "Telegram Bot Interfaces"
+      - "Centralized Database Workflows"
+  leadership_operations:
+    status: CONFIRMED
+    items:
+      - "Departmental Management"
+      - "New Service Line Development"
+      - "JCI & CBAHI Accreditation"
+      - "Healthcare Marketing"
+      - "Clinical Mentorship"
+credentials:
+  mulligan:
+    value: "Certified Mulligan Practitioner (CMPT), 2015"
+    status: CONFIRMED
+  international_trainer:
+    value: "Certified International Trainer; Gulf Board for Human & Development; Train the Trainer 2011 and 2016"
+    status: CONFIRMED
+  scfhs:
+    value: "Active license; user supplied license reference #471"
+    status: CONFIRMED
+    privacy: PROFESSIONAL_IDENTIFIER
+  other_training:
+    status: CONFIRMED
+    items:
+      - "Pelvic Dysfunctions Workshop (2026)"
+      - "Needling Therapy in Myofascial Pain Syndrome (2026)"
+      - "Amino Neuro Frequency (ANF) Therapy"
+      - "NeuroKinetic Therapy (NKT)"
+      - "Complete Lymphedema Certification (MLD/CDT, 2011)"
+      - "Patient Experience Certification (2018)"
+      - "NASA Leadership Model (2019)"
+professional_service:
+  former_role:
+    value: "Former Chair of the Education Committee for the Saudi Physical Therapy Association (SPTA)"
+    status: CONFIRMED
+digital_profiles:
+  linkedin: "https://www.linkedin.com/in/abdulrahman-howsawy-89757825"
+  instagram: "@ABDUL4000"
+  tiktok: "@add30nkt"
+  x: "@ABDUL4000"
+  facebook: "ABDUL4000"
+experience_duration_policy:
+  status: RESOLVED
+  confirmed_career_start: 2005
+  note: "Compute duration from 2005 when needed. Do not retain the old 16+ years marketing claim as current truth. The phrase 'over 22 years' in the supplied summary is preserved as supplied text but conflicts mathematically with a 2005 career start as of 2026; generated profiles should use '20+ years' or exact date-based calculation unless the user later provides pre-2005 professional experience."
+agent_operating_preferences:
+  provenance_first: true
+  distinguish_fact_from_inference: true
+  external_sensitive_actions_require_approval: true
+  clinical_output_requires_specialist_review: true
+  morning_priority: "Royal Commission rehabilitation leadership work"
+source_boundaries:
+  personal_information_cv:
+    type: HISTORICAL_MARKETING_DRAFT
+    use_for: [positioning, vision, candidate_skills]
+    note: "Superseded by user-confirmed master CV profile for identity and experience."
+  cv_2025_folder:
+    type: EVIDENCE_FOLDER
+    known_items: ["Cast Technician.pdf", "CERTIFICATE-ANBO1.pdf"]
+    note: "Cast Technician.pdf is organizational role knowledge only."
+  agent_ai_for_me:
+    type: LEGACY_AGENT_DESIGN
+    use_for: [workflow_migration, feature_history, decision_log_schema, telegram_approval_patterns]
+    note: "Never migrate secrets or token-in-Drive patterns."
