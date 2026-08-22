@@ -247,24 +247,26 @@ def _save_status(component, status, detail):
         print(f"Google status save error: {exc}", flush=True)
 
 
-def ask_bedrock(text: str):
+def ask_bedrock(chat_id: int, text: str):
     if not _bedrock_configured():
         raise RuntimeError("AWS Bedrock variables are not configured")
     import boto3
 
     started = time.monotonic()
     client = boto3.client("bedrock-runtime", region_name=AWS_REGION)
+    from agent_runtime import build_context, bedrock_messages
+    context, sources = build_context(chat_id, text)
     response = client.converse(
         modelId=BEDROCK_MODEL_ID,
-        system=[{"text": SYSTEM_PROMPT}],
-        messages=[{"role": "user", "content": [{"text": text}]}],
+        system=[{"text": SYSTEM_PROMPT + "\n\n" + context}],
+        messages=bedrock_messages(chat_id, text),
         inferenceConfig={"maxTokens": 1200, "temperature": 0.2},
     )
     blocks = response.get("output", {}).get("message", {}).get("content", [])
     answer = "\n".join(block.get("text", "") for block in blocks if block.get("text"))
     if not answer:
         raise RuntimeError("Claude returned an empty response")
-    return answer, response.get("usage", {}), int((time.monotonic() - started) * 1000)
+    return answer, response.get("usage", {}), int((time.monotonic() - started) * 1000), sources
 
 
 def command_start(chat_id: int):
@@ -338,6 +340,13 @@ def _selftest():
         checks.append((name, path.exists(), "موجود" if path.exists() else "مفقود"))
     checks.append(("Claude / Bedrock", _bedrock_configured(), "مهيأ" if _bedrock_configured() else "غير مهيأ"))
     checks.append(("Google Sheets", _sheets_configured(), "مهيأ" if _sheets_configured() else "غير مهيأ"))
+    try:
+        from connectors.aws_transcribe import configured as audio_configured
+        audio_ok = audio_configured()
+    except Exception:
+        audio_ok = False
+    checks.append(("Voice / Transcribe", audio_ok, "مهيأ" if audio_ok else "غير مهيأ"))
+    checks.append(("Memory / Orchestrator", (BASE/"engine"/"agent_runtime.py").exists(), "موجود"))
     ok = sum(1 for _, passed, _ in checks if passed)
     lines = [f"🩺 Self-test: {ok}/{len(checks)} ناجح"]
     lines.extend(f"{'✅' if passed else '❌'} {name}: {detail}" for name, passed, detail in checks)
@@ -348,6 +357,32 @@ def _selftest():
 
 def command_selftest(chat_id: int):
     send(chat_id, _selftest())
+
+
+def _download_telegram_file(file_id: str, suffix=".ogg"):
+    import tempfile
+    info = api("getFile", {"file_id": file_id}, timeout=30)
+    file_path = info.get("file_path")
+    if not file_path:
+        raise RuntimeError("Telegram did not return a file path")
+    url = f"https://api.telegram.org/file/bot{TOKEN}/{file_path}"
+    fd, path = tempfile.mkstemp(prefix="telegram-", suffix=suffix)
+    os.close(fd)
+    urllib.request.urlretrieve(url, path)
+    return path
+
+
+def _transcribe_telegram(file_id: str, kind: str):
+    from connectors.aws_transcribe import transcribe_file
+    suffix = ".ogg" if kind == "VOICE" else ".mp3"
+    path = _download_telegram_file(file_id, suffix=suffix)
+    try:
+        return transcribe_file(path)
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
 
 
 def handle_message(message: dict):
@@ -376,8 +411,16 @@ def handle_message(message: dict):
         send(chat_id, "أمر غير معروف. استخدم /help")
         _save_intake(iid, message, text, kind, attachment, "ERROR", error="UNKNOWN_COMMAND")
         return
-    if kind != "TEXT":
-        send(chat_id, "✅ تم حفظ المدخل. معالجة الصوت والصور والملفات ستُضاف في المرحلة التالية.")
+    if kind in {"VOICE", "AUDIO"}:
+        send(chat_id, "🎙️ تم استلام الصوت، جارٍ التفريغ والتحليل...")
+        try:
+            text = _transcribe_telegram(attachment, kind)
+            send(chat_id, "📝 التفريغ:\n" + text[:3000])
+        except Exception as exc:
+            _save_intake(iid, message, text, kind, attachment, "ERROR", error=exc)
+            raise
+    elif kind != "TEXT":
+        send(chat_id, "✅ تم حفظ بيانات المرفق. تحليل الصور والملفات سيُفعّل في مرحلة مستقلة.")
         _save_intake(iid, message, text, kind, attachment, "RECEIVED")
         return
     if not text:
@@ -385,11 +428,16 @@ def handle_message(message: dict):
 
     cid = f"CV-{chat_id}-{message.get('message_id', '')}"
     try:
+        from agent_runtime import remember
+        category = _category(text, kind)
+        remember(chat_id, "user", text, message.get("message_id", ""), category)
         api("sendChatAction", {"chat_id": chat_id, "action": "typing"})
-        answer, usage, latency = ask_bedrock(text)
+        answer, usage, latency, sources = ask_bedrock(chat_id, text)
+        remember(chat_id, "assistant", answer, message.get("message_id", ""), category)
         sheet_ok = _save_conversation(cid, iid, text, answer, usage, latency, "COMPLETED")
         _save_intake(iid, message, text, kind, attachment, "COMPLETED", response_id=cid)
-        send(chat_id, answer + ("\n\n💾 تم الحفظ في Google Sheets." if sheet_ok else "\n\n⚠️ تم الرد، لكن حفظ Google Sheets غير متصل."))
+        source_note = ("\n\n📚 المصادر: " + "، ".join(sources[:4])) if sources else ""
+        send(chat_id, answer + source_note + ("\n\n💾 تم الحفظ في Google Sheets." if sheet_ok else "\n\n⚠️ تم الرد، لكن حفظ Google Sheets غير متصل."))
     except Exception as exc:
         _save_conversation(cid, iid, text, "", {}, 0, "ERROR", error=exc)
         _save_intake(iid, message, text, kind, attachment, "ERROR", response_id=cid, error=exc)
