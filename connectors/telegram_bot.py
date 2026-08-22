@@ -290,44 +290,93 @@ def ask_bedrock(chat_id: int, text: str, sheet_context: str = ""):
     return answer, response.get("usage", {}), int((time.monotonic() - started) * 1000), sources
 
 
+
 def _sheet_context():
     from connectors.sheet_intelligence import compact_context
     return compact_context()
+
 
 def command_sheet(chat_id: int):
     from connectors.sheet_intelligence import configured, metadata
     if not configured():
         send(chat_id, "❌ ربط Google Sheets غير مكتمل.")
         return
-    rows=metadata()
+    rows = metadata()
     send(chat_id, "📊 الشيتات المتصلة:\n" + "\n".join(
-        f"• {r['title']} ({r.get('rows',0)}×{r.get('columns',0)})" for r in rows))
+        f"• {row['title']} ({row.get('rows', 0)}×{row.get('columns', 0)})" for row in rows
+    ))
+
 
 def command_find(chat_id: int, query: str):
     from connectors.sheet_intelligence import search
     if not query.strip():
-        send(chat_id, 'الاستخدام: /find كلمة البحث')
+        send(chat_id, "الاستخدام: /find كلمة البحث")
         return
-    rows=search(query,20)
+    rows = search(query, 20)
     if not rows:
         send(chat_id, "لم أجد نتائج مطابقة.")
         return
-    lines=[f"🔎 نتائج: {query}"]
-    for r in rows:
-        preview=" | ".join(map(str,r.get("values",[])))[:260]
-        lines.append(f"• {r['sheet']} — صف {r['row']}: {preview}")
-    send(chat_id,"\n".join(lines))
+    lines = [f"🔎 نتائج: {query}"]
+    for row in rows:
+        preview = " | ".join(map(str, row.get("values", [])))[:260]
+        lines.append(f"• {row['sheet']} — صف {row['row']}: {preview}")
+    send(chat_id, "\n".join(lines))
+
 
 def command_pending(chat_id: int):
-    send(chat_id,"🧠 أراجع الآن: ما القادم، ما غير مكتمل، السبب، والحل...")
-    prompt=("حلّل بيانات Google Sheets الحية التالية كمدير أعمال عبدالرحمن. "
-            "أعطني فقط: 1) القادم 2) غير المكتمل 3) السبب المدعوم بالبيانات "
-            "4) الحل العملي 5) ما يحتاج قرارًا الآن. لا تخترع معلومات، واذكر اسم الشيت والصف عند الإمكان.")
-    answer,_,_,_=ask_bedrock(chat_id,prompt,sheet_context=_sheet_context())
-    send(chat_id,answer)
+    send(chat_id, "🧠 أراجع الآن: ما القادم، ما غير مكتمل، السبب، والحل...")
+    prompt = (
+        "حلّل بيانات Google Sheets الحية كمدير أعمال عبدالرحمن. "
+        "أعطني فقط: 1) القادم 2) غير المكتمل 3) السبب المدعوم بالبيانات "
+        "4) الحل العملي 5) ما يحتاج قرارًا الآن. "
+        "لا تخترع معلومات، واذكر اسم الشيت والصف عند الإمكان."
+    )
+    answer, _, _, _ = ask_bedrock(chat_id, prompt, sheet_context=_sheet_context())
+    send(chat_id, answer)
+
 
 def command_update(chat_id: int, text: str):
-    match=re.match(r'^/update\s+"([^"]+)"\s+([A-Za-z]{1,3}[0-9]+)\s+(.+)    send(
+    match = re.match(r'^/update\s+"([^"]+)"\s+([A-Za-z]{1,3}[0-9]+)\s+(.+)$', text, re.S)
+    if not match:
+        send(chat_id, 'الاستخدام: /update "اسم الشيت" B12 القيمة الجديدة')
+        return
+    tab, a1, value = match.group(1), match.group(2).upper(), match.group(3).strip()
+    token = secrets.token_hex(3)
+    _PENDING_SHEET_UPDATES[token] = {
+        "sheet": tab, "a1": a1, "value": value, "expires": time.time() + 600
+    }
+    send(
+        chat_id,
+        f"⚠️ اقتراح تحديث\nالشيت: {tab}\nالخلية: {a1}\nالقيمة: {value}"
+        f"\n\nللتنفيذ خلال 10 دقائق: /confirm {token}",
+    )
+
+
+def command_confirm(chat_id: int, token: str):
+    item = _PENDING_SHEET_UPDATES.pop(token.strip(), None)
+    if not item or item["expires"] < time.time():
+        send(chat_id, "❌ رمز التأكيد غير صالح أو انتهت مدته.")
+        return
+    from connectors.sheet_intelligence import update_cell
+    result = update_cell(item["sheet"], item["a1"], item["value"])
+    send(
+        chat_id,
+        f"✅ تم التحديث\n{item['sheet']}!{item['a1']}"
+        f"\nالقيمة السابقة: {result.get('before', '')}"
+        f"\nالقيمة الجديدة: {result.get('after', item['value'])}",
+    )
+
+
+def _needs_sheet_context(text: str):
+    return bool(re.search(
+        r"sheet|spreadsheet|شيت|جدول|ناقص|غير مكتمل|متأخر|القادم|pending|"
+        r"incomplete|why|لماذا|خطة|أولوية",
+        text or "", re.I,
+    ))
+
+
+def command_start(chat_id: int):
+    send(
         chat_id,
         "أهلًا عبدالرحمن، وكيلك الشخصي متصل ويستقبل الأسئلة ✅\n\n"
         "يمكنك كتابة أي سؤال مباشرة بالعربية أو الإنجليزية.\n"
@@ -470,267 +519,23 @@ def handle_message(message: dict):
         _save_intake(iid, message, text, kind, attachment, "COMPLETED")
         return
     if command == "/sheet":
-        command_sheet(chat_id); _save_intake(iid,message,text,kind,attachment,"COMPLETED"); return
+        command_sheet(chat_id)
+        _save_intake(iid, message, text, kind, attachment, "COMPLETED")
+        return
     if command == "/find":
-        command_find(chat_id,text[len(command):].strip()); _save_intake(iid,message,text,kind,attachment,"COMPLETED"); return
+        command_find(chat_id, text[len(command):].strip())
+        _save_intake(iid, message, text, kind, attachment, "COMPLETED")
+        return
     if command == "/pending":
-        command_pending(chat_id); _save_intake(iid,message,text,kind,attachment,"COMPLETED"); return
+        command_pending(chat_id)
+        _save_intake(iid, message, text, kind, attachment, "COMPLETED")
+        return
     if command == "/update":
-        command_update(chat_id,text); _save_intake(iid,message,text,kind,attachment,"REVIEW_REQUIRED"); return
+        command_update(chat_id, text)
+        _save_intake(iid, message, text, kind, attachment, "REVIEW_REQUIRED")
+        return
     if command == "/confirm":
-        command_confirm(chat_id,text[len(command):].strip()); _save_intake(iid,message,text,kind,attachment,"COMPLETED"); return
-    if command.startswith("/"):
-        send(chat_id, "أمر غير معروف. استخدم /help")
-        _save_intake(iid, message, text, kind, attachment, "ERROR", error="UNKNOWN_COMMAND")
-        return
-    if kind in {"VOICE", "AUDIO"}:
-        send(chat_id, "🎙️ تم استلام الصوت، جارٍ التفريغ والتحليل...")
-        try:
-            text = _transcribe_telegram(attachment, kind)
-            send(chat_id, "📝 التفريغ:\n" + text[:3000])
-        except Exception as exc:
-            _save_intake(iid, message, text, kind, attachment, "ERROR", error=exc)
-            raise
-    elif kind != "TEXT":
-        send(chat_id, "✅ تم حفظ بيانات المرفق. تحليل الصور والملفات سيُفعّل في مرحلة مستقلة.")
-        _save_intake(iid, message, text, kind, attachment, "RECEIVED")
-        return
-    if not text:
-        return
-
-    cid = f"CV-{chat_id}-{message.get('message_id', '')}"
-    try:
-        from agent_runtime import remember
-        category = _category(text, kind)
-        remember(chat_id, "user", text, message.get("message_id", ""), category)
-        api("sendChatAction", {"chat_id": chat_id, "action": "typing"})
-        sheet_context=""
-        if _needs_sheet_context(text):
-            try: sheet_context=_sheet_context()
-            except Exception as exc: print(f"Sheet context error: {exc}",flush=True)
-        answer, usage, latency, sources = ask_bedrock(chat_id, text, sheet_context=sheet_context)
-        remember(chat_id, "assistant", answer, message.get("message_id", ""), category)
-        sheet_ok = _save_conversation(cid, iid, text, answer, usage, latency, "COMPLETED")
-        _save_intake(iid, message, text, kind, attachment, "COMPLETED", response_id=cid)
-        source_note = ("\n\n📚 المصادر: " + "، ".join(sources[:4])) if sources else ""
-        send(chat_id, answer + source_note + ("\n\n💾 تم الحفظ في Google Sheets." if sheet_ok else "\n\n⚠️ تم الرد، لكن حفظ Google Sheets غير متصل."))
-    except Exception as exc:
-        _save_conversation(cid, iid, text, "", {}, 0, "ERROR", error=exc)
-        _save_intake(iid, message, text, kind, attachment, "ERROR", response_id=cid, error=exc)
-        _save_status("TELEGRAM_AI_PIPELINE", "ERROR", exc)
-        raise
-
-
-def configure_commands():
-    commands = json.dumps([
-        {"command":"start","description":"تشغيل الوكيل"},
-        {"command":"profile","description":"عرض الملف المهني"},
-        {"command":"sources","description":"عرض مصادر المعرفة"},
-        {"command":"selftest","description":"فحص المكونات"},
-        {"command":"ai_status","description":"فحص Claude على AWS"},
-        {"command":"storage_status","description":"فحص حفظ Google Sheets"},
-        {"command":"sheet","description":"عرض الشيتات المتصلة"},
-        {"command":"find","description":"البحث في الشيت"},
-        {"command":"pending","description":"القادم والناقص والحل"},
-        {"command":"update","description":"اقتراح تحديث خلية"},
-        {"command":"confirm","description":"تأكيد التحديث"},
-        {"command":"help","description":"المساعدة"},
-    ], ensure_ascii=False)
-    api("setMyCommands", {"commands": commands})
-
-
-def run():
-    if not TOKEN:
-        raise SystemExit("TELEGRAM_BOT_TOKEN is not set")
-    me = api("getMe", timeout=20)
-    configure_commands()
-    print(f"Telegram polling enabled for @{me.get('username')}", flush=True)
-    _save_status("TELEGRAM_BOT", "OK", f"Polling started for @{me.get('username')}")
-    offset = 0
-    while True:
-        try:
-            updates = api("getUpdates", {"timeout":45, "offset":offset,
-                          "allowed_updates":json.dumps(["message"])}, timeout=55)
-            for update in updates:
-                offset = max(offset, int(update["update_id"]) + 1)
-                if update.get("message"):
-                    try:
-                        handle_message(update["message"])
-                    except Exception as exc:
-                        chat_id = (update["message"].get("chat") or {}).get("id")
-                        if chat_id is not None:
-                            send(chat_id, f"❌ تعذر تنفيذ الطلب: {str(exc)[:220]}")
-        except KeyboardInterrupt:
-            return
-        except Exception as exc:
-            print(f"Telegram polling error: {exc}", flush=True)
-            _save_status("TELEGRAM_POLLING", "ERROR", exc)
-            time.sleep(5)
-
-
-if __name__ == "__main__":
-    run()
-,text,re.S)
-    if not match:
-        send(chat_id,'الاستخدام: /update "اسم الشيت" B12 القيمة الجديدة')
-        return
-    tab,a1,value=match.group(1),match.group(2).upper(),match.group(3).strip()
-    token=secrets.token_hex(3)
-    _PENDING_SHEET_UPDATES[token]={"sheet":tab,"a1":a1,"value":value,
-        "expires":time.time()+600}
-    send(chat_id,f"⚠️ اقتراح تحديث\nالشيت: {tab}\nالخلية: {a1}\nالقيمة: {value}\n\nللتنفيذ خلال 10 دقائق: /confirm {token}")
-
-def command_confirm(chat_id: int, token: str):
-    item=_PENDING_SHEET_UPDATES.pop(token.strip(),None)
-    if not item or item["expires"]<time.time():
-        send(chat_id,"❌ رمز التأكيد غير صالح أو انتهت مدته.")
-        return
-    from connectors.sheet_intelligence import update_cell
-    result=update_cell(item["sheet"],item["a1"],item["value"])
-    send(chat_id,f"✅ تم التحديث\n{item['sheet']}!{item['a1']}\nالقيمة السابقة: {result.get('before','')}\nالقيمة الجديدة: {result.get('after',item['value'])}")
-
-def _needs_sheet_context(text: str):
-    return bool(re.search(r"sheet|spreadsheet|شيت|جدول|ناقص|غير مكتمل|متأخر|القادم|pending|incomplete|why|لماذا|خطة|أولوية",text or "",re.I))
-
-def command_start(chat_id: int):
-    send(
-        chat_id,
-        "أهلًا عبدالرحمن، وكيلك الشخصي متصل ويستقبل الأسئلة ✅\n\n"
-        "يمكنك كتابة أي سؤال مباشرة بالعربية أو الإنجليزية.\n"
-        "المدخلات والإجابات تُحفظ في Google Sheets بعد فحص الخصوصية.\n\n"
-        "/profile — الملف المهني\n/sources — المصادر\n/selftest — فحص كامل\n"
-        "/ai_status — فحص Claude\n/storage_status — فحص الحفظ\n/help — المساعدة",
-    )
-
-
-def command_profile(chat_id: int):
-    send(
-        chat_id,
-        "👤 عبدالرحمن بكر هوساوي\nرئيس قسم التأهيل وأخصائي علاج طبيعي أول\n"
-        "التخصص: التقييم المتقدم للحركة والألم وإعادة التأهيل\n"
-        "النظام: Abdulrahman AI OS — Chief of Staff سريري وإداري وتعليمي.",
-    )
-
-
-def _source_summary():
-    groups = [("المعرفة", BASE / "knowledge"), ("المهارات", BASE / "skills"),
-              ("المحفزات", BASE / "prompts"), ("المواد التعليمية", BASE / "materials"),
-              ("الوثائق", BASE / "docs")]
-    lines = ["📚 مصادر الوكيل"]
-    total = 0
-    for label, path in groups:
-        count = sum(1 for p in path.rglob("*") if p.is_file() and p.suffix.lower() in
-                    {".md", ".txt", ".json", ".yaml", ".yml", ".csv"}) if path.exists() else 0
-        total += count
-        lines.append(f"• {label}: {count} ملف")
-    lines.append(f"\nالإجمالي القابل للفهرسة: {total} ملف")
-    return "\n".join(lines)
-
-
-def command_sources(chat_id: int):
-    send(chat_id, _source_summary())
-
-
-def command_ai_status(chat_id: int):
-    if _bedrock_configured():
-        send(chat_id, f"🤖 Claude on AWS Bedrock: configured ✅\nRegion: {AWS_REGION}\nModel: {BEDROCK_MODEL_ID}")
-    else:
-        send(chat_id, "❌ إعداد AWS Bedrock غير مكتمل في Railway Variables.")
-
-
-def command_storage_status(chat_id: int):
-    if not _sheets_configured():
-        send(chat_id, "❌ Google Sheets غير مهيأ. أضف GOOGLE_SHEET_ID وGOOGLE_SERVICE_ACCOUNT_JSON.")
-        return
-    try:
-        if GOOGLE_SHEETS_WEBHOOK_URL and GOOGLE_SHEETS_WEBHOOK_SECRET:
-            _append(STATUS_TAB, [_now(), "STORAGE_TEST", "OK", "Webhook connected", "v1.2", AWS_REGION, BEDROCK_MODEL_ID, _now()])
-        else:
-            _sheets().spreadsheets().get(spreadsheetId=GOOGLE_SHEET_ID, fields="spreadsheetId").execute()
-        send(chat_id, "💾 Google Sheets: connected ✅\nسيتم حفظ المدخلات والمحادثات والحالة.")
-    except Exception as exc:
-        send(chat_id, f"❌ تعذر الاتصال بـ Google Sheets: {str(exc)[:220]}")
-
-
-def _selftest():
-    checks = []
-    try:
-        me = api("getMe", timeout=20)
-        checks.append(("Telegram API", True, "@" + str(me.get("username", ""))))
-    except Exception as exc:
-        checks.append(("Telegram API", False, str(exc)[:120]))
-    for name, path in [("Manager", BASE/"engine"/"manager.py"),
-                       ("Chief of Staff", BASE/"engine"/"chief_of_staff.py"),
-                       ("Store", BASE/"engine"/"store.py"),
-                       ("Knowledge", BASE/"knowledge"), ("Skills", BASE/"skills")]:
-        checks.append((name, path.exists(), "موجود" if path.exists() else "مفقود"))
-    checks.append(("Claude / Bedrock", _bedrock_configured(), "مهيأ" if _bedrock_configured() else "غير مهيأ"))
-    checks.append(("Google Sheets", _sheets_configured(), "مهيأ" if _sheets_configured() else "غير مهيأ"))
-    try:
-        from connectors.aws_transcribe import configured as audio_configured
-        audio_ok = audio_configured()
-    except Exception:
-        audio_ok = False
-    checks.append(("Voice / Transcribe", audio_ok, "مهيأ" if audio_ok else "غير مهيأ"))
-    checks.append(("Memory / Orchestrator", (BASE/"engine"/"agent_runtime.py").exists(), "موجود"))
-    ok = sum(1 for _, passed, _ in checks if passed)
-    lines = [f"🩺 Self-test: {ok}/{len(checks)} ناجح"]
-    lines.extend(f"{'✅' if passed else '❌'} {name}: {detail}" for name, passed, detail in checks)
-    lines.append("\n🔐 الحماية: TELEGRAM_ALLOWED_CHAT_ID مفعّل." if ALLOWED_CHAT_ID
-                 else "\n🔐 الحماية: المالك مثبت تلقائيًا.")
-    return "\n".join(lines)
-
-
-def command_selftest(chat_id: int):
-    send(chat_id, _selftest())
-
-
-def _download_telegram_file(file_id: str, suffix=".ogg"):
-    import tempfile
-    info = api("getFile", {"file_id": file_id}, timeout=30)
-    file_path = info.get("file_path")
-    if not file_path:
-        raise RuntimeError("Telegram did not return a file path")
-    url = f"https://api.telegram.org/file/bot{TOKEN}/{file_path}"
-    fd, path = tempfile.mkstemp(prefix="telegram-", suffix=suffix)
-    os.close(fd)
-    urllib.request.urlretrieve(url, path)
-    return path
-
-
-def _transcribe_telegram(file_id: str, kind: str):
-    from connectors.aws_transcribe import transcribe_file
-    suffix = ".ogg" if kind == "VOICE" else ".mp3"
-    path = _download_telegram_file(file_id, suffix=suffix)
-    try:
-        return transcribe_file(path)
-    finally:
-        try:
-            os.remove(path)
-        except OSError:
-            pass
-
-
-def handle_message(message: dict):
-    chat = message.get("chat") or {}
-    chat_id = chat.get("id")
-    if chat_id is None:
-        return
-    if not _authorized(chat_id, chat.get("type", "")):
-        send(chat_id, "⛔ هذه المحادثة غير مصرح لها باستخدام الوكيل.")
-        return
-
-    text, kind, attachment = _message_payload(message)
-    command = text.split()[0].split("@")[0].lower() if text else ""
-    iid = _local_capture(text, message, kind)
-    handlers = {
-        "/start": command_start, "/help": command_start, "/profile": command_profile,
-        "/sources": command_sources, "/selftest": command_selftest,
-        "/ai_status": command_ai_status, "/storage_status": command_storage_status,
-    }
-    handler = handlers.get(command)
-    if handler:
-        handler(chat_id)
+        command_confirm(chat_id, text[len(command):].strip())
         _save_intake(iid, message, text, kind, attachment, "COMPLETED")
         return
     if command.startswith("/"):
@@ -758,7 +563,15 @@ def handle_message(message: dict):
         category = _category(text, kind)
         remember(chat_id, "user", text, message.get("message_id", ""), category)
         api("sendChatAction", {"chat_id": chat_id, "action": "typing"})
-        answer, usage, latency, sources = ask_bedrock(chat_id, text)
+        sheet_context = ""
+        if _needs_sheet_context(text):
+            try:
+                sheet_context = _sheet_context()
+            except Exception as exc:
+                print(f"Sheet context error: {exc}", flush=True)
+        answer, usage, latency, sources = ask_bedrock(
+            chat_id, text, sheet_context=sheet_context
+        )
         remember(chat_id, "assistant", answer, message.get("message_id", ""), category)
         sheet_ok = _save_conversation(cid, iid, text, answer, usage, latency, "COMPLETED")
         _save_intake(iid, message, text, kind, attachment, "COMPLETED", response_id=cid)
@@ -779,6 +592,11 @@ def configure_commands():
         {"command":"selftest","description":"فحص المكونات"},
         {"command":"ai_status","description":"فحص Claude على AWS"},
         {"command":"storage_status","description":"فحص حفظ Google Sheets"},
+        {"command":"sheet","description":"عرض الشيتات المتصلة"},
+        {"command":"find","description":"البحث في الشيت"},
+        {"command":"pending","description":"القادم والناقص والحل"},
+        {"command":"update","description":"اقتراح تحديث خلية"},
+        {"command":"confirm","description":"تأكيد التحديث"},
         {"command":"help","description":"المساعدة"},
     ], ensure_ascii=False)
     api("setMyCommands", {"commands": commands})
