@@ -99,6 +99,10 @@ WEEK_DOORS = {6: ("افتتاح الأسبوع + القيادة والإدارة
               5: ("التعلم العميق والخلوة", "LP-002/LP-003 + خلوة + تحضير الأسبوع")}
 day_door = WEEK_DOORS.get(TARGET.weekday(), ("—", ""))
 
+el7 = S.get("energy_log", [])[-7:]
+okrs = [o for o in S.get("okrs", []) if o["status"] == "ACTIVE"]
+febsi = S.get("finance_ebsi") or {}
+
 due_reviews = [r for r in S.get("learning_reviews", []) if r["status"] in ("DUE", "PRESENTED")][:2]  # سقف: مراجعتان/يوم
 concept_by_id = {c["concept_id"]: c for c in S.get("learning_concepts", [])}
 
@@ -320,6 +324,31 @@ brief_md = f"""# ☀️ {BRIEF_LABEL} — {AR_DAYS[TARGET.weekday()]} {ar_date(T
 
 ## 🎯 أهم 3 أولويات
 """
+if TARGET.weekday() == 4:  # الجمعة — يوم محمي: بريف أخضر بلا ضغط
+    import random as _rnd
+    done_recent = [t["العنوان"] for t in tasks if t["الحالة"] == "منجزة"][-3:]
+    brief_md = f"""# 🌿 البريف الأخضر — الجمعة {ar_date(TARGET)}
+
+> عبدالرحمن — اليوم محمي: لا أبواب عمل، لا أرقام، لا قرارات.
+> روحك وعائلتك أولًا. النظام يعمل عنك.
+
+## 🤲 ثلاث نعم (أكتبها أنت — دقيقة واحدة)
+1. …
+2. …
+3. …
+
+## 🏆 ما أنجزته هذا الأسبوع (من سجلاتك — لا تقلل منه)
+"""
+    for x in (done_recent or ["— ابدأ بتسجيل أول إنجاز —"]):
+        brief_md += f"- {x}\n"
+    brief_md += f"""
+## 🏊 خطتك العائلية اليوم (من باب العائلة 🛡️)
+- نشاط السباحة مع الأبناء في البحر — إن تأجل فبديل قريب كفى
+- قاعدة اليوم: أي طلب عمل = «سأراجع جدولي وأعود إليك»
+
+_مساءً فقط: 3 نعم + 3 إنجازات لأصدقائك في ملف النجاح — هذا كله._
+"""
+    changes = []
 if changes:
     brief_md += "\n## 🔄 ما تغيّر منذ البريف السابق\n"
     for c in changes[:8]:
@@ -429,6 +458,21 @@ for p in proj_active:
     weekly_md += f"- {p['المشروع']}: {p['الخطوة التالية']}\n"
 weekly_md += f"\nكلفة APIs والاشتراكات التشغيلية للمشاريع: **{api_cost} ريال/شهر**.\n\n"
 
+if el7:
+    e_avg = sum(x["energy"] for x in el7) / len(el7)
+    f_avg = sum(x["fatigue"] for x in el7) / len(el7)
+    weekly_md += ("## 💚 الطاقة والتعافي\n"
+                  + f"- متوسط {len(el7)} أيام: طاقة **{e_avg:.1f}/10** · إرهاق **{f_avg:.1f}/10**\n"
+                  + ("- 🚨 الإرهاق أعلى من الطاقة — بروتوكول التعافي إلزامي\n\n" if f_avg > e_avg else "- النمط صحي\n\n"))
+if okrs:
+    weekly_md += "## 🎯 الأهداف (OKRs)\n"
+    for o in okrs:
+        avg = sum(k["progress"] for k in o["krs"]) / len(o["krs"])
+        weekly_md += f"- {o['id']} «{o['objective']}» — **{avg:.0%}** ({len(o['checkins'])} تسجيل)\n"
+    weekly_md += "\n"
+if febsi:
+    inc = next((i["monthly"] for i in febsi.get("actuals", []) if i["item"] == "الدخل"), 0)
+    weekly_md += f"> 💰 مربعات الدخل: E فقط {inc:,.0f} ر.س · S/B/I صفر — مراجعة شهرية أول خميس\n\n"
 weekly_md += f"""## 💼 الأعمال والعملاء
 - فرص جديدة هذا الأسبوع: **{len(new_this_week)}** ({'، '.join(l['الجهة'] for l in new_this_week) or '—'})
 - قمع الفرص: جديد {funnel.get('جديد', 0)} | تم التواصل {funnel.get('تم التواصل', 0)} | انتظار رد {funnel.get('انتظار رد', 0)} | عرض {funnel.get('عرض', 0)} | فاز {funnel.get('فاز', 0)} | خسر {funnel.get('خسر', 0)}
@@ -512,6 +556,9 @@ ctx = dict(
                 sm=c["summary"], ho=c["handoff"]["reason"] if c.get("handoff") else "",
                 sec=bool(c.get("safety_flags")),
                 lead=c.get("lead_score", "")) for c in unbriefed_calls[:4]],
+    energy=(round(sum(x["energy"] for x in el7)/len(el7), 1), round(sum(x["fatigue"] for x in el7)/len(el7), 1), len(el7)) if el7 else None,
+    okrs=[dict(id=o["id"], objective=o["objective"],
+               avg=sum(k["progress"] for k in o["krs"])/len(o["krs"])) for o in okrs],
     reviews=[dict(t=r["concept_title"], m=r["est_minutes"],
                   weak=bool(concept_by_id.get(r["concept_id"], {}).get("misconception_flags")))
              for r in due_reviews],

@@ -229,6 +229,14 @@ def build_weekly_body(c):
 </div>"""
 
     f_ = c["fin"]
+    h += ""
+    if c.get("energy") or c.get("okrs"):
+        h += ('<div class="card"><h2>💚 الطاقة و🎯 الأهداف</h2><ul>')
+        if c.get("energy"):
+            h += f"<li>🔋 طاقة {c['energy'][0]}/10 · إرهاق {c['energy'][1]}/10 (آخر {c['energy'][2]} يومًا)</li>"
+        for o in c.get("okrs", []):
+            h += f"<li>🎯 {o['id']} «{esc(o['objective'])}» — {o['avg']:.0%}</li>"
+        h += '</ul></div>'
     h += f"""<div class="card"><h2>💰 المالية (الاشتراكات)</h2>
 <div class="kpis">
 <div class="kpi"><b>{f_['total']}</b><span>ريال/شهر</span></div>

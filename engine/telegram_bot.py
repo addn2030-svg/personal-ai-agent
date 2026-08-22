@@ -16,6 +16,7 @@ import glob
 import json
 import os
 import sys
+import re
 import time
 import urllib.request
 
@@ -171,6 +172,30 @@ def handle(msg):
                                                "/approve الاعتمادات بأزرار • /reviews مراجعات اليوم • /answer LR-001 85\n"
                                                "/door باب اليوم • /mastery خريطة الإتقان\n"
                                                "وأي نص ترسله = يُلتقط في صندوق يومك تلقائيًا 📥"))
+    elif text and re.match(r"^طاق[هة]?\s*(\d{1,2}).*ارهاق", text.replace("إرهاق", "ارهاق")):
+        m = re.match(r"^طاق[هة]?\s*(\d{1,2}).*ارهاق\s*(\d{1,2})", text.replace("إرهاق", "ارهاق"))
+        if m and 1 <= int(m.group(1)) <= 10 and 1 <= int(m.group(2)) <= 10:
+            from energy_log import log as elog
+            elog(int(m.group(1)), int(m.group(2)), "من تيليجرام")
+            api("sendMessage", chat_id=chat, text="🔋 سُجل — تعافيك يُقاس الآن")
+        else:
+            api("sendMessage", chat_id=chat, text="صيغة: طاقة 7 إرهاق 3 (من 1 إلى 10)")
+    elif text.startswith("/okr"):
+        import subprocess
+        args = text.split()[1:]
+        r = subprocess.run([sys.executable, os.path.join(BASE, "engine", "okr.py")] + args,
+                           capture_output=True, text=True)
+        api("sendMessage", chat_id=chat, text=(r.stdout or r.stderr or "—")[:1500])
+    elif msg.get("voice") or msg.get("document") or msg.get("audio"):
+        import csv as _csv
+        inbox = os.path.join(BASE, "data", "inbox.csv")
+        new = not os.path.exists(inbox)
+        with open(inbox, "a", encoding="utf-8", newline="") as f:
+            w = _csv.writer(f)
+            if new: w.writerow(["التصنيف","العنوان","النوع","الأولوية","الموعد","ملاحظة"])
+            w.writerow(["مهمة", "🎙️ رسالة صوتية/ملف من تيليجرام — يحتاج تفريغًا", "قسم", "متوسطة", "", dt.date.today().isoformat()])
+        log_event("TELEGRAM_VOICE_CAPTURED")
+        api("sendMessage", chat_id=chat, text="🎙️ وصلت — سُجلت في صندوق يومك (التفريغ النصي مرحلة قادمة؛ أرسل نصها لاحقًا إن استعجلت)")
     else:
         # التقاط: أي نص → صندوق اليوم (يُصنف عند الاستيراد)
         import csv as _csv
