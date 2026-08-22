@@ -1,0 +1,70 @@
+version: 0.9
+profile_name: Abdulrahman Chief of Staff Master Professional Profile
+policy:
+  rule: "No durable identity fact without source, confidence, and verification status. Do not silently reconcile conflicting sources."
+  classes: [CONFIRMED, DOCUMENT_SUPPORTED, INFERRED, VERIFY, HISTORICAL]
+identity:
+  name:
+    value: "Abdulrahman / Abdurahman Hawsawi"
+    status: DOCUMENT_SUPPORTED
+    sources:
+      - "Google Drive: personal Information CV"
+      - "Google Drive: CERTIFICATE-ANBO1.pdf"
+  current_role:
+    value: "Head of Rehabilitation / rehabilitation leadership context, Royal Commission Health Services Program in Jubail"
+    status: CONFIRMED
+    source: "User-confirmed operating context; corroborated by Drive professional materials"
+  profession:
+    value: "Physical therapist / rehabilitation professional"
+    status: CONFIRMED
+    source: "User-confirmed operating context"
+  morning_context:
+    value: "Hospital rehabilitation leadership: clinic operations, staff, requests, decisions, service delivery and follow-up"
+    status: CONFIRMED
+    source: "User-confirmed operating context"
+professional_positioning:
+  vision:
+    value: "Combine advanced rehabilitation assessment with technology/AI and focus on identifying drivers rather than only symptoms."
+    status: DOCUMENT_SUPPORTED
+    source: "Google Drive: personal Information CV"
+  experience_years:
+    value: "20+ years"
+    status: VERIFY
+    note: "Strategic clinic document says >20 years; marketing CV says >16 years. Do not publish a number until verified against authoritative CV/employment record."
+    sources:
+      - "Google Drive: strategic clinic proposal"
+      - "Google Drive: personal Information CV"
+credentials:
+  anf_course:
+    value: "ANBO1ONL25; dated 2025-04-14"
+    status: DOCUMENT_SUPPORTED
+    source: "Google Drive: CERTIFICATE-ANBO1.pdf"
+  mulligan_claim:
+    value: "International trainer / certified Mulligan practitioner"
+    status: VERIFY
+    source: "Google Drive: personal Information CV (marketing draft)"
+  anf_nkt_claim:
+    value: "ANF, NKT, musculoskeletal rehabilitation expertise"
+    status: VERIFY
+    source: "Google Drive: personal Information CV (marketing draft)"
+agent_operating_preferences:
+  provenance_first: true
+  distinguish_fact_from_inference: true
+  external_sensitive_actions_require_approval: true
+  clinical_output_requires_specialist_review: true
+  morning_priority: "Royal Commission rehabilitation leadership work"
+source_boundaries:
+  personal_information_cv:
+    type: MARKETING_DRAFT
+    use_for: [positioning, vision, candidate_skills]
+    never_treat_as_authoritative_for: [years_experience, credentials, pricing]
+  cv_2025_folder:
+    type: EVIDENCE_FOLDER
+    known_items:
+      - "Cast Technician.pdf"
+      - "CERTIFICATE-ANBO1.pdf"
+    note: "Cast Technician.pdf is a job description, not evidence that the user personally holds that role. Use as organizational/role knowledge only."
+  agent_ai_for_me:
+    type: LEGACY_AGENT_DESIGN
+    use_for: [workflow_migration, feature_history, decision_log_schema, telegram_approval_patterns]
+    note: "Contains a legacy design that stores TELEGRAM_BOT_TOKEN in a Settings sheet. Do not copy this secret-storage pattern into the current AI OS."
