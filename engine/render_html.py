@@ -104,7 +104,7 @@ def ul(items):
 # ------------------------------------------------------------------ البريف
 def build_brief_body(c):
     h = f"""<div class="hero"><h1>☀️ {esc(c['b_title'])}</h1>
-<p>عبدالرحمن، جهّزتُ هذا البريف تلقائيًا من الشيت الرئيسي وأنجزت عنك <span class="num">{c['b_auto']}</span> مهمة روتينية (كشف، حصر، مسودات).</p>
+<p>🚪 <b>باب اليوم: {c.get("door","")}</b> — {c.get("door_hint","")}</p><p>عبدالرحمن، جهّزتُ هذا البريف تلقائيًا من الشيت الرئيسي وأنجزت عنك <span class="num">{c['b_auto']}</span> مهمة روتينية (كشف، حصر، مسودات).</p>
 <p>المتبقي لك: القرار والموافقة — كما هي قاعدة النظام.</p></div>
 
 {"".join('<div class="card" style="background:#f0f7fa;border-color:#cfe4ea"><h2>🔄 ما تغيّر منذ البريف السابق</h2>' + ul(f"{esc(x)}" for x in c["changes"]) + "</div>" for _ in [1] if c.get("changes"))}

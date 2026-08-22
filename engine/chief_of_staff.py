@@ -90,6 +90,15 @@ open_drs = [d for d in S.get("decision_requests", []) if d.get("status") == "PEN
 unbriefed_calls = [c for c in S.get("voice_calls", [])
                    if c.get("status") == "COMPLETED" and not c.get("briefed")]
 unbriefed_calls.sort(key=lambda c: (not c.get("safety_flags"), not c.get("handoff")))  # الأمني ثم التحويلات أولًا
+WEEK_DOORS = {6: ("افتتاح الأسبوع + القيادة والإدارة", "خطة 30 دقيقة + Lean + تفويض مهمتين"),
+              0: ("الأعمال والمال", "عقود وعملاء وE-S-B-I — نافذة المفاوضات"),
+              1: ("العلاج الطبيعي العميق", "حالة تعليمية موثقة + بحث الكتف — قبل ذروة الظهر"),
+              2: ("الذكاء الاصطناعي والمشاريع", "30 دقيقة تطوير وكيل + خطوة مشروع"),
+              3: ("الإبداع والمحتوى + المراجعة التنفيذية", "مخرج منشور + مراجعة الأسبوع"),
+              4: ("الروحانية والعائلة 🛡️", "يوم محمي — لا عمل إلا بريف أخضر خفيف"),
+              5: ("التعلم العميق والخلوة", "LP-002/LP-003 + خلوة + تحضير الأسبوع")}
+day_door = WEEK_DOORS.get(TARGET.weekday(), ("—", ""))
+
 due_reviews = [r for r in S.get("learning_reviews", []) if r["status"] in ("DUE", "PRESENTED")][:2]  # سقف: مراجعتان/يوم
 concept_by_id = {c["concept_id"]: c for c in S.get("learning_concepts", [])}
 
@@ -305,6 +314,8 @@ wk_range = f"{ar_date(this_w)} – {ar_date(this_w + dt.timedelta(days=4))}"
 
 brief_md = f"""# ☀️ {BRIEF_LABEL} — {AR_DAYS[TARGET.weekday()]} {ar_date(TARGET)}
 
+> 🚪 **باب اليوم: {day_door[0]}** — {day_door[1]}
+
 > عبدالرحمن، جهّزتُ لك هذا البريف تلقائيًا من الشيت الرئيسي، وأنجزت عنك **{auto_count} مهمة روتينية** (كشف، حصر، ومسودات). تحتاج انتباهك فقط للأمور أدناه.
 
 ## 🎯 أهم 3 أولويات
@@ -485,6 +496,7 @@ ctx = dict(
     fu_soon=[dict(code=f["الرمز"], d=ar_date(f["الموعد القادم"])) for f in fu_soon[:2]],
     voice_n=len(voice_pending),
     voice_first=(voice_pending[0]["النص"][:50] + "…") if voice_pending else "",
+    door=day_door[0], door_hint=day_door[1],
     wait=[dict(t=(w.get("task") or w.get("item")),
               d=(TODAY - (w.get("expected_by") or w.get("since"))).days,
               over=w.get("status") == "OVERDUE")
