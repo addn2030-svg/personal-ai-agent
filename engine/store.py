@@ -15,9 +15,10 @@ import os
 import re
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-STATE_PATH = os.path.join(BASE, "data", "state.json")
-AUDIT_PATH = os.path.join(BASE, "data", "audit.jsonl")
-BACKUP_DIR = os.path.join(BASE, "data", "backups")
+DATA_DIR = os.environ.get("AI_OS_DATA_DIR", os.path.join(BASE, "data"))
+STATE_PATH = os.path.join(DATA_DIR, "state.json")
+AUDIT_PATH = os.path.join(DATA_DIR, "audit.jsonl")
+BACKUP_DIR = os.path.join(DATA_DIR, "backups")
 
 SECTIONS = ["tasks", "projects", "leads", "kpis", "meetings", "decisions",
             "followups", "voice", "learning", "finance", "waiting_for", "action_queue",
@@ -26,7 +27,7 @@ SECTIONS = ["tasks", "projects", "leads", "kpis", "meetings", "decisions",
             "weakness_protocols", "asset_registry", "okrs", "energy_log", "finance_ebsi",
             # v0.7 trust + change intelligence
             "unified_inbox", "fact_registry", "contradictions", "decision_reviews",
-            "connector_health", "telemetry", "trust_snapshots"]
+            "connector_health", "telemetry", "trust_snapshots", "conversation_memory"]
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _DATETIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?$")
@@ -103,6 +104,7 @@ class Store:
             "last_mutator": mutator,
         }
         self._backup()
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
         tmp = self.path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(new_data, f, ensure_ascii=False, indent=1, default=_default)
