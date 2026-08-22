@@ -251,11 +251,12 @@ def notify_new():
             kb = {"inline_keyboard": [[
                 {"text": "✅ اعتماد", "callback_data": f"ap:{a['action_id']}:{a['content_hash'][:8]}"},
                 {"text": "❌ رفض", "callback_data": f"rj:{a['action_id']}"}]]}
-            api("sendMessage", chat_id=int(own),
-                text=f"🛂 إجراء جديد بانتظارك: {a['action_id']}\n{a['content'][:250]}…\nينتهي: {a['expires_at']}",
-                reply_markup=kb)
-            a["notified"] = True
-            changed = True
+            res = api("sendMessage", chat_id=int(own),
+                       text=f"🛂 إجراء جديد بانتظارك: {a['action_id']}\n{a['content'][:250]}…\nينتهي: {a['expires_at']}",
+                       reply_markup=kb)
+            if res and res.get("ok"):
+                a["notified"] = True
+                changed = True
     if changed:
         st = Store(); st.data["action_queue"] = [a for a in Store().data["action_queue"]]
         # نعيد الكتابة بأمان عبر rows_all
