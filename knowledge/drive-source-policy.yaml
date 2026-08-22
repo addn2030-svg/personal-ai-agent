@@ -1,0 +1,56 @@
+version: 0.9
+purpose: "Control how Google Drive material is learned by the Chief of Staff."
+source_classes:
+  IDENTITY_EVIDENCE:
+    action: "extract candidate facts; require provenance and verification status"
+  ORGANIZATIONAL_REFERENCE:
+    action: "RAG only; never convert a job description into a claim about the user"
+  CLINICAL_KNOWLEDGE:
+    action: "clinical RAG only; never personal memory; specialist review required"
+  BUSINESS_STRATEGY:
+    action: "project/RAG memory; mark prices, market data and plans with freshness dates"
+  LEGACY_AGENT_DESIGN:
+    action: "migration/reference only; do not inherit secrets or unsafe execution rules"
+  PERSONAL_ASSESSMENT:
+    action: "behavior model candidate; assessment instrument/date required; keep inference separate from confirmed traits"
+  CERTIFICATE:
+    action: "credential evidence; capture course/title/date exactly as source states"
+  MARKETING_DRAFT:
+    action: "positioning inspiration only; claims require independent verification"
+known_sources:
+  - title: "personal Information CV"
+    class: MARKETING_DRAFT
+    authority: low_for_facts
+  - title: "CV 2025"
+    class: IDENTITY_EVIDENCE
+    authority: mixed_folder_review_required
+  - title: "CERTIFICATE-ANBO1.pdf"
+    class: CERTIFICATE
+    authority: high_for_exact_certificate_fields
+  - title: "Cast Technician.pdf"
+    class: ORGANIZATIONAL_REFERENCE
+    authority: high_for_role_description_only
+  - title: "agent AI for me"
+    class: LEGACY_AGENT_DESIGN
+    authority: historical
+  - title: "Life Pulse AI Marketing Operating System v7"
+    class: BUSINESS_STRATEGY
+    authority: project_source
+  - title: "Clinical Agent Knowledge Base Index"
+    class: CLINICAL_KNOWLEDGE
+    authority: index_source
+security:
+  never_ingest_to_general_memory:
+    - patient-identifying information
+    - access tokens
+    - API keys
+    - passwords
+    - private clinical case identifiers that can identify a patient
+  secret_detection: "Quarantine and flag any source containing token-like credentials; never reproduce or migrate the secret."
+conflicts:
+  rule: "Store both claims, mark contradiction, request verification from an authoritative source."
+freshness:
+  pricing_days: 30
+  operational_policy_days: 90
+  professional_identity_days: 365
+  certificates: "no expiry inference unless source states it"
