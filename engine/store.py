@@ -22,7 +22,11 @@ BACKUP_DIR = os.path.join(BASE, "data", "backups")
 SECTIONS = ["tasks", "projects", "leads", "kpis", "meetings", "decisions",
             "followups", "voice", "learning", "finance", "waiting_for", "action_queue",
             "voice_calls", "contacts", "handoff_requests", "decision_requests",
-            "learning_plans", "learning_concepts", "learning_reviews", "knowledge_sources", "weakness_protocols", "asset_registry", "okrs", "energy_log", "finance_ebsi"]
+            "learning_plans", "learning_concepts", "learning_reviews", "knowledge_sources",
+            "weakness_protocols", "asset_registry", "okrs", "energy_log", "finance_ebsi",
+            # v0.7 trust + change intelligence
+            "unified_inbox", "fact_registry", "contradictions", "decision_reviews",
+            "connector_health", "telemetry", "trust_snapshots"]
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _DATETIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?$")
@@ -80,12 +84,10 @@ class Store:
         self._base_version = data["meta"].get("version", 0)
         return data
 
-    # ------- قراءة -------
     def rows_all(self):
         """نسخة مفحوصة (مع التواريخ ككائنات date) من كل الأقسام."""
         return parse_dates(copy.deepcopy(self.data))
 
-    # ------- كتابة -------
     def commit(self, new_data, mutator, **details):
         """الكاتب الوحيد: يرفض الكتابة إن تغيّر الملف منذ آخر قراءة."""
         current_version = self._disk_version()
