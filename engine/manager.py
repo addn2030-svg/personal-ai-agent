@@ -173,6 +173,8 @@ def fast_cycle():
 # ---------------------------------------------------------------- الدورة الكاملة
 def full_cycle():
     fast_cycle()
+    subprocess.run([sys.executable, os.path.join(BASE, "engine", "asset_registry.py")],
+                   capture_output=True, text=True)  # مزامنة سجل الأصول في الخلفية
     r = subprocess.run([sys.executable, os.path.join(BASE, "engine", "chief_of_staff.py")],
                        capture_output=True, text=True)
     print(r.stdout.strip())
