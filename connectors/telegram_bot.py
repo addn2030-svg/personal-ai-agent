@@ -22,6 +22,8 @@ AWS_REGION = os.environ.get("AWS_REGION", "us-east-1").strip()
 BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-6").strip()
 GOOGLE_SHEET_ID = os.environ.get("GOOGLE_SHEET_ID", "1ZXmC_3_OTYYtXglNMXRQiSWu2rjDDIzoqaK0SQuWcWc").strip()
 GOOGLE_SERVICE_ACCOUNT_JSON = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
+GOOGLE_SHEETS_WEBHOOK_URL = os.environ.get("GOOGLE_SHEETS_WEBHOOK_URL", "").strip()
+GOOGLE_SHEETS_WEBHOOK_SECRET = os.environ.get("GOOGLE_SHEETS_WEBHOOK_SECRET", "").strip()
 INTAKE_TAB = os.environ.get("GOOGLE_INTAKE_SHEET", "مدخلات الوكيل").strip()
 CONVERSATION_TAB = os.environ.get("GOOGLE_CONVERSATIONS_SHEET", "محادثات الوكيل").strip()
 STATUS_TAB = os.environ.get("GOOGLE_STATUS_SHEET", "حالة الوكيل").strip()
@@ -94,7 +96,9 @@ def _bedrock_configured():
 
 
 def _sheets_configured():
-    return bool(GOOGLE_SHEET_ID and GOOGLE_SERVICE_ACCOUNT_JSON)
+    service_account_ok = bool(GOOGLE_SHEET_ID and GOOGLE_SERVICE_ACCOUNT_JSON)
+    webhook_ok = bool(GOOGLE_SHEETS_WEBHOOK_URL and GOOGLE_SHEETS_WEBHOOK_SECRET)
+    return service_account_ok or webhook_ok
 
 
 def _sheets():
@@ -115,6 +119,19 @@ def _sheets():
 
 
 def _append(tab: str, row: list):
+    if GOOGLE_SHEETS_WEBHOOK_URL and GOOGLE_SHEETS_WEBHOOK_SECRET:
+        payload = json.dumps(
+            {"secret": GOOGLE_SHEETS_WEBHOOK_SECRET, "tab": tab, "row": row},
+            ensure_ascii=False,
+        ).encode("utf-8")
+        req = urllib.request.Request(
+            GOOGLE_SHEETS_WEBHOOK_URL, data=payload,
+            headers={"Content-Type": "application/json"}, method="POST",
+        )
+        result = json.loads(urllib.request.urlopen(req, timeout=30).read().decode("utf-8"))
+        if not result.get("ok"):
+            raise RuntimeError("Sheets webhook: " + str(result.get("error", "unknown error")))
+        return
     _sheets().spreadsheets().values().append(
         spreadsheetId=GOOGLE_SHEET_ID,
         range=f"'{tab}'!A:Z",
@@ -320,7 +337,10 @@ def command_storage_status(chat_id: int):
         send(chat_id, "❌ Google Sheets غير مهيأ. أضف GOOGLE_SHEET_ID وGOOGLE_SERVICE_ACCOUNT_JSON.")
         return
     try:
-        _sheets().spreadsheets().get(spreadsheetId=GOOGLE_SHEET_ID, fields="spreadsheetId").execute()
+        if GOOGLE_SHEETS_WEBHOOK_URL and GOOGLE_SHEETS_WEBHOOK_SECRET:
+            _append(STATUS_TAB, [_now(), "STORAGE_TEST", "OK", "Webhook connected", "v1.2", AWS_REGION, BEDROCK_MODEL_ID, _now()])
+        else:
+            _sheets().spreadsheets().get(spreadsheetId=GOOGLE_SHEET_ID, fields="spreadsheetId").execute()
         send(chat_id, "💾 Google Sheets: connected ✅\nسيتم حفظ المدخلات والمحادثات والحالة.")
     except Exception as exc:
         send(chat_id, f"❌ تعذر الاتصال بـ Google Sheets: {str(exc)[:220]}")
