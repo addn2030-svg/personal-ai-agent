@@ -29,14 +29,14 @@ MARKERS = os.path.join(BASE, "data", ".telegram-markers.json")
 API = f"https://api.telegram.org/bot{TOKEN}"
 
 
-def api(method, **params):
+def api(method, _timeout=25, **params):
     if not TOKEN:
         return None
     data = json.dumps(params).encode()
     req = urllib.request.Request(API + "/" + method, data=data,
                                  headers={"Content-Type": "application/json"})
     try:
-        return json.loads(urllib.request.urlopen(req, timeout=25).read())
+        return json.loads(urllib.request.urlopen(req, timeout=_timeout).read())
     except Exception as e:
         log_event("telegram_error", method=method, error=str(e)[:120])
         return None
@@ -283,7 +283,7 @@ def run():
     offset = markers().get("offset", 0)
     while True:
         try:
-            res = api("getUpdates", offset=offset, timeout=30)
+            res = api("getUpdates", offset=offset, timeout=30, _timeout=40)
             for u in (res or {}).get("result", []):
                 offset = u["update_id"] + 1
                 if "message" in u:
