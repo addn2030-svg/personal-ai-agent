@@ -7,6 +7,12 @@ data/inbox-imported-*.csv
 data/.manager-markers.json
 reports/
 uploads/
+# Connector credentials / tokens — local only
+secrets/
+*.credentials.json
+*.token.json
+.env
+.env.*
 # عام
 __pycache__/
 *.pyc
