@@ -74,6 +74,15 @@ def _state_context():
 def _knowledge_context(query):
     wanted = _tokens(query)
     scored = []
+    # The verified owner profile is always present; Sheets are live operational state,
+    # never a replacement for identity, professional history, or durable preferences.
+    profile = BASE / "knowledge" / "master-professional-profile.yaml"
+    if profile.exists():
+        try:
+            text = profile.read_text(encoding="utf-8")[:24000]
+            scored.append((1000000, str(profile.relative_to(BASE)), _safe(text)))
+        except OSError:
+            pass
     for folder in (BASE / "knowledge", BASE / "prompts", BASE / "materials"):
         if not folder.exists():
             continue
