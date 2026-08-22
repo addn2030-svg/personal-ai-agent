@@ -24,7 +24,7 @@ def norm(t):
 def triage(text):
     s = norm(text)
     p, intent = "P4", "other"
-    if re.search(r"شكوى|غاضب|سيء جدا|خدمة سيئة|استرجاع|اخطاء", s):
+    if re.search(r"شكوي|اشتكي|شكوى|غاضب|سيئ|استرجاع|اخطاء|مشكلتي|مستاء", s):
         p, intent = "P1", "complaint"
     elif re.search(r"عاجل|اليوم|حالا|ضروري جدا", s):
         p, intent = "P1", "urgent"
