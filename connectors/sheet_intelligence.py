@@ -8,6 +8,12 @@ SERVICE_JSON = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
 WEBHOOK_URL = os.environ.get("GOOGLE_SHEETS_WEBHOOK_URL", "").strip()
 WEBHOOK_SECRET = os.environ.get("GOOGLE_SHEETS_WEBHOOK_SECRET", "").strip()
 _SERVICE = None
+PRIORITY_TABS = [
+    "خطة الإنجاز والمهام","التطوير الشخصي","الهدف المالي E-S-B-I",
+    "التحليل المالي المختصر","تعليمات تجاوز نقاط الضعف",
+    "المصادر والتعلم العلمي","القرارات",
+]
+EXCLUDED_CONTEXT_TABS = {"Calc_Data","مدخلات الوكيل","محادثات الوكيل","حالة الوكيل"}
 
 def configured():
     return bool((SHEET_ID and SERVICE_JSON) or (WEBHOOK_URL and WEBHOOK_SECRET))
@@ -44,7 +50,11 @@ def snapshot(max_rows=80,max_cols=16):
     if WEBHOOK_URL and WEBHOOK_SECRET:
         return _webhook("snapshot",maxRows=max_rows,maxCols=max_cols).get("data",{})
     out={}
-    for s in metadata()[:25]:
+    sheets=metadata()
+    by_title={s["title"]:s for s in sheets}
+    ordered=[by_title[t] for t in PRIORITY_TABS if t in by_title]
+    ordered += [s for s in sheets if s["title"] not in PRIORITY_TABS and s["title"] not in EXCLUDED_CONTEXT_TABS]
+    for s in ordered[:18]:
         title=s["title"]
         values=_service().spreadsheets().values().get(
             spreadsheetId=SHEET_ID,range=f"'{title}'!A1:T{max_rows}").execute().get("values",[])
