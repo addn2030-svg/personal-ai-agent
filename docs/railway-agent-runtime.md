@@ -21,6 +21,28 @@ Attach a Railway Volume mounted at `/data`, then set:
 
 Share the workbook with the service-account email as Editor.
 
+### Google Calendar actions and Telegram reminders
+Recommended on Railway: use the same service account, then:
+- Share the target Google Calendar with the service-account email and grant
+  **Make changes to events**.
+- Set `GOOGLE_CALENDAR_ID` to the calendar ID shown in Google Calendar
+  Settings -> Integrate calendar. Do not use `primary` with a service account.
+- Optional: set `GOOGLE_CALENDAR_SERVICE_ACCOUNT_JSON`; otherwise the runtime
+  reuses `GOOGLE_SERVICE_ACCOUNT_JSON`.
+- Keep `MANAGER_TIMEZONE=Asia/Riyadh`.
+
+OAuth alternative: the connector requests `calendar.events`. An older cached
+read-only token cannot gain that scope by refresh; delete/recreate the token once
+and complete Google consent again.
+
+Calendar safety:
+- `/remind` creates a preview only.
+- `/confirm_event TOKEN` performs the insert and returns Event ID + link.
+- `/cancel_event EVENT_ID` creates a delete preview.
+- `/confirm_cancel TOKEN` performs deletion.
+- The polling runtime checks due reminders every minute and records sent alerts
+  in the persistent data directory to prevent duplicates.
+
 ### Voice transcription
 The Bedrock bearer key does not authorize S3 or Transcribe. Use a dedicated
 least-privilege IAM principal:
