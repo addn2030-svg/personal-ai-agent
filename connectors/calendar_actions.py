@@ -83,6 +83,10 @@ def _parse_time(text: str):
 
 def _parse_reminder_minutes(text: str, default=60):
     normalized = text.translate(AR_DIGITS)
+    if re.search(r"قبل\s+ساعتين", normalized):
+        return 120
+    if re.search(r"قبل\s+نصف\s+ساعه|قبل\s+نصف\s+ساعة", normalized):
+        return 30
     match = re.search(r"قبل\s+(\d+)\s*(دقيقه|دقيقة|دقائق|minute)", normalized, re.I)
     if match:
         return max(0, min(40320, int(match.group(1))))
@@ -108,7 +112,8 @@ def parse_event_request(text: str, base: dt.datetime | None = None):
     title = re.sub(r"(?:يوم\s+)?(" + "|".join(map(re.escape, AR_DAYS)) + r")", "", title)
     title = re.sub(r"\b20\d{2}[-/]\d{1,2}[-/]\d{1,2}\b", "", title)
     title = re.sub(r"(?:الساعه|الساعة|عند|at)?\s*\d{1,2}(?::\d{2})?\s*(?:صباحا|صباحًا|صباح|ص|am|مساء|مساءً|م|pm)", "", title, flags=re.I)
-    title = re.sub(r"قبل\s+\d+\s*(?:دقيقه|دقيقة|دقائق|ساعه|ساعة|ساعات)", "", title)
+    title = re.sub(r"قبل\s+(?:\d+\s*)?(?:دقيقه|دقيقة|دقائق|ساعه|ساعة|ساعات|ساعتين)", "", title)
+    title = re.sub(r"قبل\s+نصف\s+(?:ساعه|ساعة)", "", title)
     title = re.sub(r"(?:لمده|لمدة|مدة)\s*\d+\s*(?:دقيقه|دقيقة|ساعه|ساعة)", "", title)
     title = re.sub(r"\s+", " ", title).strip(" -،,")
     if not title:
