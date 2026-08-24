@@ -5,12 +5,16 @@ BASE=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from store import Store, log_event
 
+PRIVATE_PLACEHOLDER='[REDACTED_FROM_PERSONAL_OS]'
+
 def add(source,content,kind='TEXT',source_ref='',sensitive=False,metadata=None):
     st=Store(); S=st.rows_all(); rows=S.setdefault('unified_inbox',[])
     raw=f'{source}|{source_ref}|{content}'.encode('utf-8'); iid='IN-'+hashlib.sha256(raw).hexdigest()[:10].upper()
     if any(x.get('id')==iid for x in rows):
         print(f'↩️ duplicate ignored: {iid}'); return iid
-    rec={'id':iid,'captured_at':dt.datetime.now().isoformat(timespec='seconds'),'source':source,'source_ref':source_ref,'kind':kind,'content':content,'sensitive':bool(sensitive),'metadata':metadata or {},'status':'NEW','classification':None,'next_action':None}
+    # Data minimization: sensitive free text is never committed in clear text.
+    persisted_content = PRIVATE_PLACEHOLDER if sensitive else content
+    rec={'id':iid,'captured_at':dt.datetime.now().isoformat(timespec='seconds'),'source':source,'source_ref':source_ref,'kind':kind,'content':persisted_content,'sensitive':bool(sensitive),'metadata':metadata or {},'status':'NEW','classification':None,'next_action':None}
     rows.append(rec); st.commit(S,'unified_inbox_add',item=iid,source=source); log_event('UNIFIED_INBOX_CAPTURED',item=iid,source=source)
     print(f'📥 {iid} captured from {source}'); return iid
 
@@ -20,7 +24,7 @@ def classify(iid,classification,next_action=''):
     allowed={'TASK','REQUEST','DECISION','WAITING_FOR','FACT','DOCUMENT','IDEA','CLINICAL_PRIVATE','IGNORE'}
     if classification not in allowed: raise SystemExit('invalid classification')
     rec.update(classification=classification,next_action=next_action,status='CLASSIFIED',classified_at=dt.datetime.now().isoformat(timespec='seconds'))
-    if classification=='CLINICAL_PRIVATE': rec['content']='[REDACTED_FROM_PERSONAL_OS]'; rec['sensitive']=True
+    if classification=='CLINICAL_PRIVATE': rec['content']=PRIVATE_PLACEHOLDER; rec['sensitive']=True
     st.commit(S,'unified_inbox_classify',item=iid,classification=classification); log_event('UNIFIED_INBOX_CLASSIFIED',item=iid,classification=classification)
     print(f'✅ {iid} → {classification}')
 def listing():
