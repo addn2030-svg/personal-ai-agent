@@ -13,10 +13,16 @@ import hashlib
 import hmac
 import json
 import os
+import sys
 import threading
 import time
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+BASE = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(BASE))
+sys.path.insert(0, str(BASE / "engine"))
 
 from connectors import telegram_bot as bot
 
@@ -37,6 +43,7 @@ if not WEBHOOK_SECRET and bot.TOKEN:
 
 _MAX_BODY = 2 * 1024 * 1024
 _recent_updates = deque(maxlen=2000)
+_processing_updates = set()
 _recent_lock = threading.Lock()
 
 # Keep the original write implementation, then add bounded retry around it.
@@ -75,7 +82,7 @@ bot._redact = _clinical_minimize
 
 
 def _probe_sheets():
-    """Cheap startup compatibility check for the deployed Apps Script gateway."""
+    """Cheap compatibility check for the deployed Apps Script gateway and required tabs."""
     try:
         from connectors import sheet_intelligence as si
 
@@ -88,7 +95,7 @@ def _probe_sheets():
         if missing:
             return False, "Missing required tabs: " + ", ".join(missing)
 
-        # Probe the exact action that previously failed with 404/old deployment.
+        # Probe the exact action that previously failed when an old Apps Script deployment was live.
         if si.WEBHOOK_URL and si.WEBHOOK_SECRET:
             si._webhook("upsert_metrics", sheet="Executive_Brief", metrics={})
         elif "Executive_Brief" not in titles:
@@ -127,18 +134,33 @@ def _configure_webhook():
     )
 
 
-def _already_processed(update_id: int) -> bool:
+def _claim_update(update_id: int) -> bool:
+    if update_id < 0:
+        return True
     with _recent_lock:
-        return update_id in _recent_updates
+        if update_id in _recent_updates or update_id in _processing_updates:
+            return False
+        _processing_updates.add(update_id)
+        return True
 
 
-def _mark_processed(update_id: int):
+def _complete_update(update_id: int):
+    if update_id < 0:
+        return
     with _recent_lock:
+        _processing_updates.discard(update_id)
         _recent_updates.append(update_id)
 
 
+def _release_update(update_id: int):
+    if update_id < 0:
+        return
+    with _recent_lock:
+        _processing_updates.discard(update_id)
+
+
 class Handler(BaseHTTPRequestHandler):
-    server_version = "AbdulrahmanAgentWebhook/1.0"
+    server_version = "AbdulrahmanAgentWebhook/1.1"
 
     def log_message(self, fmt, *args):
         print("http:", fmt % args, flush=True)
@@ -153,6 +175,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):  # noqa: N802
         if self.path == "/health":
+            # Liveness must not depend on Google availability; Railway should not restart
+            # a healthy process merely because an external API is temporarily degraded.
+            self._send_json(200, {"ok": True, "telegram_mode": "webhook"})
+            return
+        if self.path == "/ready":
             ok, detail = _probe_sheets()
             self._send_json(200 if ok else 503, {"ok": ok, "telegram_mode": "webhook", "sheets": detail})
             return
@@ -176,21 +203,22 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(400, {"ok": False})
             return
 
+        update_id = -1
         try:
             update = json.loads(self.rfile.read(length).decode("utf-8"))
             update_id = int(update.get("update_id", -1))
-            if update_id >= 0 and _already_processed(update_id):
+            if not _claim_update(update_id):
                 self._send_json(200, {"ok": True, "duplicate": True})
                 return
 
             message = update.get("message")
             if message:
                 bot.handle_message(message)
-            if update_id >= 0:
-                _mark_processed(update_id)
+            _complete_update(update_id)
             self._send_json(200, {"ok": True})
         except Exception as exc:  # noqa: BLE001
-            # Non-2xx tells Telegram to retry delivery; no success is acknowledged here.
+            # Non-2xx tells Telegram to retry delivery; the update is released for retry.
+            _release_update(update_id)
             print(f"Telegram webhook processing error: {str(exc)[:300]}", flush=True)
             self._send_json(500, {"ok": False})
 
