@@ -34,6 +34,9 @@ API_BASE = f"https://api.telegram.org/bot{TOKEN}"
 _SHEETS_SERVICE = None
 _PENDING_SHEET_UPDATES = {}
 _PENDING_PREVISIT_MESSAGES = {}
+_PENDING_CALENDAR_EVENTS = {}
+_PENDING_CALENDAR_DELETES = {}
+_LAST_CALENDAR_ALERT_CHECK = 0.0
 
 SYSTEM_PROMPT = """You are Abdulrahman AI OS, the private Chief of Staff for
 Abdulrahman Bakor Howsawy, Senior Physical Therapist and Head of Rehabilitation.
@@ -475,6 +478,138 @@ def command_confirm_previsit(chat_id: int, token: str):
     )
 
 
+def _format_event(event):
+    start = event["start"]
+    if isinstance(start, str):
+        try:
+            start = dt.datetime.fromisoformat(start.replace("Z", "+00:00"))
+        except ValueError:
+            pass
+    shown = start.astimezone(dt.timezone(dt.timedelta(hours=3))).strftime("%Y-%m-%d %H:%M") if isinstance(start, dt.datetime) else str(start)
+    return f"• {event.get('title', '(بدون عنوان)')}\n  {shown}\n  ID: {event.get('id', '—')}"
+
+
+def command_calendar(chat_id: int, days=7):
+    from connectors.calendar_actions import list_events
+    rows = list_events(days_forward=days)
+    if not rows:
+        send(chat_id, "📅 لا توجد مواعيد مؤكدة في الفترة المطلوبة.")
+        return
+    send(chat_id, "📅 المواعيد القادمة\n\n" + "\n\n".join(_format_event(row) for row in rows[:20]))
+
+
+def command_today(chat_id: int):
+    from connectors.calendar_actions import list_events, now_local
+    today = now_local().date()
+    rows = []
+    for event in list_events(days_forward=1):
+        raw = event.get("start", "")
+        try:
+            event_date = dt.datetime.fromisoformat(raw.replace("Z", "+00:00")).astimezone(
+                dt.timezone(dt.timedelta(hours=3))
+            ).date() if "T" in raw else dt.date.fromisoformat(raw)
+        except ValueError:
+            continue
+        if event_date == today:
+            rows.append(event)
+    if not rows:
+        send(chat_id, "📅 لا توجد مواعيد اليوم.")
+        return
+    send(chat_id, "📅 مواعيد اليوم\n\n" + "\n\n".join(_format_event(row) for row in rows))
+
+
+def command_remind(chat_id: int, request_text: str):
+    from connectors.calendar_actions import parse_event_request
+    try:
+        proposal = parse_event_request(request_text)
+    except ValueError as exc:
+        send(
+            chat_id,
+            "❌ لم أستطع تجهيز الموعد: " + str(exc)
+            + "\n\nمثال:\n/remind اجتماع العمير غدًا الساعة 5:30 مساءً قبل ساعتين",
+        )
+        return
+    token = secrets.token_hex(3)
+    _PENDING_CALENDAR_EVENTS[token] = {
+        "proposal": proposal, "chat_id": str(chat_id), "expires": time.time() + 900,
+    }
+    send(
+        chat_id,
+        "📅 معاينة موعد — لم تتم الإضافة بعد\n"
+        f"العنوان: {proposal['title']}\n"
+        f"البداية: {proposal['start'].strftime('%Y-%m-%d %H:%M')}\n"
+        f"النهاية: {proposal['end'].strftime('%Y-%m-%d %H:%M')}\n"
+        f"التنبيه: قبل {proposal['reminder_minutes']} دقيقة\n\n"
+        f"للاعتماد خلال 15 دقيقة:\n/confirm_event {token}",
+    )
+
+
+def command_confirm_event(chat_id: int, token: str):
+    item = _PENDING_CALENDAR_EVENTS.pop(token.strip(), None)
+    if not item or item["expires"] < time.time() or item["chat_id"] != str(chat_id):
+        send(chat_id, "❌ رمز اعتماد الموعد غير صالح أو انتهت مدته.")
+        return
+    from connectors.calendar_actions import create_event
+    event = create_event(item["proposal"])
+    send(
+        chat_id,
+        "✅ تمت إضافة الموعد إلى Google Calendar\n"
+        f"العنوان: {event['title']}\nالبداية: {event['start']}\n"
+        f"Event ID: {event['id']}\n{event.get('link', '')}",
+    )
+
+
+def command_cancel_event(chat_id: int, event_id: str):
+    event_id = event_id.strip()
+    if not event_id:
+        send(chat_id, "الاستخدام: /cancel_event EVENT_ID")
+        return
+    token = secrets.token_hex(3)
+    _PENDING_CALENDAR_DELETES[token] = {
+        "event_id": event_id, "chat_id": str(chat_id), "expires": time.time() + 600,
+    }
+    send(
+        chat_id,
+        "⚠️ طلب حذف موعد\n"
+        f"Event ID: {event_id}\nلم يتم الحذف بعد. للتأكيد خلال 10 دقائق:\n"
+        f"/confirm_cancel {token}",
+    )
+
+
+def command_confirm_cancel(chat_id: int, token: str):
+    item = _PENDING_CALENDAR_DELETES.pop(token.strip(), None)
+    if not item or item["expires"] < time.time() or item["chat_id"] != str(chat_id):
+        send(chat_id, "❌ رمز تأكيد الحذف غير صالح أو انتهت مدته.")
+        return
+    from connectors.calendar_actions import delete_event
+    result = delete_event(item["event_id"])
+    send(chat_id, f"✅ تم حذف الموعد من Google Calendar\nEvent ID: {result['id']}")
+
+
+def _maybe_send_calendar_alerts():
+    global _LAST_CALENDAR_ALERT_CHECK
+    if time.time() - _LAST_CALENDAR_ALERT_CHECK < 60:
+        return
+    _LAST_CALENDAR_ALERT_CHECK = time.time()
+    owner = _owner_id()
+    if not owner:
+        return
+    try:
+        from connectors.calendar_actions import claim_alert, due_telegram_alerts
+        for event in due_telegram_alerts():
+            if not claim_alert(event["id"], event["reminder_minutes"]):
+                continue
+            send(
+                int(owner),
+                "⏰ تذكير بموعد\n"
+                f"{event['title']}\nالبداية: {event['start']}\n"
+                f"التنبيه: قبل {event['reminder_minutes']} دقيقة\n"
+                f"{event.get('link', '')}",
+            )
+    except Exception as exc:
+        print(f"Calendar alert warning: {exc}", flush=True)
+
+
 def command_update(chat_id: int, text: str):
     match = re.match(r'^/update\s+"([^"]+)"\s+([A-Za-z]{1,3}[0-9]+)\s+(.+)$', text, re.S)
     if not match:
@@ -558,6 +693,8 @@ def command_start(chat_id: int):
         "/profile — الملف المهني\n/sources — المصادر\n/selftest — فحص كامل\n"
         "/ai_status — فحص Claude\n/storage_status — فحص الحفظ\n"
         "/sheet — الشيتات المتصلة\n/find كلمة — البحث\n/pending — القادم والناقص والحل\n"
+        "/today — مواعيد اليوم\n/calendar — المواعيد القادمة\n"
+        "/remind — اقتراح موعد أو تذكير\n/cancel_event — اقتراح حذف موعد\n"
         "/previsit — مسودة أسئلة سريرية للمعالج\n"
         "/previsitlink — إنشاء رابط ورسالة للمريض\n"
         "/update — اقتراح تحديث\n/help — المساعدة",
@@ -694,6 +831,30 @@ def handle_message(message: dict):
         handler(chat_id)
         _save_intake(iid, message, text, kind, attachment, "COMPLETED")
         return
+    if command == "/today":
+        command_today(chat_id)
+        _save_intake(iid, message, text, kind, attachment, "COMPLETED")
+        return
+    if command == "/calendar":
+        command_calendar(chat_id)
+        _save_intake(iid, message, text, kind, attachment, "COMPLETED")
+        return
+    if command == "/remind":
+        command_remind(chat_id, text[len(command):].strip())
+        _save_intake(iid, message, text, kind, attachment, "REVIEW_REQUIRED")
+        return
+    if command == "/confirm_event":
+        command_confirm_event(chat_id, text[len(command):].strip())
+        _save_intake(iid, message, text, kind, attachment, "COMPLETED")
+        return
+    if command == "/cancel_event":
+        command_cancel_event(chat_id, text[len(command):].strip())
+        _save_intake(iid, message, text, kind, attachment, "REVIEW_REQUIRED")
+        return
+    if command == "/confirm_cancel":
+        command_confirm_cancel(chat_id, text[len(command):].strip())
+        _save_intake(iid, message, text, kind, attachment, "COMPLETED")
+        return
     if command == "/sheet":
         command_sheet(chat_id)
         _save_intake(iid, message, text, kind, attachment, "COMPLETED")
@@ -747,6 +908,10 @@ def handle_message(message: dict):
         _save_intake(iid, message, text, kind, attachment, "RECEIVED")
         return
     if not text:
+        return
+    if re.match(r"^\s*(ذكرني|ذكّرني|اضف\s+موعد|أضف\s+موعد)", text, re.I):
+        command_remind(chat_id, text)
+        _save_intake(iid, message, text, kind, attachment, "REVIEW_REQUIRED")
         return
 
     cid = f"CV-{chat_id}-{message.get('message_id', '')}"
@@ -808,6 +973,12 @@ def configure_commands():
         {"command":"ai_status","description":"فحص Claude على AWS"},
         {"command":"storage_status","description":"فحص حفظ Google Sheets"},
         {"command":"sheet","description":"عرض الشيتات المتصلة"},
+        {"command":"today","description":"مواعيد اليوم"},
+        {"command":"calendar","description":"المواعيد القادمة"},
+        {"command":"remind","description":"اقتراح موعد أو تذكير"},
+        {"command":"confirm_event","description":"اعتماد إضافة الموعد"},
+        {"command":"cancel_event","description":"اقتراح حذف موعد"},
+        {"command":"confirm_cancel","description":"تأكيد حذف الموعد"},
         {"command":"find","description":"البحث في الشيت"},
         {"command":"pending","description":"القادم والناقص والحل"},
         {"command":"brief","description":"إنشاء الملخص التنفيذي بعد دورة اكتشاف"},
@@ -833,6 +1004,7 @@ def run():
         try:
             updates = api("getUpdates", {"timeout":45, "offset":offset,
                           "allowed_updates":json.dumps(["message"])}, timeout=55)
+            _maybe_send_calendar_alerts()
             for update in updates:
                 offset = max(offset, int(update["update_id"]) + 1)
                 if update.get("message"):
