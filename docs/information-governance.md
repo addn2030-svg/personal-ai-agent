@@ -43,3 +43,17 @@ NEW → TRIAGED → IN_PROGRESS or WAITING → OVERDUE/BLOCKED when applicable �
 - During shift: event-driven capture and meaningful-change alerts
 - End of shift: handoff and unresolved loops
 - Weekly: decisions due for review, repeated blockers, stale requests, service/project trends
+
+## Pre-visit clinical boundary
+- Use a clinic-issued case code only; no name, MRN, national ID, contact detail,
+  or patient-identifying free text in Telegram, GitHub, or general agent memory.
+- Pre-visit responses stay in a dedicated restricted clinical spreadsheet and
+  are not copied to the personal executive dashboard.
+- Referral diagnosis/ICD-10 is context, not a confirmed diagnosis.
+- Red-flag output is conservative triage for clinician review; absence of a flag
+  does not rule out serious pathology.
+- No clinical interpretation, education, technique, or restriction is sent to a
+  patient without recorded clinician approval.
+- Google Forms links are link-access forms, not per-patient authenticated secure
+  portals. Use an approved authenticated clinical platform when identity-bound
+  secure links are required.

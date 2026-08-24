@@ -385,6 +385,37 @@ def command_brief(chat_id: int):
     send(chat_id, answer + status)
 
 
+def command_previsit(chat_id: int, diagnosis: str):
+    if not diagnosis.strip():
+        send(chat_id, "الاستخدام: /previsit التشخيص المحوّل أو النمط المبدئي — بدون اسم المريض أو رقم الملف")
+        return
+    from previsit_intelligence import questionnaire
+    q = questionnaire(diagnosis)
+    labels = {
+        "GENERAL_MSK": "عضلي هيكلي عام",
+        "CERVICAL_RADICULAR": "أعراض رقبة ممتدة للطرف العلوي",
+        "LUMBAR_RADICULAR": "أعراض قطنية ممتدة للطرف السفلي",
+        "ROTATOR_CUFF": "أعراض كتف / كفة مدورة",
+    }
+    lines = [
+        "🩺 مسودة استبيان ما قبل الزيارة",
+        "المسار: " + labels.get(q["module"], q["module"]),
+        "مهم: التشخيص المحوّل سياق أولي وليس تشخيصًا مؤكدًا.",
+        "",
+        "الأسئلة المخصصة:",
+    ]
+    lines.extend(f"{i}. {item}" for i, item in enumerate(q["questions"], 1))
+    lines.append("")
+    lines.append("فحص السلامة:")
+    lines.extend(f"• {item}" for item in q["red_flags"])
+    lines.append("")
+    lines.append("العوامل النفسية والوظيفية:")
+    lines.extend(f"• {item}" for item in q["yellow_flags"])
+    lines.append("")
+    lines.append("⚠️ هذه مسودة للمعالج. لا تُرسل للمريض قبل اعتمادها وربطها بالنموذج السريري الآمن.")
+    send(chat_id, "\n".join(lines))
+
+
 def command_update(chat_id: int, text: str):
     match = re.match(r'^/update\s+"([^"]+)"\s+([A-Za-z]{1,3}[0-9]+)\s+(.+)$', text, re.S)
     if not match:
@@ -584,6 +615,10 @@ def handle_message(message: dict):
         command_brief(chat_id)
         _save_intake(iid, message, text, kind, attachment, "COMPLETED")
         return
+    if command == "/previsit":
+        command_previsit(chat_id, text[len(command):].strip())
+        _save_intake(iid, message, text, kind, attachment, "REVIEW_REQUIRED")
+        return
     if command == "/update":
         command_update(chat_id, text)
         _save_intake(iid, message, text, kind, attachment, "REVIEW_REQUIRED")
@@ -650,6 +685,7 @@ def configure_commands():
         {"command":"find","description":"البحث في الشيت"},
         {"command":"pending","description":"القادم والناقص والحل"},
         {"command":"brief","description":"إنشاء الملخص التنفيذي بعد دورة اكتشاف"},
+        {"command":"previsit","description":"مسودة استبيان آمن قبل الزيارة"},
         {"command":"update","description":"اقتراح تحديث خلية"},
         {"command":"confirm","description":"تأكيد التحديث"},
         {"command":"help","description":"المساعدة"},
