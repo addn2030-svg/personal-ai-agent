@@ -13,7 +13,11 @@ from dataclasses import dataclass, asdict
 from typing import Any, Callable, Iterable
 
 ARABIC_EQUIVALENTS = {
-    "عقد": {"العقد", "اتفاق", "اتفاقية", "شراكة", "تعاقد", "بنود", "طرف", "مؤسسة", "contract", "agreement"},
+    "عقد": {
+        "العقد", "اتفاق", "اتفاقية", "شراكة", "تعاقد", "بنود", "طرف", "مؤسسة",
+        "تحفظات", "راتب", "نسبة", "التزامات", "صلاحيات", "تمويل", "رأس المال",
+        "contract", "agreement",
+    },
     "تمويل": {"رأس المال", "راس المال", "ممول", "استثمار", "مصاريف", "تكلفة", "financial", "funding"},
     "واتساب": {"الواتساب", "رسالة", "رسائل", "مسودة", "محادثة", "تواصل", "whatsapp", "message", "draft"},
     "تفاوض": {"تحفظات", "نسبة", "راتب", "التزامات", "صلاحيات", "مخالفات", "مسؤولية", "negotiation"},
@@ -43,7 +47,7 @@ def tokens(text: str) -> list[str]:
     return out
 
 
-def expand_query(query: str, max_terms: int = 18) -> list[str]:
+def expand_query(query: str, max_terms: int = 30) -> list[str]:
     original = tokens(query)
     expanded = list(original)
     normalized_sets = {
@@ -52,7 +56,12 @@ def expand_query(query: str, max_terms: int = 18) -> list[str]:
     }
     for token in original:
         for concept, values in normalized_sets.items():
-            if token == concept or token in values:
+            # Arabic conjunctions/prepositions commonly attach to nouns:
+            # بالعقد، للعقد، والعقد.
+            concept_match = token == concept or (
+                len(concept) >= 3 and token.endswith(concept) and len(token) <= len(concept) + 3
+            )
+            if concept_match or token in values:
                 for value in sorted(values, key=lambda x: (len(x), x)):
                     if value not in expanded:
                         expanded.append(value)
