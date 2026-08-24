@@ -12,6 +12,7 @@ from store import Store, log_event
 ALLOWED_EXT = {".md", ".txt", ".yaml", ".yml"}
 MAX_MEMORY_TURNS = int(os.environ.get("AGENT_MEMORY_TURNS", "10"))
 MAX_CONTEXT_CHARS = int(os.environ.get("AGENT_CONTEXT_CHARS", "14000"))
+PRIVATE_MEMORY_PLACEHOLDER = "[CLINICAL_PRIVATE_REDACTED_AT_SOURCE]"
 
 
 def _tokens(text):
@@ -21,6 +22,11 @@ def _tokens(text):
 def _safe(text):
     text = re.sub(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", "[PRIVATE_EMAIL]", text or "", flags=re.I)
     text = re.sub(r"(?<!\d)(?:\+?966|0)?5\d{8}(?!\d)", "[PRIVATE_PHONE]", text)
+    text = re.sub(
+        r"(?i)(mrn|medical record|رقم الملف|رقم الهوية|id number)\s*[:#-]?\s*[A-Z0-9-]+",
+        r"\1: [PRIVATE_IDENTIFIER]",
+        text,
+    )
     return text
 
 
@@ -48,9 +54,10 @@ def remember(chat_id, role, content, message_id="", category="GENERAL"):
     store = Store()
     state = store.rows_all()
     rows = state.setdefault("conversation_memory", [])
+    persisted = PRIVATE_MEMORY_PLACEHOLDER if category == "CLINICAL_PRIVATE" else _safe(content)[:8000]
     rows.append({
         "ts": dt.datetime.now().isoformat(timespec="seconds"),
-        "chat_id": str(chat_id), "role": role, "content": _safe(content)[:8000],
+        "chat_id": str(chat_id), "role": role, "content": persisted,
         "message_id": str(message_id), "category": category,
     })
     per_chat = [r for r in rows if str(r.get("chat_id")) == str(chat_id)]
@@ -58,7 +65,7 @@ def remember(chat_id, role, content, message_id="", category="GENERAL"):
         remove = {id(x) for x in per_chat[:-60]}
         rows[:] = [x for x in rows if id(x) not in remove]
     store.commit(state, "conversation_remember", chat_id=str(chat_id), role=role)
-    log_event("CONVERSATION_MEMORY_ADDED", chat_id=str(chat_id), role=role)
+    log_event("CONVERSATION_MEMORY_ADDED", chat_id=str(chat_id), role=role, category=category)
 
 
 def _state_context():
@@ -74,8 +81,6 @@ def _state_context():
 def _knowledge_context(query):
     wanted = _tokens(query)
     scored = []
-    # The verified owner profile is always present; Sheets are live operational state,
-    # never a replacement for identity, professional history, or durable preferences.
     profile = BASE / "knowledge" / "master-professional-profile.yaml"
     if profile.exists():
         try:
