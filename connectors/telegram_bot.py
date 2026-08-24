@@ -11,6 +11,7 @@ import sys
 import time
 import urllib.parse
 import urllib.request
+import uuid
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parents[1]
@@ -335,6 +336,187 @@ def command_pending(chat_id: int):
     send(chat_id, answer)
 
 
+def command_brief(chat_id: int):
+    """
+    /brief or /b
+    Executive summary: today's priorities, meetings, overdue tasks, pending decisions,
+    supervisor status, family alerts, with source tracking and sync time.
+    """
+    if not _sheets_configured():
+        send(chat_id, "❌ ربط Google Sheets غير مكتمل.")
+        return
+
+    try:
+        from connectors.sheet_intelligence import snapshot
+        from connectors.google_workspace import calendar_window
+        import datetime as dt
+
+        started = dt.datetime.now()
+        data = snapshot()
+        today_iso = dt.date.today().isoformat()
+
+        output = []
+        output.append("📋 **البريف التنفيذي للعبدالرحمن**")
+        output.append("")
+
+        # 1. TODAY'S TOP 3 PRIORITIES
+        output.append("🎯 **الأولويات (اليوم)**")
+        if "خطة الإنجاز والمهام" in data:
+            rows = data["خطة الإنجاز والمهام"]
+            priorities = []
+            for row in rows[1:]:
+                if row and len(row) > 0 and row[0]:
+                    # Check if due today or overdue
+                    due_date_str = row[2] if len(row) > 2 else ""
+                    status = row[3] if len(row) > 3 else ""
+                    if status and status.lower() not in {"مكتمل", "completed"}:
+                        priorities.append((row[0], due_date_str, status))
+
+            if priorities:
+                for i, (task, due, status) in enumerate(priorities[:3], 1):
+                    output.append(f"{i}. {task} (حالة: {status})")
+            else:
+                output.append("✅ لا توجد مهام معلقة اليوم")
+        else:
+            output.append("⚠️ شيت المهام غير متاح")
+
+        output.append("")
+
+        # 2. TODAY'S CALENDAR MEETINGS
+        output.append("📅 **الاجتماعات (اليوم)**")
+        try:
+            events = calendar_window(days_back=0, days_forward=1)
+            today_events = [e for e in events if e['start'].startswith(today_iso)]
+
+            if today_events:
+                for event in today_events[:5]:
+                    time_str = event['start'].split('T')[1][:5] if 'T' in event['start'] else ""
+                    loc = f" @ {event['location']}" if event.get('location') else ""
+                    output.append(f"• {event['summary']} ({time_str}){loc}")
+            else:
+                output.append("✅ لا توجد اجتماعات مجدولة اليوم")
+        except Exception as e:
+            output.append(f"⚠️ خطأ في القراءة: {str(e)[:80]}")
+
+        output.append("")
+
+        # 3. OVERDUE TASKS WITH OWNER, REASON, SOLUTION
+        output.append("⚠️ **المتأخرات**")
+        if "خطة الإنجاز والمهام" in data:
+            rows = data["خطة الإنجاز والمهام"]
+            overdue = []
+            for row in rows[1:]:
+                if row and len(row) > 3:
+                    due_date_str = row[2] if len(row) > 2 else ""
+                    status = row[3] if len(row) > 3 else ""
+                    reason = row[4] if len(row) > 4 else ""
+                    solution = row[5] if len(row) > 5 else ""
+                    owner = row[6] if len(row) > 6 else "—"
+
+                    if due_date_str and status and status.lower() not in {"مكتمل", "completed"}:
+                        try:
+                            due_dt = dt.datetime.fromisoformat(due_date_str.replace('Z', '+00:00'))
+                            if due_dt.date() < dt.date.today():
+                                overdue.append((row[0], due_date_str[:10], owner, reason, solution))
+                        except:
+                            pass
+
+            if overdue:
+                for task, due, owner, reason, solution in overdue[:3]:
+                    output.append(f"• {task}")
+                    output.append(f"  الموعد: {due} | المالك: {owner}")
+                    if reason:
+                        output.append(f"  السبب: {reason}")
+                    if solution:
+                        output.append(f"  الحل: {solution}")
+            else:
+                output.append("✅ لا توجد مهام متأخرة")
+        else:
+            output.append("⚠️ شيت المهام غير متاح")
+
+        output.append("")
+
+        # 4. PENDING DECISIONS
+        output.append("⏳ **القرارات المعلقة**")
+        if "القرارات العالقة" in data:
+            rows = data["القرارات العالقة"]
+            pending = [r for r in rows[1:] if r and r[0]]
+
+            if pending:
+                for decision in pending[:3]:
+                    due = f" (موعد: {decision[1]})" if len(decision) > 1 and decision[1] else ""
+                    output.append(f"• {decision[0]}{due}")
+            else:
+                output.append("✅ لا توجد قرارات معلقة")
+        else:
+            output.append("⚠️ شيت القرارات غير متاح")
+
+        output.append("")
+
+        # 5. SUPERVISOR STATUS
+        output.append("👥 **حالة المشرفين**")
+        supervisors = [
+            ("عبدالمجيد", "مشرف الرجال/الخارجية"),
+            ("شهد", "مشرفة البنات/الخارجية"),
+            ("سمية", "مشرفة التنويم/الداخلية"),
+        ]
+
+        if "حالة المشرفين" in data:
+            rows = data["حالة المشرفين"]
+            for idx, (name, role) in enumerate(supervisors):
+                if idx + 1 < len(rows) and rows[idx + 1]:
+                    status = rows[idx + 1][1] if len(rows[idx + 1]) > 1 else "—"
+                    output.append(f"• {name}: {status}")
+                else:
+                    output.append(f"• {name}: —")
+        else:
+            output.append("⚠️ شيت المشرفين غير متاح")
+
+        output.append("")
+
+        # 6. FAMILY/TRANSPORT CONFLICTS
+        output.append("👨‍👩‍👧‍👦 **التنسيق الأسري**")
+        if "تنسيق الأسرة والسيارة" in data:
+            rows = data["تنسيق الأسرة والسيارة"]
+            conflicts = []
+            for row in rows[1:]:
+                if row and len(row) > 2 and ("تعارض" in str(row[2]).lower() or "conflict" in str(row[2]).lower()):
+                    conflicts.append(row[2])
+
+            if conflicts:
+                for conflict in conflicts[:2]:
+                    output.append(f"⚠️ {conflict}")
+            else:
+                output.append("✅ لا توجد تعارضات في التنسيق")
+        else:
+            output.append("⚠️ شيت التنسيق غير متاح")
+
+        output.append("")
+
+        # 7. SOURCES AND SYNC TIME
+        sources_used = []
+        if "خطة الإنجاز والمهام" in data:
+            sources_used.append("خطة الإنجاز والمهام")
+        if "القرارات العالقة" in data:
+            sources_used.append("القرارات العالقة")
+        if "حالة المشرفين" in data:
+            sources_used.append("حالة المشرفين")
+        if "تنسيق الأسرة والسيارة" in data:
+            sources_used.append("تنسيق الأسرة")
+
+        sync_time = dt.datetime.now().strftime("%H:%M:%S")
+        output.append("ℹ️ **المصادر والمزامنة**")
+        output.append(f"المصادر: {', '.join(sources_used) if sources_used else 'لا توجد'}")
+        output.append(f"آخر مزامنة: {sync_time}")
+        output.append(f"وقت التقرير: {started.strftime('%Y-%m-%d %H:%M:%S')}")
+
+        send(chat_id, "\n".join(output))
+    except Exception as exc:
+        error_msg = str(exc)[:200]
+        send(chat_id, f"❌ خطأ في إنشاء البريف: {error_msg}")
+        _save_status("COMMAND_BRIEF", "ERROR", exc)
+
+
 def command_update(chat_id: int, text: str):
     match = re.match(r'^/update\s+"([^"]+)"\s+([A-Za-z]{1,3}[0-9]+)\s+(.+)$', text, re.S)
     if not match:
@@ -383,7 +565,7 @@ def command_start(chat_id: int):
         "المدخلات والإجابات تُحفظ في Google Sheets بعد فحص الخصوصية.\n\n"
         "/profile — الملف المهني\n/sources — المصادر\n/selftest — فحص كامل\n"
         "/ai_status — فحص Claude\n/storage_status — فحص الحفظ\n"
-        "/sheet — الشيتات المتصلة\n/find كلمة — البحث\n/pending — القادم والناقص والحل\n"
+        "/sheet — الشيتات المتصلة\n/find كلمة — البحث\n/brief — البريف التنفيذي\n/pending — القادم والناقص والحل\n"
         "/update — اقتراح تحديث\n/help — المساعدة",
     )
 
@@ -512,6 +694,7 @@ def handle_message(message: dict):
         "/start": command_start, "/help": command_start, "/profile": command_profile,
         "/sources": command_sources, "/selftest": command_selftest,
         "/ai_status": command_ai_status, "/storage_status": command_storage_status,
+        "/brief": command_brief, "/b": command_brief,
     }
     handler = handlers.get(command)
     if handler:
@@ -594,6 +777,7 @@ def configure_commands():
         {"command":"storage_status","description":"فحص حفظ Google Sheets"},
         {"command":"sheet","description":"عرض الشيتات المتصلة"},
         {"command":"find","description":"البحث في الشيت"},
+        {"command":"brief","description":"البريف التنفيذي للعبدالرحمن"},
         {"command":"pending","description":"القادم والناقص والحل"},
         {"command":"update","description":"اقتراح تحديث خلية"},
         {"command":"confirm","description":"تأكيد التحديث"},
