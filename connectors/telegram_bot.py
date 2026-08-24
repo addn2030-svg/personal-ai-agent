@@ -360,16 +360,26 @@ def command_brief(chat_id: int):
         "\n\nCURRENT SHEETS SNAPSHOT:\n" + _sheet_context()
     )
     answer, _, _, _ = ask_bedrock(chat_id, prompt, sheet_context=context)
-    upsert_metrics({
-        "آخر تحديث للملخص التنفيذي": _now(),
-        "ملخص المدير الشخصي": answer[:5000],
-        "تغييرات جديدة منذ آخر Brief": discovery["stats"]["new_or_changed"],
-        "عناصر أزيلت أو أغلقت": discovery["stats"]["removed_or_resolved"],
-        "قرارات تحتاج مراجعة": len(discovery["decisions_required"]),
-        "مخاطر وتعثرات مكتشفة": len(discovery["blockers_and_risks"]),
-    })
+    dashboard_updated = True
+    try:
+        upsert_metrics({
+            "آخر تحديث للملخص التنفيذي": _now(),
+            "ملخص المدير الشخصي": answer[:5000],
+            "تغييرات جديدة منذ آخر Brief": discovery["stats"]["new_or_changed"],
+            "عناصر أزيلت أو أغلقت": discovery["stats"]["removed_or_resolved"],
+            "قرارات تحتاج مراجعة": len(discovery["decisions_required"]),
+            "مخاطر وتعثرات مكتشفة": len(discovery["blockers_and_risks"]),
+        })
+    except Exception as exc:
+        dashboard_updated = False
+        print(f"Executive brief dashboard update error: {exc}", flush=True)
     save_snapshot(normalize_snapshot(live))
-    send(chat_id, answer + "\n\n✅ تم تحديث Executive_Brief وحفظ Snapshot المقارنة.")
+    status = (
+        "\n\n✅ تم تحديث Executive_Brief وحفظ Snapshot المقارنة."
+        if dashboard_updated else
+        "\n\n⚠️ تم إنشاء الملخص وحفظ Snapshot، لكن بوابة Apps Script تحتاج نشر النسخة الجديدة لتحديث Executive_Brief."
+    )
+    send(chat_id, answer + status)
 
 
 def command_update(chat_id: int, text: str):
