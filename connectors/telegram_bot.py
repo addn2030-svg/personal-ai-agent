@@ -25,6 +25,7 @@ GOOGLE_SHEET_ID = os.environ.get("GOOGLE_SHEET_ID", "1ZXmC_3_OTYYtXglNMXRQiSWu2r
 GOOGLE_SERVICE_ACCOUNT_JSON = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
 GOOGLE_SHEETS_WEBHOOK_URL = os.environ.get("GOOGLE_SHEETS_WEBHOOK_URL", "").strip()
 GOOGLE_SHEETS_WEBHOOK_SECRET = os.environ.get("GOOGLE_SHEETS_WEBHOOK_SECRET", "").strip()
+PREVISIT_FORM_URL = os.environ.get("PREVISIT_FORM_URL", "").strip()
 INTAKE_TAB = os.environ.get("GOOGLE_INTAKE_SHEET", "مدخلات الوكيل").strip()
 CONVERSATION_TAB = os.environ.get("GOOGLE_CONVERSATIONS_SHEET", "محادثات الوكيل").strip()
 STATUS_TAB = os.environ.get("GOOGLE_STATUS_SHEET", "حالة الوكيل").strip()
@@ -32,6 +33,7 @@ OWNER_FILE = BASE / "data" / ".telegram-owner-chat-id"
 API_BASE = f"https://api.telegram.org/bot{TOKEN}"
 _SHEETS_SERVICE = None
 _PENDING_SHEET_UPDATES = {}
+_PENDING_PREVISIT_MESSAGES = {}
 
 SYSTEM_PROMPT = """You are Abdulrahman AI OS, the private Chief of Staff for
 Abdulrahman Bakor Howsawy, Senior Physical Therapist and Head of Rehabilitation.
@@ -416,6 +418,52 @@ def command_previsit(chat_id: int, diagnosis: str):
     send(chat_id, "\n".join(lines))
 
 
+def command_previsitlink(chat_id: int):
+    """Create a de-identified patient message that requires clinician approval."""
+    if not PREVISIT_FORM_URL.startswith("https://"):
+        send(
+            chat_id,
+            "❌ رابط نموذج ما قبل الزيارة غير مهيأ. أضف PREVISIT_FORM_URL في إعدادات الاستضافة.",
+        )
+        return
+    case_code = "PV-" + dt.datetime.now().strftime("%Y%m%d") + "-" + secrets.token_hex(2).upper()
+    approval_token = secrets.token_hex(3)
+    patient_message = (
+        "مرحبًا،\n"
+        "يرجى تعبئة استبيان ما قبل زيارة العلاج الطبيعي باستخدام رمز الحالة:\n\n"
+        f"{case_code}\n\n"
+        f"رابط الاستبيان:\n{PREVISIT_FORM_URL}\n\n"
+        "هذا الاستبيان يساعد المعالج على التحضير للزيارة، ولا يمثل تشخيصًا "
+        "ولا بديلًا عن التقييم السريري أو خدمات الطوارئ. "
+        "لا تكتب اسمك أو رقم هويتك أو رقم ملفك أو بيانات اتصالك داخل النموذج."
+    )
+    _PENDING_PREVISIT_MESSAGES[approval_token] = {
+        "case_code": case_code,
+        "message": patient_message,
+        "expires": time.time() + 900,
+    }
+    send(
+        chat_id,
+        "🩺 معاينة رسالة ما قبل الزيارة\n"
+        f"رمز الحالة: {case_code}\n\n"
+        f"{patient_message}\n\n"
+        "⚠️ لم تُرسل الرسالة للمريض. لاعتمادها خلال 15 دقيقة استخدم:\n"
+        f"/confirm_previsit {approval_token}",
+    )
+
+
+def command_confirm_previsit(chat_id: int, token: str):
+    item = _PENDING_PREVISIT_MESSAGES.pop(token.strip(), None)
+    if not item or item["expires"] < time.time():
+        send(chat_id, "❌ رمز اعتماد رسالة الزيارة غير صالح أو انتهت مدته.")
+        return
+    send(
+        chat_id,
+        "✅ تم اعتماد الرسالة. انسخ النص التالي وأرسله للمريض عبر القناة المعتمدة:\n\n"
+        + item["message"],
+    )
+
+
 def command_update(chat_id: int, text: str):
     match = re.match(r'^/update\s+"([^"]+)"\s+([A-Za-z]{1,3}[0-9]+)\s+(.+)$', text, re.S)
     if not match:
@@ -465,6 +513,8 @@ def command_start(chat_id: int):
         "/profile — الملف المهني\n/sources — المصادر\n/selftest — فحص كامل\n"
         "/ai_status — فحص Claude\n/storage_status — فحص الحفظ\n"
         "/sheet — الشيتات المتصلة\n/find كلمة — البحث\n/pending — القادم والناقص والحل\n"
+        "/previsit — مسودة أسئلة سريرية للمعالج\n"
+        "/previsitlink — إنشاء رابط ورسالة للمريض\n"
         "/update — اقتراح تحديث\n/help — المساعدة",
     )
 
@@ -619,6 +669,14 @@ def handle_message(message: dict):
         command_previsit(chat_id, text[len(command):].strip())
         _save_intake(iid, message, text, kind, attachment, "REVIEW_REQUIRED")
         return
+    if command == "/previsitlink":
+        command_previsitlink(chat_id)
+        _save_intake(iid, message, text, kind, attachment, "REVIEW_REQUIRED")
+        return
+    if command == "/confirm_previsit":
+        command_confirm_previsit(chat_id, text[len(command):].strip())
+        _save_intake(iid, message, text, kind, attachment, "COMPLETED")
+        return
     if command == "/update":
         command_update(chat_id, text)
         _save_intake(iid, message, text, kind, attachment, "REVIEW_REQUIRED")
@@ -686,6 +744,8 @@ def configure_commands():
         {"command":"pending","description":"القادم والناقص والحل"},
         {"command":"brief","description":"إنشاء الملخص التنفيذي بعد دورة اكتشاف"},
         {"command":"previsit","description":"مسودة استبيان آمن قبل الزيارة"},
+        {"command":"previsitlink","description":"إنشاء رابط ورسالة ما قبل الزيارة"},
+        {"command":"confirm_previsit","description":"اعتماد رسالة ما قبل الزيارة"},
         {"command":"update","description":"اقتراح تحديث خلية"},
         {"command":"confirm","description":"تأكيد التحديث"},
         {"command":"help","description":"المساعدة"},
