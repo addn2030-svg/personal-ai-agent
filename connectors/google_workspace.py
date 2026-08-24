@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Read-only Gmail/Calendar/Drive connector for AI OS v0.8.
+"""Gmail/Drive read access plus confirmed Calendar event actions.
 Credentials remain local. Uses OAuth Desktop client secrets + cached user token.
 """
 from __future__ import annotations
@@ -9,6 +9,7 @@ from email.utils import parsedate_to_datetime
 SCOPES=[
     'https://www.googleapis.com/auth/gmail.readonly',
     'https://www.googleapis.com/auth/calendar.readonly',
+    'https://www.googleapis.com/auth/calendar.events',
     'https://www.googleapis.com/auth/drive.readonly',
 ]
 BASE=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -29,7 +30,11 @@ def _deps():
 
 def credentials():
     Credentials,Request,InstalledAppFlow,_=_deps(); creds=None
-    if os.path.exists(TOKEN): creds=Credentials.from_authorized_user_file(TOKEN,SCOPES)
+    if os.path.exists(TOKEN):
+        creds=Credentials.from_authorized_user_file(TOKEN,SCOPES)
+        if not creds.has_scopes(SCOPES):
+            # OAuth refresh cannot add scopes. Require an explicit new consent.
+            creds=None
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
