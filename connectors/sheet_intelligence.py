@@ -87,6 +87,35 @@ def update_cell(sheet,a1,value):
         body={"values":[[value]]}).execute()
     return {"ok":True,"sheet":sheet,"range":a1}
 
+def upsert_metrics(metrics, sheet="Executive_Brief"):
+    """Update label/value metrics without assuming fixed cell addresses."""
+    if not isinstance(metrics, dict) or not metrics:
+        return {"ok": True, "updated": 0}
+    clean = {str(k)[:160]: str(v)[:5000] for k, v in metrics.items()}
+    if WEBHOOK_URL and WEBHOOK_SECRET:
+        return _webhook("upsert_metrics", sheet=sheet, metrics=clean)
+
+    titles = {s["title"] for s in metadata()}
+    if sheet not in titles:
+        raise ValueError("Unknown sheet: " + sheet)
+    values = _service().spreadsheets().values().get(
+        spreadsheetId=SHEET_ID, range=f"'{sheet}'!A:B"
+    ).execute().get("values", [])
+    labels = {str(row[0]): i + 1 for i, row in enumerate(values) if row}
+    updates = []
+    next_row = max(len(values) + 1, 1)
+    for label, value in clean.items():
+        row = labels.get(label)
+        if row is None:
+            row, next_row = next_row, next_row + 1
+        updates.append({"range": f"'{sheet}'!A{row}:B{row}", "values": [[label, value]]})
+    _service().spreadsheets().values().batchUpdate(
+        spreadsheetId=SHEET_ID,
+        body={"valueInputOption": "USER_ENTERED", "data": updates},
+    ).execute()
+    return {"ok": True, "updated": len(updates)}
+
+
 def compact_context(data=None,limit=12000):
     data=data if data is not None else snapshot()
     text=json.dumps(data,ensure_ascii=False,separators=(",",":"))
