@@ -107,3 +107,21 @@ python3 -u connectors/telegram_bot.py
 للحماية الإضافية، يوصى بضبط `TELEGRAM_ALLOWED_CHAT_ID`. إذا لم يُضبط، تصبح أول محادثة خاصة تستخدم البوت هي المالك المحلي، ويُحفظ المعرّف في ملف متجاهل من Git.
 
 > لا تضع التوكن داخل GitHub. استخدم Secrets أو Environment Variables في منصة الاستضافة.
+
+
+## Executive brief discovery and supervisor reports
+
+- `/brief` reads a bounded live Sheets snapshot, compares it with the last
+  persisted snapshot, detects changes, incomplete items, upcoming dates,
+  blockers, decisions, and important information, then updates
+  `Executive_Brief`.
+- The comparison snapshot is stored below `AI_OS_DATA_DIR`. On Railway, mount
+  a persistent volume at `/data` and set `AI_OS_DATA_DIR=/data`.
+- Deploy `connectors/google_sheets_webhook.gs` as the secure Sheets gateway.
+  Set Script Properties `SPREADSHEET_ID` and `AGENT_SECRET`; set the matching
+  Railway variables `GOOGLE_SHEETS_WEBHOOK_URL` and
+  `GOOGLE_SHEETS_WEBHOOK_SECRET`.
+- Copy `connectors/rehab_supervisor_form.gs` into a Google Apps Script project,
+  run `createRehabSupervisorForm` once, authorize it, then run
+  `testRehabIntegration`. Re-running creation returns the existing form unless
+  `createRehabSupervisorForm(true)` is used intentionally.

@@ -20,7 +20,9 @@ function doPost(e) {
 
     if (action === 'append') {
       const allowed = ['مدخلات الوكيل','محادثات الوكيل','حالة الوكيل',
-        'Decision_Log','Telegram_Log','FollowUp_Log','Approval_Log','Agent_Log'];
+        'Decision_Log','Telegram_Log','FollowUp_Log','Approval_Log','Agent_Log',
+        'تقارير المشرفين','Brief_History','Decisions','Risks_Blockers',
+        'Important_Info','Commitments','Knowledge_Log','Audit_Log'];
       if (!allowed.includes(body.tab) || !Array.isArray(body.row)) throw new Error('invalid append');
       const sheet=book.getSheetByName(body.tab);
       if (!sheet) throw new Error('sheet not found');
@@ -63,6 +65,35 @@ function doPost(e) {
         });
       });
       return json_({ok:true,results:results});
+    }
+
+    if (action === 'upsert_metrics') {
+      const sheetName=String(body.sheet||'Executive_Brief');
+      if (sheetName !== 'Executive_Brief') throw new Error('invalid metrics sheet');
+      const metrics=body.metrics;
+      if (!metrics || typeof metrics !== 'object' || Array.isArray(metrics))
+        throw new Error('invalid metrics');
+      const sheet=book.getSheetByName(sheetName);
+      if (!sheet) throw new Error('sheet not found');
+      const allowedLabels=[
+        'آخر تحديث للملخص التنفيذي','ملخص المدير الشخصي',
+        'تغييرات جديدة منذ آخر Brief','عناصر أزيلت أو أغلقت',
+        'قرارات تحتاج مراجعة','مخاطر وتعثرات مكتشفة',
+        'آخر تقرير مشرف','ملخص تقرير المشرف',
+        'مرضى التأهيل هذا الأسبوع','الإلغاء / عدم الحضور هذا الأسبوع',
+        'قرار مطلوب من تقرير المشرف','آخر بلاغ مشرف طارئ'
+      ];
+      const last=Math.max(sheet.getLastRow(),1);
+      const labels=sheet.getRange(1,1,last,1).getDisplayValues().flat();
+      let next=last+1, updated=0;
+      Object.keys(metrics).slice(0,20).forEach(label=>{
+        if (!allowedLabels.includes(label)) throw new Error('metric label not allowed');
+        let row=labels.indexOf(label)+1;
+        if (!row) row=next++;
+        sheet.getRange(row,1,1,2).setValues([[label,String(metrics[label]).slice(0,5000)]]);
+        updated++;
+      });
+      return json_({ok:true,updated:updated});
     }
 
     if (action === 'update') {
