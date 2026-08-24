@@ -125,6 +125,18 @@ def parse_event_request(text: str, base: dt.datetime | None = None):
 
 
 def _calendar_service():
+    service_json = (
+        os.environ.get("GOOGLE_CALENDAR_SERVICE_ACCOUNT_JSON")
+        or os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
+    )
+    if service_json and CALENDAR_ID != "primary":
+        from google.oauth2 import service_account
+        from googleapiclient.discovery import build
+        credentials = service_account.Credentials.from_service_account_info(
+            json.loads(service_json),
+            scopes=["https://www.googleapis.com/auth/calendar"],
+        )
+        return build("calendar", "v3", credentials=credentials, cache_discovery=False)
     from connectors.google_workspace import services
     return services()[1]
 
