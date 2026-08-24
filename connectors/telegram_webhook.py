@@ -25,6 +25,7 @@ sys.path.insert(0, str(BASE))
 sys.path.insert(0, str(BASE / "engine"))
 
 from connectors import telegram_bot as bot
+from connectors.brief_runtime import install as install_brief_runtime
 
 PORT = int(os.environ.get("PORT", "8080"))
 PUBLIC_BASE_URL = os.environ.get("TELEGRAM_WEBHOOK_BASE_URL", "").strip().rstrip("/")
@@ -45,6 +46,9 @@ _MAX_BODY = 2 * 1024 * 1024
 _recent_updates = deque(maxlen=2000)
 _processing_updates = set()
 _recent_lock = threading.Lock()
+
+# Install the resilient /brief implementation before any update is processed.
+install_brief_runtime(bot)
 
 # Keep the original write implementation, then add bounded retry around it.
 _raw_append = bot._append
@@ -152,15 +156,31 @@ def _complete_update(update_id: int):
         _recent_updates.append(update_id)
 
 
-def _release_update(update_id: int):
-    if update_id < 0:
-        return
-    with _recent_lock:
-        _processing_updates.discard(update_id)
+def _process_update(update_id: int, message: dict | None):
+    """Run slow bot work after Telegram has already received HTTP 200.
+
+    Telegram retries webhooks when a handler takes too long. Commands such as /brief
+    can require Google + Bedrock calls, so processing synchronously can duplicate the
+    progress message even when update-id de-duplication exists. Acknowledge first,
+    process in a daemon thread, and surface failures directly to the owner.
+    """
+    try:
+        if message:
+            bot.handle_message(message)
+    except Exception as exc:  # noqa: BLE001
+        print(f"Telegram background processing error: {str(exc)[:300]}", flush=True)
+        chat_id = ((message or {}).get("chat") or {}).get("id")
+        if chat_id is not None:
+            try:
+                bot.send(chat_id, f"❌ تعذر تنفيذ الطلب: {str(exc)[:180]}")
+            except Exception as send_exc:  # noqa: BLE001
+                print(f"Telegram error notification failed: {send_exc}", flush=True)
+    finally:
+        _complete_update(update_id)
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "AbdulrahmanAgentWebhook/1.1"
+    server_version = "AbdulrahmanAgentWebhook/1.2"
 
     def log_message(self, fmt, *args):
         print("http:", fmt % args, flush=True)
@@ -203,7 +223,6 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(400, {"ok": False})
             return
 
-        update_id = -1
         try:
             update = json.loads(self.rfile.read(length).decode("utf-8"))
             update_id = int(update.get("update_id", -1))
@@ -212,14 +231,19 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             message = update.get("message")
-            if message:
-                bot.handle_message(message)
-            _complete_update(update_id)
-            self._send_json(200, {"ok": True})
+            worker = threading.Thread(
+                target=_process_update,
+                args=(update_id, message),
+                name=f"telegram-update-{update_id}",
+                daemon=True,
+            )
+            worker.start()
+
+            # Acknowledge Telegram immediately. Slow Google/Bedrock calls continue in
+            # the background and cannot trigger Telegram webhook redelivery.
+            self._send_json(200, {"ok": True, "accepted": True})
         except Exception as exc:  # noqa: BLE001
-            # Non-2xx tells Telegram to retry delivery; the update is released for retry.
-            _release_update(update_id)
-            print(f"Telegram webhook processing error: {str(exc)[:300]}", flush=True)
+            print(f"Telegram webhook acceptance error: {str(exc)[:300]}", flush=True)
             self._send_json(500, {"ok": False})
 
 
