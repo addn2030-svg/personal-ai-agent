@@ -46,6 +46,14 @@ Never reveal credentials, private contact details, or patient identities.
 For clinical questions, provide decision support only, identify red flags, and
 state that final clinical decisions require professional review. External actions
 and sensitive decisions always require Abdulrahman's approval.
+When the user refers to a previous conversation, draft, message, decision, contract,
+or says words such as سابق/تذكر/وجدنا/رسائل, inspect RETRIEVED MEMORY EVIDENCE
+before answering. Never claim the session started from zero and never ask the user
+to paste everything again until the provided memory, operational state, knowledge,
+and Google Sheets search evidence have all been checked. If evidence is partial,
+summarize what was found with sheet and row references, then ask only for the
+specific missing part. Never claim a write succeeded unless a concrete receipt
+(identifier and destination) is available.
 """
 
 
@@ -496,8 +504,73 @@ def command_confirm(chat_id: int, token: str):
     )
 
 
+_MEMORY_LOOKUP_RE = re.compile(
+    r"previous|earlier|last conversation|remember|draft|message|contract|"
+    r"سابق|السابقة|المحادثة|محادثة|تذكر|تتذكر|رسائل|رسالة|مسودات|مسودة|"
+    r"العقد|عقد|العمير|وجدنا|ناقشنا|تكلمنا",
+    re.I,
+)
+_MEMORY_STOP_WORDS = {
+    "اريد", "أريد", "ماذا", "هذه", "هذا", "التي", "الذي", "على", "إلى",
+    "الى", "فيها", "في", "عن", "مع", "من", "كان", "تم", "سابق", "السابقة",
+    "محادثة", "المحادثة", "رسائل", "رسالة", "مسودة", "مسودات", "تذكر",
+}
+
+
+def _needs_memory_lookup(text: str):
+    return bool(_MEMORY_LOOKUP_RE.search(text or ""))
+
+
+def _memory_search_terms(text: str):
+    tokens = re.findall(r"[A-Za-z0-9_\u0600-\u06FF-]{3,}", text or "")
+    terms = []
+    for token in tokens:
+        normalized = token.lower()
+        if normalized in _MEMORY_STOP_WORDS or normalized in terms:
+            continue
+        terms.append(normalized)
+    # Prefer distinctive names and topics; each search returns row-level evidence.
+    return terms[-4:]
+
+
+def _memory_sheet_context(text: str):
+    from connectors.sheet_intelligence import search
+    evidence = []
+    seen = set()
+    attempted = _memory_search_terms(text)
+    for term in attempted:
+        try:
+            rows = search(term, 12)
+        except Exception as exc:
+            print(f"Memory search warning for {term}: {exc}", flush=True)
+            continue
+        for row in rows:
+            key = (row.get("sheet"), row.get("row"))
+            if key in seen:
+                continue
+            seen.add(key)
+            evidence.append({
+                "sheet": row.get("sheet"),
+                "row": row.get("row"),
+                "matched_term": term,
+                "values": row.get("values", [])[:16],
+            })
+            if len(evidence) >= 24:
+                break
+        if len(evidence) >= 24:
+            break
+    return (
+        "RETRIEVED MEMORY EVIDENCE (Google Sheets row-level search):\n"
+        + json.dumps(
+            {"attempted_terms": attempted, "results": evidence},
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )[:12000]
+    ), bool(evidence)
+
+
 def _needs_sheet_context(text: str):
-    return bool(re.search(
+    return _needs_memory_lookup(text) or bool(re.search(
         r"sheet|spreadsheet|شيت|جدول|ناقص|غير مكتمل|متأخر|القادم|pending|"
         r"incomplete|why|لماذا|خطة|أولوية",
         text or "", re.I,
@@ -711,7 +784,18 @@ def handle_message(message: dict):
         remember(chat_id, "user", text, message.get("message_id", ""), category)
         api("sendChatAction", {"chat_id": chat_id, "action": "typing"})
         sheet_context = ""
-        if _needs_sheet_context(text):
+        memory_lookup = _needs_memory_lookup(text)
+        memory_found = False
+        if memory_lookup:
+            try:
+                sheet_context, memory_found = _memory_sheet_context(text)
+            except Exception as exc:
+                sheet_context = (
+                    "RETRIEVED MEMORY EVIDENCE: lookup failed; do not claim that "
+                    "all historical sources are unavailable. Ask only for the missing detail."
+                )
+                print(f"Memory context error: {exc}", flush=True)
+        elif _needs_sheet_context(text):
             try:
                 sheet_context = _sheet_context()
             except Exception as exc:
@@ -722,8 +806,20 @@ def handle_message(message: dict):
         remember(chat_id, "assistant", answer, message.get("message_id", ""), category)
         sheet_ok = _save_conversation(cid, iid, text, answer, usage, latency, "COMPLETED")
         _save_intake(iid, message, text, kind, attachment, "COMPLETED", response_id=cid)
-        source_note = ("\n\n📚 المصادر: " + "، ".join(sources[:4])) if sources else ""
-        send(chat_id, answer + source_note + ("\n\n💾 تم الحفظ في Google Sheets." if sheet_ok else "\n\n⚠️ تم الرد، لكن حفظ Google Sheets غير متصل."))
+        source_note = ("\n\n📚 ملفات المعرفة: " + "، ".join(sources[:4])) if sources else ""
+        memory_note = ""
+        if memory_lookup:
+            memory_note = (
+                "\n🔎 تم فحص سجل Google Sheets والعثور على أدلة سابقة."
+                if memory_found else
+                "\n🔎 تم فحص سجل Google Sheets ولم تظهر نتيجة مطابقة مؤكدة."
+            )
+        receipt = (
+            f"\n\n💾 إيصال الحفظ: {CONVERSATION_TAB} — {cid}"
+            if sheet_ok else
+            "\n\n⚠️ تم الرد، لكن لم يصدر إيصال حفظ من Google Sheets."
+        )
+        send(chat_id, answer + source_note + memory_note + receipt)
     except Exception as exc:
         _save_conversation(cid, iid, text, "", {}, 0, "ERROR", error=exc)
         _save_intake(iid, message, text, kind, attachment, "ERROR", response_id=cid, error=exc)
