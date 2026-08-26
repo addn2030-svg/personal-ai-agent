@@ -8,6 +8,8 @@ on:
 jobs:
   hardening:
     runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: .:./engine:./connectors
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
