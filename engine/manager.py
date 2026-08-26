@@ -135,8 +135,7 @@ def _mutate_fast(S):
         name = p["المشروع"]
         recent = [
             d for d in drs
-            if d.get("project") == name
-            and d.get("resolved_at") or d.get("created_at")
+            if d.get("project") == name and (d.get("resolved_at") or d.get("created_at"))
         ]
         recent = [
             d for d in recent
