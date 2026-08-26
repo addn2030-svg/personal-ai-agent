@@ -92,7 +92,7 @@ def _process_file_lock(path):
         if os.name == "nt":
             import msvcrt
             handle.seek(0)
-            if handle.tell() == 0:
+            if os.path.getsize(path) == 0:
                 handle.write(b"0")
                 handle.flush()
             handle.seek(0)
@@ -194,6 +194,9 @@ class Store:
             self._commit_locked(new_data, mutator, **details)
 
     def _commit_locked(self, new_data, mutator, **details):
+        for section in SECTIONS:
+            new_data.setdefault(section, [])
+        new_data.setdefault("manager_markers", {})
         version = self._base_version + 1
         new_data["meta"] = {
             "version": version,
@@ -201,7 +204,6 @@ class Store:
             "schema": "state/1",
             "last_mutator": mutator,
         }
-        new_data.setdefault("manager_markers", {})
         self._backup_unlocked()
         os.makedirs(self.data_dir, exist_ok=True)
         tmp = self.path + f".tmp.{os.getpid()}.{threading.get_ident()}"
