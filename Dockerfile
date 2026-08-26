@@ -10,4 +10,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-CMD ["python3", "-u", "connectors/telegram_webhook.py"]
+CMD ["bash", "scripts/start_production.sh"]
