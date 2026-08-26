@@ -1,3 +1,4 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -36,6 +37,11 @@ class TelegramBotTests(unittest.TestCase):
         with patch.object(telegram_bot, "ALLOWED_CHAT_ID", "42"):
             self.assertTrue(telegram_bot._authorized(42, "private"))
             self.assertFalse(telegram_bot._authorized(43, "private"))
+
+    def test_polling_run_is_blocked_without_explicit_opt_in(self):
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaisesRegex(RuntimeError, "polling is disabled"):
+                telegram_bot.run()
 
 
 if __name__ == "__main__":
