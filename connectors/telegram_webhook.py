@@ -9,6 +9,10 @@ P0 goals:
 
 v0.5 adds an authenticated /api/ai/update route on the same Railway service.
 External advisers enter through Unified Inbox and never write operational state directly.
+
+Staging safety:
+- AI_OS_DISABLE_TELEGRAM=1 starts the HTTP/model service without configuring Telegram;
+- AI_OS_STARTUP_MODEL_PROBE=1 performs one sanitized live OpenRouter + Bedrock probe at startup.
 """
 from __future__ import annotations
 
@@ -34,6 +38,8 @@ from connectors.council_runtime import install as install_council_runtime
 from connectors.runtime_commands import install as install_runtime_commands
 
 PORT = int(os.environ.get("PORT", "8080"))
+TELEGRAM_DISABLED = os.environ.get("AI_OS_DISABLE_TELEGRAM", "").strip() == "1"
+STARTUP_MODEL_PROBE = os.environ.get("AI_OS_STARTUP_MODEL_PROBE", "").strip() == "1"
 PUBLIC_BASE_URL = os.environ.get("TELEGRAM_WEBHOOK_BASE_URL", "").strip().rstrip("/")
 if not PUBLIC_BASE_URL:
     railway_domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "").strip()
@@ -89,6 +95,10 @@ _original_redact = bot._redact
 bot._redact = _clinical_minimize
 
 
+def _telegram_mode() -> str:
+    return "disabled" if TELEGRAM_DISABLED else "webhook"
+
+
 def _probe_sheets():
     """Cheap compatibility check for the deployed Apps Script gateway and required tabs."""
     try:
@@ -113,6 +123,9 @@ def _probe_sheets():
 
 
 def _configure_webhook():
+    if TELEGRAM_DISABLED:
+        print("Telegram webhook intentionally disabled for this environment", flush=True)
+        return
     if not bot.TOKEN:
         raise RuntimeError("TELEGRAM_BOT_TOKEN is not set")
     if not PUBLIC_BASE_URL:
@@ -176,7 +189,7 @@ def _process_update(update_id: int, message: dict | None):
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "AbdulrahmanAgentWebhook/1.3"
+    server_version = "AbdulrahmanAgentWebhook/1.4"
 
     def log_message(self, fmt, *args):
         print("http:", fmt % args, flush=True)
@@ -203,7 +216,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):  # noqa: N802
         if self.path == "/health":
-            self._send_json(200, {"ok": True, "telegram_mode": "webhook", "ai_gateway": "v0.5"})
+            self._send_json(200, {"ok": True, "telegram_mode": _telegram_mode(), "ai_gateway": "v0.5"})
             return
         if self.path == "/ready":
             ok, detail = _probe_sheets()
@@ -212,7 +225,7 @@ class Handler(BaseHTTPRequestHandler):
                 200 if ok else 503,
                 {
                     "ok": ok,
-                    "telegram_mode": "webhook",
+                    "telegram_mode": _telegram_mode(),
                     "sheets": detail,
                     "ai_gateway_sources": ai_gateway.configured_sources(),
                     "models": {
@@ -247,6 +260,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(500, {"ok": False, "error": "AI gateway internal error"})
             return
 
+        if TELEGRAM_DISABLED:
+            self._send_json(404, {"ok": False, "telegram_mode": "disabled"})
+            return
         if self.path != WEBHOOK_PATH:
             self._send_json(404, {"ok": False})
             return
@@ -279,6 +295,16 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(500, {"ok": False})
 
 
+def _startup_model_probe():
+    if not STARTUP_MODEL_PROBE:
+        return
+    try:
+        probe = model_gateway.live_probe()
+        print("Startup model probe: " + json.dumps(probe, ensure_ascii=False, default=str), flush=True)
+    except Exception as exc:  # noqa: BLE001
+        print(f"Startup model probe failed safely: {model_gateway._safe_error(exc)}", flush=True)
+
+
 def run():
     _configure_webhook()
     sheets_ok, detail = _probe_sheets()
@@ -293,8 +319,13 @@ def run():
         f"bedrock={'yes' if model_status['bedrock_configured'] else 'no'}",
         flush=True,
     )
+    _startup_model_probe()
     server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
-    print(f"HTTP server listening on :{PORT} (Telegram {WEBHOOK_PATH}, AI {ai_gateway.UPDATE_PATH})", flush=True)
+    print(
+        f"HTTP server listening on :{PORT} "
+        f"(Telegram {_telegram_mode()}, AI {ai_gateway.UPDATE_PATH})",
+        flush=True,
+    )
     server.serve_forever()
 
 
