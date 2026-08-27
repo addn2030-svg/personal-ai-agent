@@ -4,6 +4,7 @@
 P0/P1 rules implemented here without forking telegram_bot.py:
 - /brief reads operational truth from StateStore and manual evidence from Sheets;
 - /b is an alias of /brief;
+- /agents reports the external AI adviser registry without exposing secrets;
 - APPOINTMENT is classified as NEEDS_CONFIRMATION data, not a Calendar write;
 - Sheets append retries carry a stable idempotency key.
 """
@@ -88,14 +89,63 @@ def _install_brief_alias(bot):
     bot._AI_OS_BRIEF_ALIAS = True
 
 
+def _install_agents_command(bot):
+    if getattr(bot, "_AI_OS_AGENTS_COMMAND", False):
+        return
+    original = bot.handle_message
+    agents_re = re.compile(r"^/agents(?:@\w+)?(?=\s|$)", re.I)
+
+    def handle_message(message: dict):
+        text = message.get("text") or ""
+        if not agents_re.match(text):
+            return original(message)
+        chat_id = ((message.get("chat") or {}).get("id"))
+        if chat_id is None:
+            return None
+        try:
+            from store import Store
+            state = Store().rows_all()
+            sources = state.get("ai_sources", [])
+            external_items = [
+                x for x in state.get("unified_inbox", [])
+                if (x.get("metadata") or {}).get("origin") == "external_ai"
+            ]
+            open_conflicts = len([c for c in state.get("contradictions", []) if c.get("status") == "OPEN"])
+            pending = len([
+                d for d in state.get("decision_requests", [])
+                if d.get("status") == "PENDING" and str(d.get("id", "")).startswith("DR-AI-")
+            ])
+            lines = ["🤖 AI TEAM — Active Multi-AI Manager"]
+            if not sources:
+                lines.append("لا توجد مصادر AI مسجلة حتى الآن.")
+            for src in sorted(sources, key=lambda x: str(x.get("source"))):
+                enabled = "🟢" if src.get("enabled", True) else "⚪"
+                lines.append(
+                    f"{enabled} {src.get('source')} — {src.get('role', 'adviser')} | "
+                    f"trust L{src.get('trust_level', 1)} | events {src.get('events_received', 0)} | "
+                    f"last {src.get('last_seen', '—')}"
+                )
+            lines.append(f"\n📥 External AI updates: {len(external_items)}")
+            lines.append(f"⚠️ Open contradictions: {open_conflicts}")
+            lines.append(f"🧭 AI decisions pending: {pending}")
+            bot.send(chat_id, "\n".join(lines)[:3900])
+        except Exception as exc:
+            bot.send(chat_id, f"❌ تعذر قراءة سجل وكلاء AI: {str(exc)[:180]}")
+        return None
+
+    bot.handle_message = handle_message
+    bot._AI_OS_AGENTS_COMMAND = True
+
+
 def install(bot):
     """Install production-only safety patches and the resilient /brief implementation."""
     _install_idempotent_append(bot)
     _install_appointment_classification(bot)
     _install_brief_alias(bot)
+    _install_agents_command(bot)
 
     def command_brief(chat_id: int):
-        bot.send(chat_id, "🧠 أبني الـBrief من StateStore وأراجع المدخلات اليدوية في Sheets...")
+        bot.send(chat_id, "🧠 أبني الـBrief من StateStore وأراجع المدخلات اليدوية وتحديثات فريق AI...")
         try:
             from connectors.brief_discovery import (
                 compact_discovery,
@@ -106,36 +156,45 @@ def install(bot):
             from connectors.sheet_intelligence import compact_context, snapshot, upsert_metrics
             from store import Store
 
-            # Operational records are authoritative here. Sheets remains a bounded
-            # human-input/projection surface until bidirectional reconciliation is complete.
             state = Store().rows_all()
             operational = {
                 key: state.get(key, [])
                 for key in (
                     "tasks", "projects", "waiting_for", "decision_requests",
-                    "action_queue", "decisions", "meetings", "manager_markers"
+                    "action_queue", "decisions", "meetings", "manager_markers",
+                    "ai_sources", "contradictions"
                 )
             }
             operational_context = json.dumps(
                 operational, ensure_ascii=False, default=str, separators=(",", ":")
-            )[:9000]
+            )[:10000]
+            ai_updates = [
+                item for item in state.get("unified_inbox", [])
+                if (item.get("metadata") or {}).get("origin") == "external_ai"
+            ][-20:]
+            ai_context = json.dumps(
+                ai_updates, ensure_ascii=False, default=str, separators=(",", ":")
+            )[:6000]
 
             live = snapshot(max_rows=80, max_cols=16)
             discovery = discover(live, persist=False)
             prompt = (
                 "أنشئ Executive Brief عربيًا مختصرًا بصفتك مدير أعمال عبدالرحمن. "
                 "قاعدة المصدر: OPERATIONAL STATE هو المرجع للحالة التشغيلية التي تنشئها الآلة، "
-                "وMANUAL SHEETS EVIDENCE دليل للصفوف التي يحررها الإنسان يدويًا. عند التعارض "
-                "لا تدمج القيم بصمت؛ اذكر التعارض واطلب reconciliation. استخدم فقط الأدلة المرفقة "
-                "وافصل المؤكد عن الاستنتاج. رتّب النتيجة إلى: 1) أهم 3 أولويات 2) التغييرات "
+                "وMANUAL SHEETS EVIDENCE دليل للصفوف التي يحررها الإنسان يدويًا. EXTERNAL AI "
+                "UPDATES هي آراء/تقارير من مستشارين وليست حقيقة تشغيلية حتى يتحقق منها المدير. "
+                "عند التعارض لا تدمج القيم بصمت؛ اذكر التعارض ومصدر كل قول. استخدم فقط الأدلة "
+                "المرفقة وافصل المؤكد عن الاستنتاج. رتّب النتيجة إلى: 1) أهم 3 أولويات 2) التغييرات "
                 "3) المهام الناقصة 4) المواعيد القادمة 5) المخاطر والتعثرات مع السبب وخيارَي حل "
                 "وتوصية 6) القرارات المطلوبة 7) الالتزامات والطلبات المالية 8) المعلومات المهمة "
-                "والفرص 9) ما يحتاج تدخل عبدالرحمن اليوم. إذا لم توجد بيانات فاكتب: لا توجد بيانات "
-                "مؤكدة. لا تستخدم جداول Markdown ولا تتجاوز 3000 حرف."
+                "والفرص 9) ما يحتاج تدخل عبدالرحمن اليوم 10) تحديثات فريق AI والتعارضات. إذا لم "
+                "توجد بيانات فاكتب: لا توجد بيانات مؤكدة. لا تستخدم جداول Markdown ولا تتجاوز 3200 حرف."
             )
             context = (
                 "OPERATIONAL STATE (authoritative for machine-created operational records):\n"
                 + operational_context
+                + "\n\nEXTERNAL AI UPDATES (advisory, provenance required):\n"
+                + ai_context
                 + "\n\nSHEETS CHANGE DISCOVERY:\n"
                 + compact_discovery(discovery, limit=4500)
                 + "\n\nMANUAL SHEETS EVIDENCE / PROJECTION:\n"
@@ -153,6 +212,10 @@ def install(bot):
                     "عناصر أزيلت أو أغلقت": discovery["stats"]["removed_or_resolved"],
                     "قرارات تحتاج مراجعة": len(operational.get("decision_requests", [])),
                     "مخاطر وتعثرات مكتشفة": len(discovery["blockers_and_risks"]),
+                    "تحديثات AI الخارجية": len(ai_updates),
+                    "تعارضات AI المفتوحة": len([
+                        c for c in operational.get("contradictions", []) if c.get("status") == "OPEN"
+                    ]),
                 })
             except Exception as exc:
                 dashboard_updated = False
