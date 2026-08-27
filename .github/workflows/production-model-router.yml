@@ -6,10 +6,12 @@ on:
     paths:
       - 'connectors/model_gateway.py'
       - 'connectors/task_delegation.py'
+      - 'connectors/google_knowledge.py'
       - 'connectors/telegram_bot.py'
       - 'connectors/telegram_bot_legacy.py'
       - 'tests/test_production_model_gateway.py'
       - 'tests/test_task_delegation.py'
+      - 'tests/test_google_knowledge.py'
       - '.github/workflows/production-model-router.yml'
 
 jobs:
@@ -20,7 +22,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Test production model routing
-        run: python -m unittest tests.test_production_model_gateway tests.test_task_delegation
+      - name: Test production model routing and knowledge access
+        run: python -m unittest tests.test_production_model_gateway tests.test_task_delegation tests.test_google_knowledge
       - name: Compile production entrypoints
-        run: python -m py_compile connectors/model_gateway.py connectors/task_delegation.py connectors/telegram_bot.py connectors/telegram_bot_legacy.py
+        run: python -m py_compile connectors/model_gateway.py connectors/task_delegation.py connectors/google_knowledge.py connectors/telegram_bot.py connectors/telegram_bot_legacy.py
