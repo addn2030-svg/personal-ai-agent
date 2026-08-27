@@ -152,8 +152,8 @@ def _touch_source(source: str, event_id: str, update_type: str, urgency: str):
 def _wake_manager_async(reason: str):
     def worker():
         try:
-            from engine.manager import fast_cycle
-            fast_cycle()
+            from engine.ai_manager import reactive_cycle
+            reactive_cycle()
         except Exception as exc:  # noqa: BLE001 - runtime boundary
             log_event("AI_GATEWAY_MANAGER_WAKE_FAILED", reason=reason, error=str(exc)[:240])
 
