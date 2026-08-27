@@ -1,0 +1,24 @@
+name: Production Model Router
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'connectors/model_gateway.py'
+      - 'connectors/telegram_bot.py'
+      - 'connectors/telegram_bot_legacy.py'
+      - 'tests/test_production_model_gateway.py'
+      - '.github/workflows/production-model-router.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test production model routing
+        run: python -m unittest tests.test_production_model_gateway
+      - name: Compile production entrypoints
+        run: python -m py_compile connectors/model_gateway.py connectors/telegram_bot.py connectors/telegram_bot_legacy.py
