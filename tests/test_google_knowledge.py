@@ -1,5 +1,5 @@
+import base64
 import json
-import os
 import unittest
 from unittest.mock import patch
 
@@ -43,6 +43,23 @@ class GoogleKnowledgeTests(unittest.TestCase):
         payload = json.dumps({"client_email": "agent@example.iam.gserviceaccount.com"})
         with patch.object(gk, "SERVICE_JSON", payload):
             self.assertEqual(gk.service_account_email(), "agent@example.iam.gserviceaccount.com")
+
+    def test_accepts_name_equals_value_mobile_paste(self):
+        payload = json.dumps({"client_email": "agent@example.iam.gserviceaccount.com"})
+        parsed = gk._parse_service_json("GOOGLE_SERVICE_ACCOUNT_JSON=" + payload)
+        self.assertEqual(parsed["client_email"], "agent@example.iam.gserviceaccount.com")
+
+    def test_accepts_base64_json(self):
+        payload = json.dumps({"client_email": "agent@example.iam.gserviceaccount.com"}).encode("utf-8")
+        encoded = base64.b64encode(payload).decode("ascii")
+        self.assertEqual(gk._parse_service_json(encoded)["client_email"], "agent@example.iam.gserviceaccount.com")
+
+    def test_invalid_json_returns_diagnostic_report_not_json_decode_error(self):
+        with patch.object(gk, "SERVICE_JSON", "not-json"):
+            report = gk.access_report()
+        self.assertFalse(report["credential_ok"])
+        self.assertIn("ليس JSON صالح", report["credential_error"])
+        self.assertEqual(report["service_account"], "غير صالح")
 
 
 if __name__ == "__main__":
