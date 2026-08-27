@@ -5,9 +5,11 @@ on:
     branches: [main]
     paths:
       - 'connectors/model_gateway.py'
+      - 'connectors/task_delegation.py'
       - 'connectors/telegram_bot.py'
       - 'connectors/telegram_bot_legacy.py'
       - 'tests/test_production_model_gateway.py'
+      - 'tests/test_task_delegation.py'
       - '.github/workflows/production-model-router.yml'
 
 jobs:
@@ -19,6 +21,6 @@ jobs:
         with:
           python-version: '3.12'
       - name: Test production model routing
-        run: python -m unittest tests.test_production_model_gateway
+        run: python -m unittest tests.test_production_model_gateway tests.test_task_delegation
       - name: Compile production entrypoints
-        run: python -m py_compile connectors/model_gateway.py connectors/telegram_bot.py connectors/telegram_bot_legacy.py
+        run: python -m py_compile connectors/model_gateway.py connectors/task_delegation.py connectors/telegram_bot.py connectors/telegram_bot_legacy.py
