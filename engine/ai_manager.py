@@ -1,19 +1,24 @@
 # -*- coding: utf-8 -*-
 """Reactive review layer for updates submitted by external AI advisers.
 
-This module deliberately does not let outside AIs mutate tasks, projects, Calendar,
-or outbound communications. It reviews attributed Unified Inbox records, escalates
-high-risk items into decision requests, records explicit contradictions, and then
-runs the existing deterministic Manager fast cycle.
+Outside AIs never mutate tasks, projects, Calendar, or outbound communications. This
+layer reviews attributed Unified Inbox records, escalates high-risk items into owner
+decisions, records contradictions, and may invoke the multi-model AI Council for only
+material cases under explicit daily/cycle limits.
 """
 from __future__ import annotations
 
 import datetime as dt
 import hashlib
+import json
+import os
 
 from engine.store import Store, log_event
 
 ESCALATE_TYPES = {"RISK", "BLOCKER", "CONTRADICTION"}
+AUTO_COUNCIL_ENABLED = os.environ.get("AI_AUTO_COUNCIL_ENABLED", "1").strip() != "0"
+AUTO_COUNCIL_DAILY_LIMIT = int(os.environ.get("AI_AUTO_COUNCIL_DAILY_LIMIT", "5"))
+AUTO_COUNCIL_MAX_PER_CYCLE = int(os.environ.get("AI_AUTO_COUNCIL_MAX_PER_CYCLE", "1"))
 
 
 def _hash(text: str) -> str:
@@ -30,6 +35,7 @@ def _review_mutation(S):
     escalated = 0
     contradictions = 0
     events = []
+    council_candidates = []
     inbox = S.setdefault("unified_inbox", [])
     decision_requests = S.setdefault("decision_requests", [])
     contradiction_rows = S.setdefault("contradictions", [])
@@ -100,6 +106,25 @@ def _review_mutation(S):
             item["status"] = "ESCALATED"
         else:
             item["status"] = "MANAGER_REVIEWED"
+
+        # Automatic council is deliberately narrow: only CRITICAL or explicit
+        # contradictions, and never sensitive records. HIGH/RISK still escalates but
+        # does not spend four model calls automatically.
+        if (
+            not item.get("sensitive")
+            and (classification == "CONTRADICTION" or urgency == "CRITICAL")
+        ):
+            council_candidates.append({
+                "source_item": item.get("id"),
+                "classification": classification,
+                "urgency": urgency,
+                "source": metadata.get("ai_source") or item.get("source") or "external AI",
+                "project": metadata.get("project") or "",
+                "summary": str(item.get("content") or "")[:3000],
+                "evidence": (metadata.get("evidence") or [])[:8],
+                "proposed_action": str(metadata.get("proposed_action") or "")[:1500],
+            })
+
         item["manager_reviewed_at"] = _now_iso()
         reviewed += 1
         changed = True
@@ -120,14 +145,116 @@ def _review_mutation(S):
         "escalated": escalated,
         "contradictions": contradictions,
         "events": events,
+        "council_candidates": council_candidates,
     }
+
+
+def _reserve_council_slot() -> bool:
+    today = dt.date.today().isoformat()
+
+    def mutate(S):
+        markers = S.setdefault("manager_markers", {})
+        if markers.get("auto_council_day") != today:
+            markers["auto_council_day"] = today
+            markers["auto_council_count"] = 0
+        count = int(markers.get("auto_council_count", 0) or 0)
+        if count >= AUTO_COUNCIL_DAILY_LIMIT:
+            return False, False
+        markers["auto_council_count"] = count + 1
+        return True, True
+
+    return bool(Store().transaction(_reserve_mutator(mutate), "auto_council_budget"))
+
+
+def _reserve_mutator(fn):
+    """Keep budget reservation testable while preserving Store.transaction contract."""
+    return fn
+
+
+def _attach_council(source_item: str, record: dict):
+    recommendation = str((record.get("synthesis") or {}).get("recommendation") or "")[:2500]
+    council_id = record.get("id")
+
+    def mutate(S):
+        changed = False
+        for dr in S.setdefault("decision_requests", []):
+            if dr.get("source_item") != source_item:
+                continue
+            if dr.get("council_id") == council_id:
+                return False, dr.get("id")
+            dr["council_id"] = council_id
+            dr["council_recommendation"] = recommendation
+            if recommendation:
+                dr["context"] = (str(dr.get("context") or "") + f"\nAI Council: {recommendation}")[:7000]
+            changed = True
+            return changed, dr.get("id")
+        return False, None
+
+    return Store().transaction(mutate, "ai_council_attached", source_item=source_item, council_id=council_id)
+
+
+def _run_auto_council(candidates: list[dict]) -> list[dict]:
+    if not AUTO_COUNCIL_ENABLED or not candidates:
+        return []
+    try:
+        from engine import ai_council
+        if not ai_council.enabled():
+            return []
+    except Exception as exc:  # noqa: BLE001
+        log_event("AUTO_COUNCIL_UNAVAILABLE", error=str(exc)[:240])
+        return []
+
+    results = []
+    for candidate in candidates[:max(0, AUTO_COUNCIL_MAX_PER_CYCLE)]:
+        if not _reserve_council_slot():
+            log_event("AUTO_COUNCIL_BUDGET_EXHAUSTED", daily_limit=AUTO_COUNCIL_DAILY_LIMIT)
+            break
+        context = json.dumps(
+            {
+                "source": candidate["source"],
+                "classification": candidate["classification"],
+                "urgency": candidate["urgency"],
+                "evidence": candidate["evidence"],
+                "proposed_action": candidate["proposed_action"],
+            },
+            ensure_ascii=False,
+        )
+        question = (
+            "Evaluate this external AI update before the owner acts. Identify agreement, "
+            "material conflicts, missing verification and the safest next step.\n\nUPDATE: "
+            + candidate["summary"]
+        )
+        try:
+            record = ai_council.consult(
+                question,
+                context=context,
+                project=candidate["project"],
+                sensitive=False,
+                persist=True,
+            )
+            _attach_council(candidate["source_item"], record)
+            results.append({
+                "source_item": candidate["source_item"],
+                "council_id": record.get("id"),
+                "status": record.get("status"),
+            })
+        except Exception as exc:  # noqa: BLE001 - do not lose original escalation
+            log_event(
+                "AUTO_COUNCIL_FAILED",
+                source_item=candidate["source_item"],
+                error=str(exc)[:240],
+            )
+            results.append({"source_item": candidate["source_item"], "error": str(exc)[:240]})
+    return results
 
 
 def review_external_updates():
     result = Store().transaction(_review_mutation, "ai_manager_review")
     for event, details in result.get("events", []):
         log_event(event, **details)
-    return {k: v for k, v in result.items() if k != "events"}
+    candidates = result.get("council_candidates", [])
+    result["auto_council"] = _run_auto_council(candidates)
+    return {k: v for k, v in result.items() if k not in {"events", "council_candidates"}}
 
 
 def reactive_cycle():
