@@ -34,7 +34,8 @@ SECTIONS = ["tasks", "projects", "leads", "kpis", "meetings", "decisions",
             "learning_plans", "learning_concepts", "learning_reviews", "knowledge_sources",
             "weakness_protocols", "asset_registry", "okrs", "energy_log", "finance_ebsi",
             "unified_inbox", "fact_registry", "contradictions", "decision_reviews",
-            "connector_health", "telemetry", "trust_snapshots", "conversation_memory"]
+            "connector_health", "telemetry", "trust_snapshots", "conversation_memory",
+            "ai_sources"]
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _DATETIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?([+-]\d{2}:\d{2})?$")
