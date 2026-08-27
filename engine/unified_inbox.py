@@ -15,11 +15,29 @@ PRIVATE_PLACEHOLDER = "[REDACTED_FROM_PERSONAL_OS]"
 ALLOWED_CLASSIFICATIONS = {
     "TASK", "REQUEST", "DECISION", "WAITING_FOR", "FACT", "DOCUMENT", "IDEA",
     "CLINICAL_PRIVATE", "APPOINTMENT", "IGNORE",
+    "RISK", "OPPORTUNITY", "BLOCKER", "PROJECT_UPDATE", "STATUS_CHANGE",
+    "RECOMMENDATION", "CONTRADICTION", "EXTERNAL_AI_RESULT",
 }
 
 
-def add(source, content, kind="TEXT", source_ref="", sensitive=False, metadata=None):
-    raw = f"{source}|{source_ref}|{content}".encode("utf-8")
+def add(
+    source,
+    content,
+    kind="TEXT",
+    source_ref="",
+    sensitive=False,
+    metadata=None,
+    external_id="",
+    return_created=False,
+):
+    """Add one item with stable de-duplication.
+
+    external_id is intended for provider-owned event/update identifiers. When it is
+    present the identity is based on (source, external_id), so a retry cannot create
+    a second record even if the provider slightly changes the payload text.
+    """
+    identity = f"external:{external_id}" if external_id else f"{source_ref}|{content}"
+    raw = f"{source}|{identity}".encode("utf-8")
     iid = "IN-" + hashlib.sha256(raw).hexdigest()[:10].upper()
     persisted_content = PRIVATE_PLACEHOLDER if sensitive else content
     created = {"value": False}
@@ -33,6 +51,7 @@ def add(source, content, kind="TEXT", source_ref="", sensitive=False, metadata=N
             "captured_at": dt.datetime.now().isoformat(timespec="seconds"),
             "source": source,
             "source_ref": source_ref,
+            "external_id": external_id or None,
             "kind": kind,
             "content": persisted_content,
             "sensitive": bool(sensitive),
@@ -50,6 +69,8 @@ def add(source, content, kind="TEXT", source_ref="", sensitive=False, metadata=N
         print(f"📥 {iid} captured from {source}")
     else:
         print(f"↩️ duplicate ignored: {iid}")
+    if return_created:
+        return result, created["value"]
     return result
 
 
