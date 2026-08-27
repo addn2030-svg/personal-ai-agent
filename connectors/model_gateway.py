@@ -76,17 +76,29 @@ def _openai_messages(chat_id: int, text: str, system_prompt: str, context: str) 
 
 
 def openrouter_chat(*, model: str, messages: list[dict], sensitive: bool = False,
-                    max_tokens: int = 1200, temperature: float = 0.2) -> tuple[str, dict, int]:
+                    max_tokens: int = 1200, temperature: float = 0.2,
+                    response_format: dict | None = None) -> tuple[str, dict, int]:
+    """Call OpenRouter without exposing the API key to callers.
+
+    ``response_format`` is optional. When supplied, provider routing is constrained to
+    endpoints that support the requested parameters so a council judge can reliably
+    return machine-readable JSON.
+    """
     if not configured():
         raise RuntimeError("OPENROUTER_API_KEY is not configured")
 
+    provider = _provider_policy(sensitive)
     payload = {
         "model": model,
         "messages": messages,
         "max_tokens": max_tokens,
         "temperature": temperature,
-        "provider": _provider_policy(sensitive),
+        "provider": provider,
     }
+    if response_format:
+        payload["response_format"] = response_format
+        provider["require_parameters"] = True
+
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
