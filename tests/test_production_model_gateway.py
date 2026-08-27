@@ -1,7 +1,13 @@
 import importlib
 import os
+import sys
 import unittest
+from pathlib import Path
 from unittest.mock import Mock, patch
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "engine"))
 
 
 class ProductionModelGatewayTests(unittest.TestCase):
