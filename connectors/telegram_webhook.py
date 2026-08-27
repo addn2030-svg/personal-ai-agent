@@ -27,7 +27,7 @@ BASE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BASE))
 sys.path.insert(0, str(BASE / "engine"))
 
-from connectors import ai_gateway
+from connectors import ai_gateway, model_gateway
 from connectors import telegram_bot as bot
 from connectors.brief_runtime import install as install_brief_runtime
 from connectors.council_runtime import install as install_council_runtime
@@ -207,6 +207,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/ready":
             ok, detail = _probe_sheets()
+            model_status = model_gateway.status()
             self._send_json(
                 200 if ok else 503,
                 {
@@ -214,6 +215,14 @@ class Handler(BaseHTTPRequestHandler):
                     "telegram_mode": "webhook",
                     "sheets": detail,
                     "ai_gateway_sources": ai_gateway.configured_sources(),
+                    "models": {
+                        "openrouter_configured": model_status["openrouter_configured"],
+                        "bedrock_configured": model_status["bedrock_configured"],
+                        "general_provider": model_status["desired_general_provider"],
+                        "clinical_provider": model_status["desired_clinical_provider"],
+                        "roles": model_status["models"],
+                        "bedrock_model": model_status["bedrock_model"],
+                    },
                 },
             )
             return
@@ -273,8 +282,17 @@ class Handler(BaseHTTPRequestHandler):
 def run():
     _configure_webhook()
     sheets_ok, detail = _probe_sheets()
+    model_status = model_gateway.status()
     print(f"Sheets startup check: {'OK' if sheets_ok else 'WARN'} - {detail}", flush=True)
     print(f"AI gateway sources configured: {', '.join(ai_gateway.configured_sources()) or 'none'}", flush=True)
+    print(
+        "Model routing: "
+        f"general={model_status['desired_general_provider']} "
+        f"clinical={model_status['desired_clinical_provider']} "
+        f"openrouter={'yes' if model_status['openrouter_configured'] else 'no'} "
+        f"bedrock={'yes' if model_status['bedrock_configured'] else 'no'}",
+        flush=True,
+    )
     server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     print(f"HTTP server listening on :{PORT} (Telegram {WEBHOOK_PATH}, AI {ai_gateway.UPDATE_PATH})", flush=True)
     server.serve_forever()
