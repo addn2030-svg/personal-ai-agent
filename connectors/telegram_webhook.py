@@ -30,6 +30,7 @@ sys.path.insert(0, str(BASE / "engine"))
 from connectors import ai_gateway
 from connectors import telegram_bot as bot
 from connectors.brief_runtime import install as install_brief_runtime
+from connectors.council_runtime import install as install_council_runtime
 
 PORT = int(os.environ.get("PORT", "8080"))
 PUBLIC_BASE_URL = os.environ.get("TELEGRAM_WEBHOOK_BASE_URL", "").strip().rstrip("/")
@@ -51,8 +52,9 @@ _recent_updates = deque(maxlen=2000)
 _processing_updates = set()
 _recent_lock = threading.Lock()
 
-# Install the resilient /brief implementation before any update is processed.
+# Runtime feature wrappers. Council installs after brief so both command routers remain active.
 install_brief_runtime(bot)
+install_council_runtime(bot)
 
 # Keep the original write implementation, then add bounded retry around it.
 _raw_append = bot._append
