@@ -3,7 +3,7 @@
 
 OpenRouter is the preferred non-clinical model gateway when configured. The existing
 Bedrock path stays available as a fallback and remains the default for clinical
-content unless explicitly overridden. This file does not store API keys.
+content unless explicitly overridden. This file never stores API keys.
 """
 from __future__ import annotations
 
@@ -24,12 +24,22 @@ AI_CRITIC_MODEL = os.environ.get("AI_CRITIC_MODEL", "openai/gpt-5.6-sol").strip(
 AI_GOOGLE_MODEL = os.environ.get("AI_GOOGLE_MODEL", "google/gemini-3.7-flash").strip()
 OPENROUTER_REQUIRE_ZDR = os.environ.get("OPENROUTER_REQUIRE_ZDR", "0").strip() == "1"
 OPENROUTER_FALLBACK_BEDROCK = os.environ.get("OPENROUTER_FALLBACK_BEDROCK", "1").strip() == "1"
+AWS_REGION = os.environ.get("AWS_REGION", "us-east-1").strip()
+BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-6").strip()
 
 _ROUTE = threading.local()
 
 
 def configured() -> bool:
     return bool(OPENROUTER_API_KEY and OPENROUTER_BASE_URL)
+
+
+def bedrock_configured() -> bool:
+    auth = bool(
+        os.environ.get("AWS_BEARER_TOKEN_BEDROCK")
+        or (os.environ.get("AWS_ACCESS_KEY_ID") and os.environ.get("AWS_SECRET_ACCESS_KEY"))
+    )
+    return auth and bool(AWS_REGION) and bool(BEDROCK_MODEL_ID)
 
 
 def models_for_roles() -> dict[str, str]:
@@ -78,12 +88,7 @@ def _openai_messages(chat_id: int, text: str, system_prompt: str, context: str) 
 def openrouter_chat(*, model: str, messages: list[dict], sensitive: bool = False,
                     max_tokens: int = 1200, temperature: float = 0.2,
                     response_format: dict | None = None) -> tuple[str, dict, int]:
-    """Call OpenRouter without exposing the API key to callers.
-
-    ``response_format`` is optional. When supplied, provider routing is constrained to
-    endpoints that support the requested parameters so a council judge can reliably
-    return machine-readable JSON.
-    """
+    """Call OpenRouter without exposing the API key to callers."""
     if not configured():
         raise RuntimeError("OPENROUTER_API_KEY is not configured")
 
@@ -150,6 +155,81 @@ def openrouter_chat(*, model: str, messages: list[dict], sensitive: bool = False
     return answer, usage, int((time.monotonic() - started) * 1000)
 
 
+def _safe_error(exc: Exception) -> str:
+    value = str(exc)
+    for secret in (
+        OPENROUTER_API_KEY,
+        os.environ.get("AWS_BEARER_TOKEN_BEDROCK", ""),
+        os.environ.get("AWS_SECRET_ACCESS_KEY", ""),
+    ):
+        if secret:
+            value = value.replace(secret, "[REDACTED]")
+    return value[:240]
+
+
+def probe_openrouter() -> dict:
+    """Perform one tiny paid inference to prove the configured OpenRouter route works."""
+    if not configured():
+        return {"configured": False, "ok": False, "detail": "OPENROUTER_API_KEY is not configured"}
+    try:
+        answer, usage, latency_ms = openrouter_chat(
+            model=AI_MANAGER_MODEL,
+            messages=[{"role": "user", "content": "Reply with exactly: OK"}],
+            sensitive=False,
+            max_tokens=16,
+            temperature=0,
+        )
+        return {
+            "configured": True,
+            "ok": bool(answer),
+            "model": last_route().get("model") or AI_MANAGER_MODEL,
+            "latency_ms": latency_ms,
+            "usage": usage,
+        }
+    except Exception as exc:  # noqa: BLE001 - diagnostic boundary
+        return {"configured": True, "ok": False, "detail": _safe_error(exc), "model": AI_MANAGER_MODEL}
+
+
+def probe_bedrock() -> dict:
+    """Perform one tiny Bedrock Converse call against the configured fallback model."""
+    if not bedrock_configured():
+        return {"configured": False, "ok": False, "detail": "AWS Bedrock credentials/model are not configured"}
+    started = time.monotonic()
+    try:
+        import boto3
+
+        client = boto3.client("bedrock-runtime", region_name=AWS_REGION)
+        response = client.converse(
+            modelId=BEDROCK_MODEL_ID,
+            messages=[{"role": "user", "content": [{"text": "Reply with exactly: OK"}]}],
+            inferenceConfig={"maxTokens": 16, "temperature": 0},
+        )
+        blocks = response.get("output", {}).get("message", {}).get("content", [])
+        answer = "\n".join(block.get("text", "") for block in blocks if block.get("text"))
+        return {
+            "configured": True,
+            "ok": bool(answer),
+            "model": BEDROCK_MODEL_ID,
+            "latency_ms": int((time.monotonic() - started) * 1000),
+            "usage": response.get("usage", {}),
+        }
+    except Exception as exc:  # noqa: BLE001 - diagnostic boundary
+        return {"configured": True, "ok": False, "detail": _safe_error(exc), "model": BEDROCK_MODEL_ID}
+
+
+def live_probe() -> dict:
+    """Explicit live connectivity test. It never returns credentials or prompt content."""
+    return {
+        "openrouter": probe_openrouter(),
+        "bedrock": probe_bedrock(),
+        "policy": {
+            "general_primary": desired_provider(False),
+            "clinical_primary": desired_provider(True),
+            "openrouter_to_bedrock_fallback": OPENROUTER_FALLBACK_BEDROCK,
+        },
+    }
+
+
 def ask(chat_id: int, text: str, *, system_prompt: str, sheet_context: str = "",
         sensitive: bool = False, bedrock_fallback=None):
     """Return the legacy 4-tuple: answer, usage, latency_ms, sources."""
@@ -160,7 +240,7 @@ def ask(chat_id: int, text: str, *, system_prompt: str, sheet_context: str = "",
         if bedrock_fallback is None:
             raise RuntimeError("Bedrock fallback is not available")
         result = bedrock_fallback(chat_id, text, sheet_context=sheet_context)
-        _set_route("bedrock", os.environ.get("BEDROCK_MODEL_ID", ""))
+        _set_route("bedrock", BEDROCK_MODEL_ID)
         return result
 
     context, sources = build_context(chat_id, text)
@@ -177,16 +257,18 @@ def ask(chat_id: int, text: str, *, system_prompt: str, sheet_context: str = "",
         if not OPENROUTER_FALLBACK_BEDROCK or bedrock_fallback is None:
             raise
         result = bedrock_fallback(chat_id, text, sheet_context=sheet_context)
-        _set_route("bedrock", os.environ.get("BEDROCK_MODEL_ID", ""), fallback=True)
+        _set_route("bedrock", BEDROCK_MODEL_ID, fallback=True)
         return result
 
 
 def status() -> dict:
     return {
         "openrouter_configured": configured(),
+        "bedrock_configured": bedrock_configured(),
         "desired_general_provider": desired_provider(False),
         "desired_clinical_provider": desired_provider(True),
         "models": models_for_roles(),
+        "bedrock_model": BEDROCK_MODEL_ID,
         "general_policy": _provider_policy(False),
         "clinical_policy": _provider_policy(True),
     }
