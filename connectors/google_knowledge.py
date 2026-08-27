@@ -6,7 +6,7 @@ Allowed resource IDs are explicit to prevent arbitrary Drive traversal.
 """
 from __future__ import annotations
 
-import io
+import base64
 import json
 import os
 import re
@@ -32,21 +32,76 @@ _FOLDER = "application/vnd.google-apps.folder"
 _TEXT_TYPES = {"text/plain", "text/markdown", "text/csv", "application/json"}
 
 
+def _parse_service_json(raw: str) -> dict:
+    """Accept common Railway secret formats without exposing the credential."""
+    value = (raw or "").strip().lstrip("\ufeff")
+    if not value:
+        raise RuntimeError("GOOGLE_SERVICE_ACCOUNT_JSON غير مضاف في Production")
+
+    # A common mobile copy/paste mistake is putting NAME=value in the value field.
+    prefix = "GOOGLE_SERVICE_ACCOUNT_JSON="
+    if value.startswith(prefix):
+        value = value[len(prefix):].strip()
+
+    # Support a file path for local deployments.
+    if os.path.isfile(value):
+        with open(value, "r", encoding="utf-8") as fh:
+            value = fh.read().strip().lstrip("\ufeff")
+
+    candidates = [value]
+
+    # Railway values sometimes contain a JSON string containing escaped JSON.
+    try:
+        outer = json.loads(value)
+        if isinstance(outer, str):
+            candidates.insert(0, outer.strip().lstrip("\ufeff"))
+        elif isinstance(outer, dict):
+            return outer
+    except (json.JSONDecodeError, TypeError):
+        pass
+
+    # Also accept base64-encoded service-account JSON.
+    try:
+        padded = value + ("=" * (-len(value) % 4))
+        decoded = base64.b64decode(padded, validate=True).decode("utf-8").strip().lstrip("\ufeff")
+        if decoded:
+            candidates.append(decoded)
+    except Exception:
+        pass
+
+    for candidate in candidates:
+        try:
+            obj = json.loads(candidate)
+            if isinstance(obj, str):
+                obj = json.loads(obj)
+            if isinstance(obj, dict):
+                return obj
+        except (json.JSONDecodeError, TypeError):
+            continue
+
+    raise RuntimeError(
+        "GOOGLE_SERVICE_ACCOUNT_JSON موجود لكنه ليس JSON صالحًا. "
+        "ضع محتوى ملف Service Account JSON فقط في قيمة المتغير، بدون اسم المتغير أو نص إضافي."
+    )
+
+
 def _info() -> dict:
-    if not SERVICE_JSON:
-        raise RuntimeError("GOOGLE_SERVICE_ACCOUNT_JSON is not configured")
-    return json.loads(SERVICE_JSON)
+    return _parse_service_json(SERVICE_JSON)
 
 
 def service_account_email() -> str:
-    return str(_info().get("client_email") or "")
+    try:
+        return str(_info().get("client_email") or "")
+    except Exception:
+        return ""
 
 
 def _services():
     from google.oauth2 import service_account
     from googleapiclient.discovery import build
 
-    creds = service_account.Credentials.from_service_account_info(_info(), scopes=SCOPES)
+    info = _info()
+    creds = service_account.Credentials.from_service_account_info(info, scopes=SCOPES)
     return (
         build("drive", "v3", credentials=creds, cache_discovery=False),
         build("sheets", "v4", credentials=creds, cache_discovery=False),
@@ -70,19 +125,42 @@ def allowed_spreadsheet_ids() -> set[str]:
 
 
 def _safe_error(exc: Exception) -> str:
-    text = str(exc).replace(service_account_email(), "[SERVICE_ACCOUNT]")
-    return text[:180]
+    text = str(exc)
+    email = service_account_email()
+    if email:
+        text = text.replace(email, "[SERVICE_ACCOUNT]")
+    return text[:240]
 
 
 def access_report() -> dict:
-    drive, sheets = _services()
-    report = {"service_account": service_account_email(), "spreadsheets": [], "folders": []}
+    try:
+        info = _info()
+        email = str(info.get("client_email") or "")
+        if not email:
+            raise RuntimeError("Service Account JSON لا يحتوي client_email")
+        drive, sheets = _services()
+    except Exception as exc:
+        return {
+            "credential_ok": False,
+            "credential_error": _safe_error(exc),
+            "service_account": "غير صالح",
+            "spreadsheets": [],
+            "folders": [],
+        }
+
+    report = {
+        "credential_ok": True,
+        "credential_error": "",
+        "service_account": email,
+        "spreadsheets": [],
+        "folders": [],
+    }
     for sid in sorted(allowed_spreadsheet_ids()):
         row = {"id": sid, "ok": False, "title": ""}
         try:
             meta = sheets.spreadsheets().get(spreadsheetId=sid, fields="properties.title").execute()
             row.update(ok=True, title=(meta.get("properties") or {}).get("title", ""))
-        except Exception as exc:  # connector boundary
+        except Exception as exc:
             row["error"] = _safe_error(exc)
         report["spreadsheets"].append(row)
     for fid in ALLOWED_FOLDER_IDS:
@@ -121,7 +199,6 @@ def search(query: str, max_results: int = 20) -> list[dict]:
     drive, sheets = _services()
     results = []
 
-    # Search the curated Drive index spreadsheet first.
     try:
         meta = sheets.spreadsheets().get(spreadsheetId=INDEX_SHEET_ID, fields="sheets.properties.title").execute()
         tabs = [s["properties"]["title"] for s in meta.get("sheets", [])]
@@ -138,7 +215,6 @@ def search(query: str, max_results: int = 20) -> list[dict]:
     except Exception:
         pass
 
-    # Also search names of direct children in the allow-listed folders.
     for fid in ALLOWED_FOLDER_IDS:
         try:
             for item in _folder_items(drive, fid, max_items=100):
