@@ -22,6 +22,7 @@ UPDATE_PATH = os.environ.get("AI_GATEWAY_UPDATE_PATH", "/api/ai/update").strip()
 HEALTH_PATH = os.environ.get("AI_GATEWAY_HEALTH_PATH", "/api/ai/health").strip() or "/api/ai/health"
 MAX_SUMMARY_CHARS = 4000
 MAX_EVIDENCE_ITEMS = 10
+PRIVATE_PLACEHOLDER = "[REDACTED_FROM_PERSONAL_OS]"
 
 ALLOWED_TYPES = {
     "TASK", "REQUEST", "DECISION", "WAITING_FOR", "FACT", "DOCUMENT", "IDEA",
@@ -165,17 +166,32 @@ def ingest(source: str, payload: dict) -> dict:
     if not source:
         raise ValueError("source is required")
     clean = validate_payload(payload)
+
+    # A sensitive update keeps only provenance/routing metadata in the Personal OS.
+    # Free text, evidence, project labels and proposed actions are not persisted here.
+    if clean["sensitive"]:
+        metadata_project = ""
+        metadata_evidence = []
+        metadata_proposed_action = PRIVATE_PLACEHOLDER
+        classification_action = PRIVATE_PLACEHOLDER
+    else:
+        metadata_project = clean["project"]
+        metadata_evidence = clean["evidence"]
+        metadata_proposed_action = clean["proposed_action"]
+        classification_action = clean["proposed_action"]
+
     metadata = {
         "origin": "external_ai",
         "ai_source": source,
         "event_id": clean["event_id"],
         "update_type": clean["type"],
-        "project": clean["project"],
+        "project": metadata_project,
         "confidence": clean["confidence"],
         "urgency": clean["urgency"],
-        "evidence": clean["evidence"],
-        "proposed_action": clean["proposed_action"],
+        "evidence": metadata_evidence,
+        "proposed_action": metadata_proposed_action,
         "requires_confirmation": clean["requires_confirmation"],
+        "sensitive": clean["sensitive"],
     }
     iid, created = unified_inbox.add(
         source=f"AI:{source}",
@@ -190,7 +206,7 @@ def ingest(source: str, payload: dict) -> dict:
     if not created:
         return {"ok": True, "duplicate": True, "inbox_id": iid, "event_id": clean["event_id"]}
 
-    unified_inbox.classify(iid, clean["type"], clean["proposed_action"])
+    unified_inbox.classify(iid, clean["type"], classification_action)
     source_state = _touch_source(source, clean["event_id"], clean["type"], clean["urgency"])
     log_event(
         "AI_GATEWAY_ACCEPTED",
@@ -198,6 +214,7 @@ def ingest(source: str, payload: dict) -> dict:
         event_id=clean["event_id"],
         update_type=clean["type"],
         urgency=clean["urgency"],
+        sensitive=clean["sensitive"],
         inbox_id=iid,
     )
 
