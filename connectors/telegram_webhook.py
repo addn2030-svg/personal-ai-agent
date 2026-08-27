@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
-"""Minimal Railway Telegram webhook runner for Abdulrahman AI OS.
+"""Railway HTTP runner for Telegram webhook + secure external-AI ingestion.
 
 P0 goals:
 - eliminate getUpdates polling conflicts (HTTP 409),
 - retry transient Google Sheets writes without adding a new database/queue,
 - validate the live Sheets gateway/schema at startup,
 - keep the existing bot command/business logic unchanged.
+
+v0.5 adds an authenticated /api/ai/update route on the same Railway service.
+External advisers enter through Unified Inbox and never write operational state directly.
 """
 from __future__ import annotations
 
@@ -24,6 +27,7 @@ BASE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BASE))
 sys.path.insert(0, str(BASE / "engine"))
 
+from connectors import ai_gateway
 from connectors import telegram_bot as bot
 from connectors.brief_runtime import install as install_brief_runtime
 
@@ -71,11 +75,7 @@ bot._append = _append_with_retry
 
 
 def _clinical_minimize(text: str):
-    """Do not persist free-text clinical details in general Sheets logs.
-
-    Clinical context is used for the live response, but the generic intake/conversation
-    tables only retain a marker. This is deliberate data minimization for P0.
-    """
+    """Do not persist free-text clinical details in general Sheets logs."""
     if bot._clinical_hint(text or ""):
         return "[CLINICAL_PRIVATE_REDACTED_AT_SOURCE]"
     return _original_redact(text)
@@ -99,7 +99,6 @@ def _probe_sheets():
         if missing:
             return False, "Missing required tabs: " + ", ".join(missing)
 
-        # Probe the exact action that previously failed when an old Apps Script deployment was live.
         if si.WEBHOOK_URL and si.WEBHOOK_SECRET:
             si._webhook("upsert_metrics", sheet="Executive_Brief", metrics={})
         elif "Executive_Brief" not in titles:
@@ -157,13 +156,6 @@ def _complete_update(update_id: int):
 
 
 def _process_update(update_id: int, message: dict | None):
-    """Run slow bot work after Telegram has already received HTTP 200.
-
-    Telegram retries webhooks when a handler takes too long. Commands such as /brief
-    can require Google + Bedrock calls, so processing synchronously can duplicate the
-    progress message even when update-id de-duplication exists. Acknowledge first,
-    process in a daemon thread, and surface failures directly to the owner.
-    """
     try:
         if message:
             bot.handle_message(message)
@@ -180,32 +172,68 @@ def _process_update(update_id: int, message: dict | None):
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "AbdulrahmanAgentWebhook/1.2"
+    server_version = "AbdulrahmanAgentWebhook/1.3"
 
     def log_message(self, fmt, *args):
         print("http:", fmt % args, flush=True)
 
     def _send_json(self, status: int, payload: dict):
-        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        data = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
 
+    def _read_json(self):
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            length = 0
+        if length <= 0 or length > _MAX_BODY:
+            raise ValueError("invalid request body size")
+        try:
+            return json.loads(self.rfile.read(length).decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError("invalid JSON body") from exc
+
     def do_GET(self):  # noqa: N802
         if self.path == "/health":
-            # Liveness must not depend on Google availability; Railway should not restart
-            # a healthy process merely because an external API is temporarily degraded.
-            self._send_json(200, {"ok": True, "telegram_mode": "webhook"})
+            self._send_json(200, {"ok": True, "telegram_mode": "webhook", "ai_gateway": "v0.5"})
             return
         if self.path == "/ready":
             ok, detail = _probe_sheets()
-            self._send_json(200 if ok else 503, {"ok": ok, "telegram_mode": "webhook", "sheets": detail})
+            self._send_json(
+                200 if ok else 503,
+                {
+                    "ok": ok,
+                    "telegram_mode": "webhook",
+                    "sheets": detail,
+                    "ai_gateway_sources": ai_gateway.configured_sources(),
+                },
+            )
+            return
+        if self.path == ai_gateway.HEALTH_PATH:
+            self._send_json(200, ai_gateway.health())
             return
         self._send_json(404, {"ok": False})
 
     def do_POST(self):  # noqa: N802
+        if self.path == ai_gateway.UPDATE_PATH:
+            source = ai_gateway.authenticate(self.headers)
+            if not source:
+                self._send_json(403, {"ok": False, "error": "AI gateway authentication failed"})
+                return
+            try:
+                result = ai_gateway.ingest(source, self._read_json())
+                self._send_json(200 if result.get("duplicate") else 202, result)
+            except ValueError as exc:
+                self._send_json(400, {"ok": False, "error": str(exc)[:240]})
+            except Exception as exc:  # noqa: BLE001
+                print(f"AI gateway error: {str(exc)[:300]}", flush=True)
+                self._send_json(500, {"ok": False, "error": "AI gateway internal error"})
+            return
+
         if self.path != WEBHOOK_PATH:
             self._send_json(404, {"ok": False})
             return
@@ -216,15 +244,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         try:
-            length = int(self.headers.get("Content-Length", "0"))
-        except ValueError:
-            length = 0
-        if length <= 0 or length > _MAX_BODY:
-            self._send_json(400, {"ok": False})
-            return
-
-        try:
-            update = json.loads(self.rfile.read(length).decode("utf-8"))
+            update = self._read_json()
             update_id = int(update.get("update_id", -1))
             if not _claim_update(update_id):
                 self._send_json(200, {"ok": True, "duplicate": True})
@@ -238,10 +258,9 @@ class Handler(BaseHTTPRequestHandler):
                 daemon=True,
             )
             worker.start()
-
-            # Acknowledge Telegram immediately. Slow Google/Bedrock calls continue in
-            # the background and cannot trigger Telegram webhook redelivery.
             self._send_json(200, {"ok": True, "accepted": True})
+        except ValueError as exc:
+            self._send_json(400, {"ok": False, "error": str(exc)[:200]})
         except Exception as exc:  # noqa: BLE001
             print(f"Telegram webhook acceptance error: {str(exc)[:300]}", flush=True)
             self._send_json(500, {"ok": False})
@@ -251,8 +270,9 @@ def run():
     _configure_webhook()
     sheets_ok, detail = _probe_sheets()
     print(f"Sheets startup check: {'OK' if sheets_ok else 'WARN'} - {detail}", flush=True)
+    print(f"AI gateway sources configured: {', '.join(ai_gateway.configured_sources()) or 'none'}", flush=True)
     server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
-    print(f"HTTP webhook server listening on :{PORT}{WEBHOOK_PATH}", flush=True)
+    print(f"HTTP server listening on :{PORT} (Telegram {WEBHOOK_PATH}, AI {ai_gateway.UPDATE_PATH})", flush=True)
     server.serve_forever()
 
 
