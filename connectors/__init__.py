@@ -7,8 +7,14 @@ from .provider_diagnostics import install as _install_provider_diagnostics
 _install_direct_specialists(model_gateway)
 _install_provider_diagnostics(model_gateway)
 
-# Keep the existing task_delegation import surface, but upgrade /mission to the
-# sequential cooperative handoff: Claude -> Gemini -> GPT -> Claude.
+# v0.8 keeps the cooperative handoff implementation available for council/deep
+# fallbacks and backward compatibility.
 from .team_orchestrator import install as _install_team_orchestrator
 
 _install_team_orchestrator()
+
+# v0.9 is the active /mission surface: Bedrock-first, conditional delegation,
+# compact packets, explicit token budgets, and optional Arena/GitHub capsules.
+from .lean_missions import install as _install_lean_missions
+
+_install_lean_missions()
