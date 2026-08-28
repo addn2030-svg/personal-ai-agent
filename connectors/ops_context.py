@@ -127,6 +127,34 @@ def _sheet_lines() -> list[str]:
     return lines
 
 
+def google_config_status() -> dict:
+    """Return only non-secret Google configuration state."""
+    from . import calendar_actions
+    from . import google_credentials
+    from . import sheet_intelligence
+
+    sa = google_credentials.status()
+    cal = calendar_actions.calendar_auth_status()
+    direct = bool(sheet_intelligence._direct_ready())
+    webhook = bool(sheet_intelligence._webhook_ready())
+    if direct:
+        sheets_path = "direct"
+    elif webhook:
+        sheets_path = "webhook"
+    else:
+        sheets_path = "none"
+    return {
+        "service_account_present": bool(sa.get("present")),
+        "service_account_valid": bool(sa.get("valid")),
+        "calendar_service_account_present": bool(cal.get("service_account_present")),
+        "calendar_service_account_valid": bool(cal.get("service_account_valid")),
+        "calendar_id_mode": cal.get("calendar_id_mode", "unknown"),
+        "calendar_auth_path": cal.get("path", "unknown"),
+        "sheets_read_path": sheets_path,
+        "sheets_webhook_configured": webhook,
+    }
+
+
 def build_ops_context(goal: str, limit_chars: int = OPS_CONTEXT_LIMIT) -> OpsContextPacket:
     if not needs_ops_context(goal):
         return OpsContextPacket()
@@ -179,6 +207,7 @@ def probe(goal: str = "priorities tomorrow") -> dict:
         "sheet_rows": packet.sheet_count,
         "errors": list(packet.errors),
         "preview": packet.text[:1200],
+        "google_config": google_config_status(),
     }
 
 
