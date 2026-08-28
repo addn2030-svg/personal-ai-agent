@@ -65,7 +65,7 @@ def _plan_mission(chat_id: int, objective: str, bedrock_fallback=None) -> tuple[
         "Do not assign external actions, claim browsing, or include secrets.\n\nOBJECTIVE:\n" + objective
     )
     try:
-        result = routed_agent(
+        result = base._openrouter_agent(
             "claude", planner_prompt, max_tokens=700, temperature=0.1,
             response_format={"type": "json_object"},
         )
@@ -94,7 +94,7 @@ def _run_handoff(objective: str, plan: dict) -> tuple[dict[str, base.AgentResult
         "or bullets over long prose. Do not stop after the first item. Keep the package under about 900 words."
     )
     try:
-        results["gemini"] = routed_agent(
+        results["gemini"] = base._openrouter_agent(
             "gemini", gemini_task, max_tokens=1350, temperature=0.2
         )
     except Exception as exc:
@@ -102,9 +102,7 @@ def _run_handoff(objective: str, plan: dict) -> tuple[dict[str, base.AgentResult
 
     if "gemini" in results:
         gemini_handoff = _bounded_text(results["gemini"].answer)
-        handoff_context = (
-            "GEMINI HANDOFF — review this exact specialist output:\n" + gemini_handoff
-        )
+        handoff_context = "GEMINI HANDOFF — review this exact specialist output:\n" + gemini_handoff
     else:
         handoff_context = (
             "GEMINI HANDOFF — unavailable. Perform a standalone risk/verification review of the objective and "
@@ -120,7 +118,7 @@ def _run_handoff(objective: str, plan: dict) -> tuple[dict[str, base.AgentResult
         "unavailable or contains [HANDOFF_TRUNCATED].\n\nOBJECTIVE:\n" + objective + "\n\n" + handoff_context
     )
     try:
-        results["gpt"] = routed_agent(
+        results["gpt"] = base._openrouter_agent(
             "gpt", gpt_task, max_tokens=1200, temperature=0.15
         )
     except Exception as exc:
@@ -191,7 +189,7 @@ def mission(chat_id: int, objective: str, *, bedrock_fallback=None) -> str:
         f"SPECIALIST CHAIN:\n{evidence}"
     )
     try:
-        manager = routed_agent("claude", synthesis_prompt, max_tokens=1500, temperature=0.12)
+        manager = base._openrouter_agent("claude", synthesis_prompt, max_tokens=1500, temperature=0.12)
         final_answer = manager.answer
         manager_source = f"Claude/{manager.provider} | {manager.model}"
     except Exception:
