@@ -1,6 +1,7 @@
 import unittest
 from unittest.mock import patch
 
+from connectors import lean_missions
 from connectors import model_gateway as models
 from connectors import task_delegation as base
 from connectors import team_orchestrator as team
@@ -24,10 +25,12 @@ class TeamOrchestratorTests(unittest.TestCase):
         self.assertEqual(result.model, "gpt-5.6-sol")
         self.assertEqual(result.answer, "answer")
 
-    def test_install_exposes_v08_mission_on_legacy_module(self):
+    def test_v08_install_does_not_override_active_v09_surface(self):
+        lean_missions.install()
         team.install()
-        self.assertIs(base.mission, team.mission)
-        self.assertIs(base.agents_status_text, team.agents_status_text)
+        self.assertIs(base.mission, lean_missions.mission)
+        self.assertIs(base.agents_status_text, lean_missions.agents_status_text)
+        self.assertTrue(callable(team.mission))
 
 
 if __name__ == "__main__":
