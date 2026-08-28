@@ -27,9 +27,12 @@ class OpsContextTests(unittest.TestCase):
             ops, "_sheet_lines", return_value=["SHEET " + "B" * 500]
         ):
             packet = ops.build_ops_context("priorities tomorrow", limit_chars=500)
+        self.assertTrue(packet.triggered)
         self.assertLessEqual(len(packet.text), 500)
         self.assertIn("OPS_CONTEXT_TRUNCATED", packet.text)
         self.assertEqual(packet.sources, ("calendar", "sheets"))
+        self.assertEqual(packet.calendar_count, 1)
+        self.assertEqual(packet.sheet_count, 1)
 
     def test_sheet_context_skips_clinical_or_identifier_rows(self):
         snapshot = {
@@ -52,6 +55,9 @@ class OpsContextTests(unittest.TestCase):
         packet = ops.OpsContextPacket(
             text="CAL 2026-08-29 09:00 | Team meeting\nSHEET Projects r2 | Agent | Pending",
             sources=("calendar", "sheets"),
+            triggered=True,
+            calendar_count=1,
+            sheet_count=1,
         )
         with patch.object(ops, "build_ops_context", return_value=packet), patch.object(
             lean.bedrock_team, "manager", return_value=br()
@@ -59,12 +65,32 @@ class OpsContextTests(unittest.TestCase):
             result = ops.mission(1, "Give me three priorities for tomorrow")
 
         self.assertIn("Calls: 1", result)
-        self.assertIn("Context: ops-mini | sources=calendar+sheets", result)
+        self.assertIn("Context: ops-mini | status=ready | sources=calendar+sheets", result)
         specialist.assert_not_called()
         manager.assert_called_once()
         prompt = manager.call_args.args[0]
         self.assertIn("OPS_CONTEXT_CAPSULE", prompt)
         self.assertIn("Team meeting", prompt)
+
+    def test_triggered_but_empty_context_is_visible_in_mission_header(self):
+        packet = ops.OpsContextPacket(triggered=True)
+        with patch.object(ops, "build_ops_context", return_value=packet), patch.object(
+            lean.bedrock_team, "manager", return_value=br()
+        ):
+            result = ops.mission(1, "Give me three priorities for tomorrow")
+        self.assertIn("Context: ops-mini | status=empty | sources=none", result)
+        self.assertIn("calendar=0 sheets=0", result)
+
+    def test_source_errors_are_preserved_safely_for_zero_model_probe(self):
+        with patch.object(ops, "_calendar_lines", side_effect=RuntimeError("calendar unavailable")), patch.object(
+            ops, "_sheet_lines", side_effect=RuntimeError("sheets unavailable")
+        ):
+            result = ops.probe("priorities tomorrow")
+        self.assertTrue(result["triggered"])
+        self.assertEqual(result["chars"], 0)
+        self.assertEqual(len(result["errors"]), 2)
+        self.assertIn("calendar", result["errors"][0])
+        self.assertIn("sheets", result["errors"][1])
 
 
 if __name__ == "__main__":
