@@ -86,7 +86,7 @@ class TaskDelegationTests(unittest.TestCase):
                 return team.AgentResult("claude", "claude", "openrouter", "claude", "Unified manager decision")
             raise AssertionError("unexpected call")
 
-        with patch.object(v08, "routed_agent", side_effect=fake):
+        with patch.object(team, "_openrouter_agent", side_effect=fake):
             result = v08.mission(1, "Improve agent reliability")
 
         self.assertIn("🎯 AI Mission v0.8", result)
@@ -117,7 +117,7 @@ class TaskDelegationTests(unittest.TestCase):
                 return team.AgentResult("claude", "claude", "openrouter", "claude", "manager result")
             raise AssertionError("unexpected")
 
-        with patch.object(v08, "routed_agent", side_effect=fake):
+        with patch.object(team, "_openrouter_agent", side_effect=fake):
             result = v08.mission(1, "Improve x")
 
         self.assertIn("Unavailable specialist", result)
