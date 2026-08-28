@@ -14,6 +14,7 @@ on:
       - 'connectors/google_credentials.py'
       - 'connectors/calendar_actions.py'
       - 'connectors/calendar_intent.py'
+      - 'connectors/mobile_calendar_confirm.py'
       - 'connectors/sheet_intelligence.py'
       - 'connectors/__init__.py'
       - 'connectors/task_delegation.py'
@@ -31,6 +32,7 @@ on:
       - 'tests/test_google_context_transport.py'
       - 'tests/test_calendar_actions.py'
       - 'tests/test_calendar_webhook_reminders.py'
+      - 'tests/test_mobile_calendar_confirm.py'
       - 'tests/test_task_delegation.py'
       - '.github/workflows/production-model-router.yml'
 
@@ -55,6 +57,7 @@ jobs:
           tests.test_google_context_transport
           tests.test_calendar_actions
           tests.test_calendar_webhook_reminders
+          tests.test_mobile_calendar_confirm
           tests.test_task_delegation
       - name: Compile production entrypoints
         run: >-
@@ -69,6 +72,7 @@ jobs:
           connectors/google_credentials.py
           connectors/calendar_actions.py
           connectors/calendar_intent.py
+          connectors/mobile_calendar_confirm.py
           connectors/sheet_intelligence.py
           connectors/task_delegation.py
           connectors/telegram_bot.py
