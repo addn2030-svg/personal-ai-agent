@@ -48,6 +48,34 @@ class DirectSpecialistRoutingTests(unittest.TestCase):
         self.assertEqual(routes[-1][0], "gemini")
         original.assert_not_called()
 
+    def test_direct_gemini_uses_google_openai_compatible_endpoint(self):
+        response = {
+            "model": "gemini-3.7-flash",
+            "choices": [{"message": {"content": "direct gemini answer"}}],
+            "usage": {"prompt_tokens": 11, "completion_tokens": 5},
+        }
+        with patch.object(direct, "GEMINI_API_KEY", "gem-key"), patch.object(
+            direct, "_request_json", return_value=(response, 13)
+        ) as request_json:
+            answer, usage, latency, model = direct._direct_gemini(
+                model="google/gemini-3.7-flash",
+                messages=[
+                    {"role": "system", "content": "research carefully"},
+                    {"role": "user", "content": "find alternatives"},
+                ],
+                max_tokens=900,
+            )
+        self.assertEqual(answer, "direct gemini answer")
+        self.assertEqual(usage["inputTokens"], 11)
+        self.assertEqual(usage["outputTokens"], 5)
+        self.assertEqual(latency, 13)
+        self.assertEqual(model, "gemini-3.7-flash")
+        url, payload, headers = request_json.call_args.args
+        self.assertTrue(url.endswith("/openai/chat/completions"))
+        self.assertEqual(payload["model"], "gemini-3.7-flash")
+        self.assertEqual(payload["messages"][0]["role"], "system")
+        self.assertEqual(headers["Authorization"], "Bearer gem-key")
+
     def test_sensitive_call_never_uses_direct_specialist_api(self):
         gateway, original, _routes = self._gateway()
         with patch.object(direct, "OPENAI_API_KEY", "test-key"), patch.object(
@@ -75,6 +103,19 @@ class DirectSpecialistRoutingTests(unittest.TestCase):
             )
         self.assertEqual(result[0], "router answer")
         original.assert_called_once()
+
+    def test_direct_and_openrouter_failures_preserve_direct_diagnostic(self):
+        gateway, original, _routes = self._gateway(configured=True)
+        original.side_effect = RuntimeError("OpenRouter HTTP 402 credits")
+        with patch.object(direct, "GEMINI_API_KEY", "test-key"), patch.object(
+            direct, "_direct_gemini", side_effect=RuntimeError("HTTP 401 bad Gemini key")
+        ):
+            direct.install(gateway)
+            with self.assertRaisesRegex(RuntimeError, "Direct provider failed: HTTP 401 bad Gemini key"):
+                gateway.openrouter_chat(
+                    model="google/gemini-3.7-flash",
+                    messages=[{"role": "user", "content": "research"}],
+                )
 
     def test_direct_failure_raises_when_no_openrouter_fallback(self):
         gateway, original, _routes = self._gateway(configured=False)
