@@ -1,3 +1,4 @@
+import json
 import unittest
 from unittest.mock import Mock, patch
 
@@ -49,6 +50,81 @@ class TaskDelegationTests(unittest.TestCase):
     def test_council_rejects_private_identifiers(self):
         with self.assertRaisesRegex(ValueError, "بيانات مريض"):
             team.council(1, "ناقش حالة اسم المريض أحمد رقم الملف 123")
+
+    def test_mission_requires_objective(self):
+        with self.assertRaisesRegex(ValueError, "اكتب الهدف"):
+            team.mission(1, "")
+
+    def test_mission_rejects_private_identifiers_before_agents(self):
+        with patch.object(team, "_openrouter_agent") as mocked:
+            with self.assertRaisesRegex(ValueError, "معرّفات خاصة"):
+                team.mission(1, "حل مشكلة للمريض رقم الملف 554433")
+        mocked.assert_not_called()
+
+    def test_mission_claude_plans_gemini_gpt_execute_and_claude_synthesizes(self):
+        calls = []
+
+        def fake(agent, task, **kwargs):
+            calls.append((agent, task, kwargs))
+            if agent == "claude" and "MISSION PLANNER" in task:
+                plan = {
+                    "mission_summary": "Improve reliability",
+                    "gemini_task": "Explore integration alternatives",
+                    "gpt_task": "Audit reliability risks",
+                    "success_criteria": ["stable", "safe"],
+                    "manager_focus": "Choose the safest practical sequence",
+                }
+                return team.AgentResult("claude", "claude", "openrouter", "claude", json.dumps(plan))
+            if agent == "gemini":
+                return team.AgentResult("gemini", "gemini", "openrouter", "gemini", "Gemini findings")
+            if agent == "gpt":
+                return team.AgentResult("gpt", "gpt", "openrouter", "gpt", "GPT risks")
+            if agent == "claude" and "MISSION SYNTHESIS" in task:
+                self.assertIn("Gemini findings", task)
+                self.assertIn("GPT risks", task)
+                return team.AgentResult("claude", "claude", "openrouter", "claude", "Unified manager decision")
+            raise AssertionError("unexpected call")
+
+        with patch.object(team, "_openrouter_agent", side_effect=fake):
+            result = team.mission(1, "Improve agent reliability")
+
+        self.assertIn("🎯 AI Mission v0.7", result)
+        self.assertIn("Claude/OpenRouter", result)
+        self.assertIn("Gemini — Researcher", result)
+        self.assertIn("GPT — Critic", result)
+        self.assertIn("Unified manager decision", result)
+        self.assertTrue(any(a == "gemini" for a, _t, _k in calls))
+        self.assertTrue(any(a == "gpt" for a, _t, _k in calls))
+        self.assertGreaterEqual(sum(a == "claude" for a, _t, _k in calls), 2)
+
+    def test_mission_continues_when_one_specialist_fails(self):
+        def fake(agent, task, **kwargs):
+            if agent == "claude" and "MISSION PLANNER" in task:
+                return team.AgentResult(
+                    "claude", "claude", "openrouter", "claude",
+                    json.dumps({
+                        "mission_summary": "x",
+                        "gemini_task": "research x",
+                        "gpt_task": "audit x",
+                        "success_criteria": ["done"],
+                        "manager_focus": "finish",
+                    }),
+                )
+            if agent == "gemini":
+                raise RuntimeError("temporary provider error")
+            if agent == "gpt":
+                return team.AgentResult("gpt", "gpt", "openrouter", "gpt", "risk review")
+            if agent == "claude" and "MISSION SYNTHESIS" in task:
+                return team.AgentResult("claude", "claude", "openrouter", "claude", "manager result")
+            raise AssertionError("unexpected")
+
+        with patch.object(team, "_openrouter_agent", side_effect=fake):
+            result = team.mission(1, "Improve x")
+
+        self.assertIn("GPT — Critic", result)
+        self.assertIn("Unavailable specialist", result)
+        self.assertIn("Gemini — Researcher", result)
+        self.assertIn("manager result", result)
 
 
 if __name__ == "__main__":
