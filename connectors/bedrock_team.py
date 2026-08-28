@@ -18,8 +18,14 @@ BEDROCK_MANAGER_MODEL_ID = os.environ.get(
     "BEDROCK_MANAGER_MODEL_ID",
     os.environ.get("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-6"),
 ).strip()
+
+# Amazon Nova Micro is the default lean model because it is native to Bedrock,
+# text-only, fast, and low-cost. An explicit Railway override is still honored.
 BEDROCK_LEAN_MODEL_ID = os.environ.get(
-    "BEDROCK_LEAN_MODEL_ID", "global.openai.gpt-5.6-luna"
+    "BEDROCK_LEAN_MODEL_ID", "amazon.nova-micro-v1:0"
+).strip()
+BEDROCK_LEAN_FALLBACK_MODEL_ID = os.environ.get(
+    "BEDROCK_LEAN_FALLBACK_MODEL_ID", "amazon.nova-micro-v1:0"
 ).strip()
 BEDROCK_CRITIC_MODEL_ID = os.environ.get(
     "BEDROCK_CRITIC_MODEL_ID", BEDROCK_LEAN_MODEL_ID
@@ -107,17 +113,44 @@ def manager(prompt: str, *, max_tokens: int = 650,
     )
 
 
+def _lean_with_fallback(*, model_id: str, prompt: str, max_tokens: int,
+                        temperature: float, role: str, system: str) -> BedrockTeamResult:
+    """Stay inside Bedrock before using any external-provider fallback."""
+    try:
+        return converse_text(
+            model_id=model_id,
+            system=system,
+            prompt=prompt,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            role=role,
+        )
+    except Exception:
+        fallback_id = BEDROCK_LEAN_FALLBACK_MODEL_ID
+        if not fallback_id or fallback_id == model_id:
+            raise
+        return converse_text(
+            model_id=fallback_id,
+            system=system,
+            prompt=prompt,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            role=role + "-fallback",
+        )
+
+
 def lean_specialist(prompt: str, *, max_tokens: int = 450,
                     temperature: float = 0.1) -> BedrockTeamResult:
-    return converse_text(
+    system = (
+        "You are the low-cost specialist in Abdulrahman AI OS. Return a compact "
+        "packet only. Do not restate the full objective. Distinguish facts, "
+        "assumptions, risks, and recommended test. Never claim browsing. For "
+        "workflow tracking, use de-identified case codes rather than patient "
+        "identifiers."
+    )
+    return _lean_with_fallback(
         model_id=BEDROCK_LEAN_MODEL_ID,
-        system=(
-            "You are the low-cost specialist in Abdulrahman AI OS. Return a compact "
-            "packet only. Do not restate the full objective. Distinguish facts, "
-            "assumptions, risks, and recommended test. Never claim browsing. For "
-            "workflow tracking, use de-identified case codes rather than patient "
-            "identifiers."
-        ),
+        system=system,
         prompt=prompt,
         max_tokens=max_tokens,
         temperature=temperature,
@@ -127,14 +160,15 @@ def lean_specialist(prompt: str, *, max_tokens: int = 450,
 
 def critic(prompt: str, *, max_tokens: int = 500,
            temperature: float = 0.1) -> BedrockTeamResult:
-    return converse_text(
+    system = (
+        "You are the critic in Abdulrahman AI OS. Review only the supplied packet. "
+        "Return corrections, missing evidence, top risks, and a go/test/hold "
+        "recommendation. Do not rewrite the whole packet. Flag any proposal that "
+        "stores patient identifiers when a de-identified case code would suffice."
+    )
+    return _lean_with_fallback(
         model_id=BEDROCK_CRITIC_MODEL_ID,
-        system=(
-            "You are the critic in Abdulrahman AI OS. Review only the supplied packet. "
-            "Return corrections, missing evidence, top risks, and a go/test/hold "
-            "recommendation. Do not rewrite the whole packet. Flag any proposal that "
-            "stores patient identifiers when a de-identified case code would suffice."
-        ),
+        system=system,
         prompt=prompt,
         max_tokens=max_tokens,
         temperature=temperature,
@@ -156,7 +190,7 @@ def _probe_one(model_id: str, role: str) -> dict:
         )
         return {
             "ok": True,
-            "model": model_id,
+            "model": result.model,
             "latency_ms": result.latency_ms,
             "usage": result.usage,
         }
