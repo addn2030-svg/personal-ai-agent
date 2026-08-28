@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Guarded Telegram entrypoint, unified model routing, and task delegation."""
+"""Guarded Telegram entrypoint, unified model routing, delegation, and missions."""
 from __future__ import annotations
 
 import json
@@ -46,9 +46,7 @@ def _unified_ask(chat_id: int, text: str, sheet_context: str = ""):
 def _save_conversation(cid, iid, question, answer, usage, latency_ms, status, error=""):
     route = _models.last_route()
     if route.get("provider") != "openrouter":
-        return _legacy_save_conversation(
-            cid, iid, question, answer, usage, latency_ms, status, error
-        )
+        return _legacy_save_conversation(cid, iid, question, answer, usage, latency_ms, status, error)
 
     clinical = _impl._category(question) == "CLINICAL_PRIVATE"
     review = "PENDING" if clinical else "NOT_REQUIRED"
@@ -61,22 +59,22 @@ def _save_conversation(cid, iid, question, answer, usage, latency_ms, status, er
     try:
         _impl._append(_impl.CONVERSATION_TAB, row)
         return True
-    except Exception as exc:  # noqa: BLE001 - connector boundary
+    except Exception as exc:
         print(f"Google conversation save error: {exc}", flush=True)
         return False
 
 
 def _command_ai_status(chat_id: int):
     status = _models.status()
-    models = status["models"]
+    role_models = status["models"]
     lines = [
         "🤖 Model Gateway",
         f"General: {status['desired_general_provider']}",
         f"Clinical: {status['desired_clinical_provider']}",
         f"OpenRouter: {'configured ✅' if status['openrouter_configured'] else 'not configured'}",
-        f"Manager: {models['manager']}",
-        f"Critic: {models['critic']}",
-        f"Google adviser: {models['google']}",
+        f"Manager: {role_models['manager']}",
+        f"Critic: {role_models['critic']}",
+        f"Google adviser: {role_models['google']}",
     ]
     if status["clinical_policy"].get("zdr"):
         lines.append("Clinical OpenRouter policy (if enabled): ZDR + data_collection=deny")
@@ -87,12 +85,13 @@ def _command_start(chat_id: int):
     _legacy_command_start(chat_id)
     _impl.send(
         chat_id,
-        "\n🧠 فريق الوكلاء v0.6\n"
+        "\n🧠 فريق الوكلاء v0.7\n"
         "/agents — حالة Claude + GPT + Gemini\n"
         "/delegate auto المهمة — المدير يختار الوكيل\n"
         "/delegate claude|gpt|gemini المهمة — تكليف مباشر\n"
         "/council السؤال — مراجعة من الفريق\n"
-        "ملاحظة: البحث الحي في Instagram/Web سيضاف كموصل مستقل في المرحلة التالية.",
+        "/mission الهدف — هدف مشترك: Claude يقسم، GPT/Gemini ينفذان، Claude يجمع القرار\n"
+        "لا توجد أدوات خارجية تلقائية داخل /mission؛ أي تنفيذ حساس يبقى خلف الموافقة.",
     )
 
 
@@ -107,10 +106,18 @@ def _format_delegate(result: _team.AgentResult) -> str:
     )
 
 
+def _send_chunks(chat_id: int, text: str, chunk_size: int = 3500):
+    value = str(text or "")
+    if not value:
+        return
+    for start in range(0, len(value), chunk_size):
+        _impl.send(chat_id, value[start:start + chunk_size])
+
+
 def _delegated_handle_message(message: dict):
     raw = (message.get("text") or message.get("caption") or "").strip()
     command = raw.split()[0].split("@")[0].lower() if raw else ""
-    if command not in {"/agents", "/delegate", "/council"}:
+    if command not in {"/agents", "/delegate", "/council", "/mission"}:
         return _legacy_handle_message(message)
 
     chat = message.get("chat") or {}
@@ -132,19 +139,24 @@ def _delegated_handle_message(message: dict):
         _impl.api("sendChatAction", {"chat_id": chat_id, "action": "typing"})
         if command == "/agents":
             answer = _team.agents_status_text()
+            _impl.send(chat_id, answer)
         elif command == "/delegate":
             value = text[len(command):].strip()
             result = _team.delegate(chat_id, value, bedrock_fallback=_legacy_ask_bedrock)
-            answer = _format_delegate(result)
-        else:
+            _impl.send(chat_id, _format_delegate(result))
+        elif command == "/council":
             question = text[len(command):].strip()
             answer = _team.council(chat_id, question, bedrock_fallback=_legacy_ask_bedrock)
-        _impl.send(chat_id, answer)
+            _send_chunks(chat_id, answer)
+        else:
+            objective = text[len(command):].strip()
+            answer = _team.mission(chat_id, objective, bedrock_fallback=_legacy_ask_bedrock)
+            _send_chunks(chat_id, answer)
         _impl._save_intake(iid, message, text, kind, attachment, "COMPLETED")
     except ValueError as exc:
         _impl.send(chat_id, "❌ " + str(exc))
         _impl._save_intake(iid, message, text, kind, attachment, "ERROR", error=exc)
-    except Exception as exc:  # noqa: BLE001 - Telegram command boundary
+    except Exception as exc:
         safe = _models._safe_error(exc)
         _impl.send(chat_id, "❌ تعذر تنفيذ مهمة الوكيل: " + safe)
         _impl._save_intake(iid, message, text, kind, attachment, "ERROR", error=safe)
@@ -159,15 +171,16 @@ def _configure_commands():
             {"command": "agents", "description": "حالة فريق Claude وGPT وGemini"},
             {"command": "delegate", "description": "تكليف وكيل أو اختيار تلقائي"},
             {"command": "council", "description": "مراجعة سؤال بواسطة فريق الذكاء"},
+            {"command": "mission", "description": "هدف مشترك ينفذه فريق الوكلاء"},
         ]
         commands.extend(item for item in additions if item["command"] not in existing)
         _impl.api("setMyCommands", {"commands": json.dumps(commands, ensure_ascii=False)})
-    except Exception as exc:  # menu failure must never stop the bot
+    except Exception as exc:
         print(f"Telegram command menu extension warning: {exc}", flush=True)
 
 
 _impl.run = _guarded_run
-_impl.ask_bedrock = _unified_ask  # compatibility name retained for existing callers
+_impl.ask_bedrock = _unified_ask
 _impl._save_conversation = _save_conversation
 _impl.command_ai_status = _command_ai_status
 _impl.command_start = _command_start
@@ -177,6 +190,4 @@ _impl.configure_commands = _configure_commands
 if __name__ == "__main__":
     _guarded_run()
 else:
-    # Importers receive the implementation module itself so runtime patches modify
-    # the same globals used by command handlers.
     sys.modules[__name__] = _impl
