@@ -18,3 +18,9 @@ _install_team_orchestrator()
 from .lean_missions import install as _install_lean_missions
 
 _install_lean_missions()
+
+# v0.9.3 adds a tiny operational context capsule only for objectives that need
+# current priorities/calendar/tasks. It does not restore full history/context.
+from .ops_context import install as _install_ops_context
+
+_install_ops_context()
