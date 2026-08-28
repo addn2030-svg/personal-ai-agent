@@ -5,7 +5,8 @@ P0 goals:
 - eliminate getUpdates polling conflicts (HTTP 409),
 - retry transient Google Sheets writes without adding a new database/queue,
 - validate the live Sheets gateway/schema at startup,
-- keep the existing bot command/business logic unchanged.
+- keep the existing bot command/business logic unchanged,
+- keep Calendar/Telegram reminders alive while production runs in webhook mode.
 """
 from __future__ import annotations
 
@@ -41,6 +42,8 @@ if not WEBHOOK_PATH.startswith("/"):
 WEBHOOK_SECRET = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "").strip()
 if not WEBHOOK_SECRET and bot.TOKEN:
     WEBHOOK_SECRET = hashlib.sha256((bot.TOKEN + ":webhook").encode("utf-8")).hexdigest()[:48]
+
+CALENDAR_ALERT_LOOP_SECONDS = max(15, int(os.environ.get("CALENDAR_ALERT_LOOP_SECONDS", "30")))
 
 _MAX_BODY = 2 * 1024 * 1024
 _recent_updates = deque(maxlen=2000)
@@ -179,8 +182,35 @@ def _process_update(update_id: int, message: dict | None):
         _complete_update(update_id)
 
 
+def _calendar_alert_worker(stop_event: threading.Event | None = None, sleep_seconds: float | None = None):
+    """Keep Telegram appointment reminders active in production webhook mode.
+
+    The existing bot reminder function owns de-duplication and the 60-second Calendar
+    read throttle. This worker only gives it a heartbeat while the webhook server is
+    running. Calendar API failures are fail-soft and retried on the next heartbeat.
+    """
+    stop_event = stop_event or threading.Event()
+    interval = float(sleep_seconds if sleep_seconds is not None else CALENDAR_ALERT_LOOP_SECONDS)
+    while not stop_event.is_set():
+        try:
+            bot._maybe_send_calendar_alerts()
+        except Exception as exc:  # noqa: BLE001 - external Calendar/Telegram boundary
+            print(f"Calendar reminder worker warning: {str(exc)[:220]}", flush=True)
+        stop_event.wait(max(0.01, interval))
+
+
+def _start_calendar_alert_worker():
+    worker = threading.Thread(
+        target=_calendar_alert_worker,
+        name="calendar-reminder-worker",
+        daemon=True,
+    )
+    worker.start()
+    return worker
+
+
 class Handler(BaseHTTPRequestHandler):
-    server_version = "AbdulrahmanAgentWebhook/1.2"
+    server_version = "AbdulrahmanAgentWebhook/1.3"
 
     def log_message(self, fmt, *args):
         print("http:", fmt % args, flush=True)
@@ -197,7 +227,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/health":
             # Liveness must not depend on Google availability; Railway should not restart
             # a healthy process merely because an external API is temporarily degraded.
-            self._send_json(200, {"ok": True, "telegram_mode": "webhook"})
+            self._send_json(200, {"ok": True, "telegram_mode": "webhook", "calendar_reminders": True})
             return
         if self.path == "/ready":
             ok, detail = _probe_sheets()
@@ -251,6 +281,11 @@ def run():
     _configure_webhook()
     sheets_ok, detail = _probe_sheets()
     print(f"Sheets startup check: {'OK' if sheets_ok else 'WARN'} - {detail}", flush=True)
+    _start_calendar_alert_worker()
+    print(
+        f"Calendar reminder worker active: heartbeat={CALENDAR_ALERT_LOOP_SECONDS}s",
+        flush=True,
+    )
     server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     print(f"HTTP webhook server listening on :{PORT}{WEBHOOK_PATH}", flush=True)
     server.serve_forever()
