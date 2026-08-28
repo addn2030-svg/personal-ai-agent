@@ -9,6 +9,8 @@ import re
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from . import google_credentials
+
 TZ_NAME = os.environ.get("MANAGER_TIMEZONE", "Asia/Riyadh")
 TZ = ZoneInfo(TZ_NAME)
 CALENDAR_ID = os.environ.get("GOOGLE_CALENDAR_ID", "primary").strip() or "primary"
@@ -119,24 +121,45 @@ def parse_event_request(text: str, base: dt.datetime | None = None):
     if not title:
         title = "تذكير"
     return {
-        "title": title, "start": start, "end": start + dt.timedelta(minutes=duration),
-        "reminder_minutes": reminder, "timezone": TZ_NAME,
+        "title": title,
+        "start": start,
+        "end": start + dt.timedelta(minutes=duration),
+        "reminder_minutes": reminder,
+        "timezone": TZ_NAME,
+    }
+
+
+def calendar_auth_status() -> dict:
+    raw_calendar = os.environ.get("GOOGLE_CALENDAR_SERVICE_ACCOUNT_JSON", "").strip()
+    raw_general = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
+    raw = raw_calendar or raw_general
+    info = google_credentials.service_account_info(raw) if raw else None
+    return {
+        "service_account_present": bool(raw),
+        "service_account_valid": bool(info),
+        "calendar_id_mode": "primary" if CALENDAR_ID == "primary" else "custom",
+        "path": "service-account" if info and CALENDAR_ID != "primary" else "oauth",
     }
 
 
 def _calendar_service():
-    service_json = (
-        os.environ.get("GOOGLE_CALENDAR_SERVICE_ACCOUNT_JSON")
-        or os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
-    )
-    if service_json and CALENDAR_ID != "primary":
+    raw_calendar = os.environ.get("GOOGLE_CALENDAR_SERVICE_ACCOUNT_JSON", "").strip()
+    raw_general = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
+    raw = raw_calendar or raw_general
+    info = google_credentials.service_account_info(raw) if raw else None
+
+    if raw and not info and CALENDAR_ID != "primary":
+        raise RuntimeError("Google service-account credential is present but invalid")
+
+    if info and CALENDAR_ID != "primary":
         from google.oauth2 import service_account
         from googleapiclient.discovery import build
         credentials = service_account.Credentials.from_service_account_info(
-            json.loads(service_json),
+            info,
             scopes=["https://www.googleapis.com/auth/calendar"],
         )
         return build("calendar", "v3", credentials=credentials, cache_discovery=False)
+
     from connectors.google_workspace import services
     return services()[1]
 
@@ -146,16 +169,25 @@ def list_events(days_forward=7, max_results=30):
     start = now_local()
     end = start + dt.timedelta(days=days_forward)
     rows = cal.events().list(
-        calendarId=CALENDAR_ID, timeMin=start.isoformat(), timeMax=end.isoformat(),
-        singleEvents=True, orderBy="startTime", maxResults=max_results,
+        calendarId=CALENDAR_ID,
+        timeMin=start.isoformat(),
+        timeMax=end.isoformat(),
+        singleEvents=True,
+        orderBy="startTime",
+        maxResults=max_results,
     ).execute().get("items", [])
-    return [{
-        "id": row["id"], "title": row.get("summary", "(بدون عنوان)"),
-        "start": row.get("start", {}).get("dateTime") or row.get("start", {}).get("date"),
-        "end": row.get("end", {}).get("dateTime") or row.get("end", {}).get("date"),
-        "link": row.get("htmlLink", ""),
-        "reminder_minutes": int(row.get("extendedProperties", {}).get("private", {}).get("telegramReminderMinutes", "60")),
-    } for row in rows if row.get("status") != "cancelled"]
+    return [
+        {
+            "id": row["id"],
+            "title": row.get("summary", "(بدون عنوان)"),
+            "start": row.get("start", {}).get("dateTime") or row.get("start", {}).get("date"),
+            "end": row.get("end", {}).get("dateTime") or row.get("end", {}).get("date"),
+            "link": row.get("htmlLink", ""),
+            "reminder_minutes": int(row.get("extendedProperties", {}).get("private", {}).get("telegramReminderMinutes", "60")),
+        }
+        for row in rows
+        if row.get("status") != "cancelled"
+    ]
 
 
 def create_event(proposal: dict):
