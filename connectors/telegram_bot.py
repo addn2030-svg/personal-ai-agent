@@ -88,7 +88,7 @@ def _command_start(chat_id: int):
         chat_id,
         "\n🧠 فريق الوكلاء v0.9\n"
         "/agents — حالة فريق النماذج ومساراته\n"
-        "/bedrock_test — اختبار صغير لـ Claude وGPT Luna على Bedrock\n"
+        "/bedrock_test — اختبار صغير لـ Claude والـLean specialist على Bedrock\n"
         "/delegate auto المهمة — المدير يختار الوكيل\n"
         "/delegate claude|gpt|gemini المهمة — تكليف مباشر\n"
         "/council السؤال — مراجعة من الفريق\n"
@@ -123,9 +123,9 @@ def _format_probe_item(label: str, item: dict) -> str:
 def _command_bedrock_test(chat_id: int):
     result = _bedrock_team.probe()
     lines = [
-        "🧪 Bedrock Team Test v0.9.1",
+        "🧪 Bedrock Team Test v0.9.2",
         _format_probe_item("Manager / Claude", result.get("manager") or {}),
-        _format_probe_item("Lean specialist / GPT Luna", result.get("lean") or {}),
+        _format_probe_item("Lean specialist", result.get("lean") or {}),
         "This test uses tiny prompts only; no conversation history or Sheets context is sent.",
     ]
     _impl.send(chat_id, "\n\n".join(lines))
@@ -196,7 +196,7 @@ def _configure_commands():
         existing = {str(item.get("command", "")) for item in commands}
         additions = [
             {"command": "agents", "description": "حالة فريق النماذج ومساراته"},
-            {"command": "bedrock_test", "description": "اختبار Claude وGPT Luna على Bedrock"},
+            {"command": "bedrock_test", "description": "اختبار Claude والـLean specialist على Bedrock"},
             {"command": "delegate", "description": "تكليف وكيل أو اختيار تلقائي"},
             {"command": "council", "description": "مراجعة سؤال بواسطة فريق الذكاء"},
             {"command": "mission", "description": "مهمة مشتركة بميزانية tokens"},
