@@ -8,14 +8,19 @@ on:
       - 'connectors/direct_specialists.py'
       - 'connectors/provider_diagnostics.py'
       - 'connectors/team_orchestrator.py'
+      - 'connectors/bedrock_team.py'
+      - 'connectors/lean_missions.py'
       - 'connectors/__init__.py'
       - 'connectors/task_delegation.py'
       - 'connectors/telegram_bot.py'
       - 'connectors/telegram_bot_legacy.py'
+      - 'research_capsules/**'
       - 'tests/test_production_model_gateway.py'
       - 'tests/test_direct_specialists.py'
       - 'tests/test_provider_diagnostics.py'
       - 'tests/test_team_orchestrator.py'
+      - 'tests/test_bedrock_team.py'
+      - 'tests/test_lean_missions.py'
       - 'tests/test_task_delegation.py'
       - '.github/workflows/production-model-router.yml'
 
@@ -28,6 +33,24 @@ jobs:
         with:
           python-version: '3.12'
       - name: Test production model routing
-        run: python -m unittest tests.test_production_model_gateway tests.test_direct_specialists tests.test_provider_diagnostics tests.test_team_orchestrator tests.test_task_delegation
+        run: >-
+          python -m unittest
+          tests.test_production_model_gateway
+          tests.test_direct_specialists
+          tests.test_provider_diagnostics
+          tests.test_team_orchestrator
+          tests.test_bedrock_team
+          tests.test_lean_missions
+          tests.test_task_delegation
       - name: Compile production entrypoints
-        run: python -m py_compile connectors/model_gateway.py connectors/direct_specialists.py connectors/provider_diagnostics.py connectors/team_orchestrator.py connectors/task_delegation.py connectors/telegram_bot.py connectors/telegram_bot_legacy.py
+        run: >-
+          python -m py_compile
+          connectors/model_gateway.py
+          connectors/direct_specialists.py
+          connectors/provider_diagnostics.py
+          connectors/team_orchestrator.py
+          connectors/bedrock_team.py
+          connectors/lean_missions.py
+          connectors/task_delegation.py
+          connectors/telegram_bot.py
+          connectors/telegram_bot_legacy.py
