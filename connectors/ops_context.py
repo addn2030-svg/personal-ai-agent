@@ -8,6 +8,7 @@ that look clinical/private are skipped before reaching a model.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import threading
@@ -39,6 +40,7 @@ _SENSITIVE_RE = re.compile(
 _MRN_RE = re.compile(r"(?i)(mrn|medical record|رقم الملف|رقم الهوية)\s*[:#-]?\s*[A-Z0-9-]+")
 _PHONE_RE = re.compile(r"(?<!\d)(?:\+?966|0)?5\d{8}(?!\d)")
 _EMAIL_RE = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.I)
+_URL_RE = re.compile(r"https?://\S+", re.I)
 _STATE = threading.local()
 
 
@@ -65,8 +67,76 @@ def _clean(value: str, limit: int = 180) -> str:
     return text[:limit]
 
 
+def _safe_http_error(exc: Exception) -> str:
+    status = getattr(getattr(exc, "resp", None), "status", None) or getattr(exc, "code", None)
+    reason = ""
+    message = ""
+    content = getattr(exc, "content", b"")
+    if isinstance(content, bytes):
+        try:
+            content = content.decode("utf-8", errors="replace")
+        except Exception:
+            content = ""
+    if content:
+        try:
+            payload = json.loads(content)
+            error = payload.get("error") or {}
+            message = str(error.get("message") or "")
+            errors = error.get("errors") or []
+            if errors and isinstance(errors[0], dict):
+                reason = str(errors[0].get("reason") or "")
+            if not reason:
+                details = error.get("details") or []
+                for item in details:
+                    if isinstance(item, dict) and item.get("reason"):
+                        reason = str(item.get("reason"))
+                        break
+        except Exception:
+            pass
+    if not message:
+        message = str(getattr(exc, "reason", "") or "")
+    message = _URL_RE.sub("[link omitted]", message)
+    message = _EMAIL_RE.sub("[EMAIL_REDACTED]", message)
+    message = re.sub(r"\s+", " ", message).strip()[:220]
+    parts = []
+    if status:
+        parts.append(f"HTTP {status}")
+    if reason:
+        parts.append(f"reason={reason[:80]}")
+    if message:
+        parts.append(f"message={message}")
+    return " ".join(parts)
+
+
+def _runtime_hint(source: str) -> str:
+    try:
+        if source == "calendar":
+            from . import calendar_actions
+            state = calendar_actions.calendar_auth_status()
+            credential = "valid" if state.get("service_account_valid") else (
+                "invalid" if state.get("service_account_present") else "missing"
+            )
+            return (
+                f"auth={state.get('path', 'unknown')},calendar_id={state.get('calendar_id_mode', 'unknown')},"
+                f"credential={credential}"
+            )
+        if source == "sheets":
+            from . import google_credentials, sheet_intelligence
+            cred = google_credentials.status()
+            credential = "valid" if cred.get("valid") else ("invalid" if cred.get("present") else "missing")
+            return (
+                f"sheet_id={'yes' if bool(sheet_intelligence.SHEET_ID) else 'no'},credential={credential},"
+                f"direct={'yes' if sheet_intelligence._direct_ready() else 'no'},"
+                f"webhook={'yes' if sheet_intelligence._webhook_ready() else 'no'}"
+            )
+    except Exception:
+        return "runtime=unknown"
+    return "runtime=unknown"
+
+
 def _safe_source_error(source: str, exc: Exception) -> str:
-    return f"{source}: {models._safe_error(exc)[:320]}"
+    detail = _safe_http_error(exc) or models._safe_error(exc)[:220]
+    return f"{source}: {detail} | {_runtime_hint(source)}"[:520]
 
 
 def _calendar_lines(goal: str) -> list[str]:
