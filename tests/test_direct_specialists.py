@@ -48,6 +48,22 @@ class DirectSpecialistRoutingTests(unittest.TestCase):
         self.assertEqual(routes[-1][0], "gemini")
         original.assert_not_called()
 
+    def test_gemini_interactions_failure_uses_generate_content_directly(self):
+        messages = [{"role": "user", "content": "research"}]
+        with patch.object(direct, "GEMINI_API_KEY", "test-key"), patch.object(
+            direct, "_direct_gemini_interactions", side_effect=RuntimeError("interaction unavailable")
+        ) as interactions, patch.object(
+            direct,
+            "_direct_gemini_generate_content",
+            return_value=("generate direct", {"outputTokens": 4}, 9, "gemini-3.7-flash"),
+        ) as generate:
+            result = direct._direct_gemini(
+                model="google/gemini-3.7-flash", messages=messages, max_tokens=500
+            )
+        self.assertEqual(result[0], "generate direct")
+        interactions.assert_called_once()
+        generate.assert_called_once()
+
     def test_sensitive_call_never_uses_direct_specialist_api(self):
         gateway, original, _routes = self._gateway()
         with patch.object(direct, "OPENAI_API_KEY", "test-key"), patch.object(
