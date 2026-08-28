@@ -27,6 +27,7 @@ sys.path.insert(0, str(BASE / "engine"))
 
 from connectors import telegram_bot as bot
 from connectors.brief_runtime import install as install_brief_runtime
+from connectors.mobile_calendar_confirm import install as install_mobile_calendar_confirm
 
 PORT = int(os.environ.get("PORT", "8080"))
 PUBLIC_BASE_URL = os.environ.get("TELEGRAM_WEBHOOK_BASE_URL", "").strip().rstrip("/")
@@ -50,8 +51,9 @@ _recent_updates = deque(maxlen=2000)
 _processing_updates = set()
 _recent_lock = threading.Lock()
 
-# Install the resilient /brief implementation before any update is processed.
+# Install production behavior patches before any Telegram update is processed.
 install_brief_runtime(bot)
+install_mobile_calendar_confirm(bot)
 
 # Keep the original write implementation, then add bounded retry around it.
 _raw_append = bot._append
@@ -210,7 +212,7 @@ def _start_calendar_alert_worker():
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "AbdulrahmanAgentWebhook/1.3"
+    server_version = "AbdulrahmanAgentWebhook/1.4"
 
     def log_message(self, fmt, *args):
         print("http:", fmt % args, flush=True)
