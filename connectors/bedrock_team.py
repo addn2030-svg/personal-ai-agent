@@ -96,7 +96,9 @@ def manager(prompt: str, *, max_tokens: int = 650,
             "You are the accountable manager in Abdulrahman AI OS. Use only the "
             "objective and evidence packet supplied. Be concise. Never claim external "
             "actions or browsing. Separate facts from assumptions and finish with the "
-            "decision and next actions."
+            "decision and next actions. For operational workflow examples, never propose "
+            "storing patient names, MRNs, IDs, phone numbers, or other identifiers; use a "
+            "de-identified case code when a tracking key is needed."
         ),
         prompt=prompt,
         max_tokens=max_tokens,
@@ -112,7 +114,9 @@ def lean_specialist(prompt: str, *, max_tokens: int = 450,
         system=(
             "You are the low-cost specialist in Abdulrahman AI OS. Return a compact "
             "packet only. Do not restate the full objective. Distinguish facts, "
-            "assumptions, risks, and recommended test. Never claim browsing."
+            "assumptions, risks, and recommended test. Never claim browsing. For "
+            "workflow tracking, use de-identified case codes rather than patient "
+            "identifiers."
         ),
         prompt=prompt,
         max_tokens=max_tokens,
@@ -128,10 +132,53 @@ def critic(prompt: str, *, max_tokens: int = 500,
         system=(
             "You are the critic in Abdulrahman AI OS. Review only the supplied packet. "
             "Return corrections, missing evidence, top risks, and a go/test/hold "
-            "recommendation. Do not rewrite the whole packet."
+            "recommendation. Do not rewrite the whole packet. Flag any proposal that "
+            "stores patient identifiers when a de-identified case code would suffice."
         ),
         prompt=prompt,
         max_tokens=max_tokens,
         temperature=temperature,
         role="mission-critic",
     )
+
+
+def _probe_one(model_id: str, role: str) -> dict:
+    """Tiny paid inference used only by the explicit /bedrock_test command."""
+    started = time.monotonic()
+    try:
+        result = converse_text(
+            model_id=model_id,
+            system="Reply only with OK.",
+            prompt="OK",
+            max_tokens=16,
+            temperature=0,
+            role=f"probe-{role}",
+        )
+        return {
+            "ok": True,
+            "model": model_id,
+            "latency_ms": result.latency_ms,
+            "usage": result.usage,
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "model": model_id,
+            "latency_ms": int((time.monotonic() - started) * 1000),
+            "error": models._safe_error(exc),
+        }
+
+
+def probe() -> dict:
+    """Probe manager and lean specialist without using conversation history or Sheets."""
+    if not configured():
+        return {
+            "configured": False,
+            "manager": {"ok": False, "model": BEDROCK_MANAGER_MODEL_ID, "error": "Bedrock not configured"},
+            "lean": {"ok": False, "model": BEDROCK_LEAN_MODEL_ID, "error": "Bedrock not configured"},
+        }
+    return {
+        "configured": True,
+        "manager": _probe_one(BEDROCK_MANAGER_MODEL_ID, "manager"),
+        "lean": _probe_one(BEDROCK_LEAN_MODEL_ID, "lean"),
+    }
