@@ -1,6 +1,8 @@
 import base64
 import json
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from connectors import google_credentials
@@ -28,6 +30,26 @@ class GoogleCredentialTests(unittest.TestCase):
     def test_base64_json_is_accepted(self):
         raw = base64.b64encode(json.dumps(self._info()).encode()).decode()
         self.assertEqual(google_credentials.service_account_info(raw)["project_id"], "demo-project")
+
+    def test_mounted_json_file_path_is_accepted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "content-credentials-test.json"
+            path.write_text(json.dumps(self._info()), encoding="utf-8")
+            info = google_credentials.service_account_info(str(path))
+            self.assertEqual(info["project_id"], "demo-project")
+            self.assertEqual(google_credentials.source(str(path)), "file")
+
+    def test_file_uri_is_accepted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "credentials.json"
+            path.write_text(json.dumps(self._info()), encoding="utf-8")
+            info = google_credentials.service_account_info("file://" + str(path))
+            self.assertEqual(info["client_email"], "svc@example.iam.gserviceaccount.com")
+
+    def test_missing_json_path_is_reported_without_exposing_secret(self):
+        value = "/tmp/content-credentials-not-present.json"
+        self.assertIsNone(google_credentials.service_account_info(value))
+        self.assertEqual(google_credentials.source(value), "file-missing-or-invalid")
 
     def test_non_credential_value_is_rejected(self):
         self.assertIsNone(google_credentials.service_account_info("not-json-or-base64"))
