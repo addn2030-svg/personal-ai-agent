@@ -14,6 +14,7 @@ if str(BASE) not in sys.path:
 from connectors import telegram_bot_legacy as _impl
 from connectors import model_gateway as _models
 from connectors import task_delegation as _team
+from connectors import bedrock_team as _bedrock_team
 
 _legacy_run = _impl.run
 _legacy_ask_bedrock = _impl.ask_bedrock
@@ -85,25 +86,49 @@ def _command_start(chat_id: int):
     _legacy_command_start(chat_id)
     _impl.send(
         chat_id,
-        "\n🧠 فريق الوكلاء v0.7\n"
-        "/agents — حالة Claude + GPT + Gemini\n"
+        "\n🧠 فريق الوكلاء v0.9\n"
+        "/agents — حالة فريق النماذج ومساراته\n"
+        "/bedrock_test — اختبار صغير لـ Claude وGPT Luna على Bedrock\n"
         "/delegate auto المهمة — المدير يختار الوكيل\n"
         "/delegate claude|gpt|gemini المهمة — تكليف مباشر\n"
         "/council السؤال — مراجعة من الفريق\n"
-        "/mission الهدف — هدف مشترك: Claude يقسم، GPT/Gemini ينفذان، Claude يجمع القرار\n"
+        "/mission [lean|standard|deep] الهدف — مهمة بميزانية tokens\n"
         "لا توجد أدوات خارجية تلقائية داخل /mission؛ أي تنفيذ حساس يبقى خلف الموافقة.",
     )
 
 
 def _format_delegate(result: _team.AgentResult) -> str:
     label = _team.ROLE_LABELS.get(result.executed_by, result.executed_by)
-    fallback = "\n⚠️ OpenRouter تعذر؛ تم التنفيذ عبر Bedrock." if result.fallback else ""
+    fallback = "\n⚠️ المسار الأساسي تعذر؛ تم استخدام fallback." if result.fallback else ""
     return (
         f"✅ Delegated to: {label}\n"
         f"Provider: {result.provider}\n"
         f"Model: {result.model}{fallback}\n\n"
         f"{result.answer}"
     )
+
+
+def _format_probe_item(label: str, item: dict) -> str:
+    model = item.get("model", "unknown")
+    if item.get("ok"):
+        usage = item.get("usage") or {}
+        token_text = ""
+        if usage:
+            token_text = f" | in={usage.get('inputTokens', '?')} out={usage.get('outputTokens', '?')}"
+        return f"✅ {label}: {model} | {item.get('latency_ms', '?')} ms{token_text}"
+    error = str(item.get("error", "unknown error"))[:500]
+    return f"❌ {label}: {model}\n{error}"
+
+
+def _command_bedrock_test(chat_id: int):
+    result = _bedrock_team.probe()
+    lines = [
+        "🧪 Bedrock Team Test v0.9.1",
+        _format_probe_item("Manager / Claude", result.get("manager") or {}),
+        _format_probe_item("Lean specialist / GPT Luna", result.get("lean") or {}),
+        "This test uses tiny prompts only; no conversation history or Sheets context is sent.",
+    ]
+    _impl.send(chat_id, "\n\n".join(lines))
 
 
 def _send_chunks(chat_id: int, text: str, chunk_size: int = 3500):
@@ -117,7 +142,7 @@ def _send_chunks(chat_id: int, text: str, chunk_size: int = 3500):
 def _delegated_handle_message(message: dict):
     raw = (message.get("text") or message.get("caption") or "").strip()
     command = raw.split()[0].split("@")[0].lower() if raw else ""
-    if command not in {"/agents", "/delegate", "/council", "/mission"}:
+    if command not in {"/agents", "/bedrock_test", "/delegate", "/council", "/mission"}:
         return _legacy_handle_message(message)
 
     chat = message.get("chat") or {}
@@ -140,6 +165,8 @@ def _delegated_handle_message(message: dict):
         if command == "/agents":
             answer = _team.agents_status_text()
             _impl.send(chat_id, answer)
+        elif command == "/bedrock_test":
+            _command_bedrock_test(chat_id)
         elif command == "/delegate":
             value = text[len(command):].strip()
             result = _team.delegate(chat_id, value, bedrock_fallback=_legacy_ask_bedrock)
@@ -168,10 +195,11 @@ def _configure_commands():
         commands = _impl.api("getMyCommands") or []
         existing = {str(item.get("command", "")) for item in commands}
         additions = [
-            {"command": "agents", "description": "حالة فريق Claude وGPT وGemini"},
+            {"command": "agents", "description": "حالة فريق النماذج ومساراته"},
+            {"command": "bedrock_test", "description": "اختبار Claude وGPT Luna على Bedrock"},
             {"command": "delegate", "description": "تكليف وكيل أو اختيار تلقائي"},
             {"command": "council", "description": "مراجعة سؤال بواسطة فريق الذكاء"},
-            {"command": "mission", "description": "هدف مشترك ينفذه فريق الوكلاء"},
+            {"command": "mission", "description": "مهمة مشتركة بميزانية tokens"},
         ]
         commands.extend(item for item in additions if item["command"] not in existing)
         _impl.api("setMyCommands", {"commands": json.dumps(commands, ensure_ascii=False)})
