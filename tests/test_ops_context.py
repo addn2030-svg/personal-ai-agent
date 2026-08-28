@@ -92,6 +92,20 @@ class OpsContextTests(unittest.TestCase):
         self.assertIn("calendar", result["errors"][0])
         self.assertIn("sheets", result["errors"][1])
 
+    def test_google_http_error_keeps_reason_but_omits_url(self):
+        class Resp:
+            status = 403
+
+        class FakeError(Exception):
+            resp = Resp()
+            content = b'{"error":{"message":"Calendar API disabled. Enable at https://console.example/test","errors":[{"reason":"accessNotConfigured"}]}}'
+
+        text = ops._safe_http_error(FakeError())
+        self.assertIn("HTTP 403", text)
+        self.assertIn("reason=accessNotConfigured", text)
+        self.assertIn("[link omitted]", text)
+        self.assertNotIn("https://", text)
+
 
 if __name__ == "__main__":
     unittest.main()
