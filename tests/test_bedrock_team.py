@@ -40,6 +40,41 @@ class BedrockTeamTests(unittest.TestCase):
                     prompt="x",
                 )
 
+    def test_probe_checks_manager_and_luna_with_tiny_calls(self):
+        def fake(*, model_id, system, prompt, max_tokens, temperature, role):
+            self.assertEqual(prompt, "OK")
+            self.assertEqual(max_tokens, 16)
+            return bedrock_team.BedrockTeamResult(
+                text="OK", model=model_id,
+                usage={"inputTokens": 3, "outputTokens": 1}, latency_ms=5,
+            )
+
+        with patch.object(bedrock_team, "configured", return_value=True), patch.object(
+            bedrock_team, "converse_text", side_effect=fake
+        ):
+            result = bedrock_team.probe()
+
+        self.assertTrue(result["manager"]["ok"])
+        self.assertTrue(result["lean"]["ok"])
+        self.assertEqual(result["lean"]["model"], bedrock_team.BEDROCK_LEAN_MODEL_ID)
+
+    def test_probe_returns_safe_luna_error_without_raising(self):
+        def fake(*, model_id, **kwargs):
+            if model_id == bedrock_team.BEDROCK_LEAN_MODEL_ID:
+                raise RuntimeError("AccessDeniedException: not authorized for default project")
+            return bedrock_team.BedrockTeamResult(
+                text="OK", model=model_id, usage={}, latency_ms=4,
+            )
+
+        with patch.object(bedrock_team, "configured", return_value=True), patch.object(
+            bedrock_team, "converse_text", side_effect=fake
+        ):
+            result = bedrock_team.probe()
+
+        self.assertTrue(result["manager"]["ok"])
+        self.assertFalse(result["lean"]["ok"])
+        self.assertIn("AccessDeniedException", result["lean"]["error"])
+
 
 if __name__ == "__main__":
     unittest.main()
