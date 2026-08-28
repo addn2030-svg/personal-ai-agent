@@ -12,4 +12,7 @@ if os.environ.get("GOOGLE_SHEETS_WEBHOOK_URL", "").strip() and os.environ.get(
 ).strip():
     from . import google_knowledge_webhook as _google_knowledge_webhook
 
+    # Expose the alias both as a package attribute and in sys.modules. The
+    # package attribute is required for `from connectors import google_knowledge`.
+    google_knowledge = _google_knowledge_webhook
     sys.modules[__name__ + ".google_knowledge"] = _google_knowledge_webhook

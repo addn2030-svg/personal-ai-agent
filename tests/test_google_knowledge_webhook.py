@@ -1,3 +1,6 @@
+import importlib
+import os
+import sys
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -47,6 +50,28 @@ class GoogleKnowledgeWebhookTests(unittest.TestCase):
         source = Path("connectors/google_sheets_webhook.gs").read_text(encoding="utf-8")
         for action in ("upsert_metrics", "knowledge_access", "knowledge_search", "knowledge_read", "sheetcheck", "ping"):
             self.assertIn("'" + action + "'", source)
+
+    def test_connectors_package_exposes_webhook_as_google_knowledge_in_production(self):
+        import connectors
+
+        previous_url = os.environ.get("GOOGLE_SHEETS_WEBHOOK_URL")
+        previous_secret = os.environ.get("GOOGLE_SHEETS_WEBHOOK_SECRET")
+        try:
+            os.environ["GOOGLE_SHEETS_WEBHOOK_URL"] = "https://script.google.com/macros/s/test/exec"
+            os.environ["GOOGLE_SHEETS_WEBHOOK_SECRET"] = "secret"
+            sys.modules.pop("connectors.google_knowledge", None)
+            connectors = importlib.reload(connectors)
+            self.assertIs(connectors.google_knowledge, connectors.google_knowledge_webhook)
+        finally:
+            if previous_url is None:
+                os.environ.pop("GOOGLE_SHEETS_WEBHOOK_URL", None)
+            else:
+                os.environ["GOOGLE_SHEETS_WEBHOOK_URL"] = previous_url
+            if previous_secret is None:
+                os.environ.pop("GOOGLE_SHEETS_WEBHOOK_SECRET", None)
+            else:
+                os.environ["GOOGLE_SHEETS_WEBHOOK_SECRET"] = previous_secret
+            importlib.reload(connectors)
 
 
 if __name__ == "__main__":
