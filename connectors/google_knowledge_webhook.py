@@ -77,20 +77,22 @@ def _call(action: str, **payload) -> dict:
 
 def access_report() -> dict:
     try:
+        ping = _call("ping")
         result = _call("knowledge_access")
         return {
             "credential_ok": True,
             "credential_error": "",
-            "service_account": "Google Apps Script Gateway ✅",
+            "service_account": f"Google Apps Script Gateway ✅ ({ping.get('version', 'v0.8')})",
             "gateway": "apps_script",
             "spreadsheets": result.get("spreadsheets", []),
             "folders": result.get("folders", []),
         }
     except Exception as exc:
+        error = str(exc)[:300]
         return {
             "credential_ok": False,
-            "credential_error": str(exc)[:300],
-            "service_account": "Google Apps Script Gateway",
+            "credential_error": error,
+            "service_account": "Google Apps Script Gateway ❌ — " + error,
             "gateway": "apps_script",
             "spreadsheets": [],
             "folders": [],
