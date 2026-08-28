@@ -3,7 +3,7 @@
 
 This module patches only non-sensitive OpenAI/Gemini specialist model calls:
 - openai/* -> direct OpenAI Responses API when OPENAI_API_KEY exists
-- google/* -> direct Gemini Interactions API when GEMINI_API_KEY exists
+- google/* -> direct Gemini OpenAI-compatible chat completions when GEMINI_API_KEY exists
 - OpenRouter remains the fallback
 
 Claude/Anthropic calls and sensitive/private calls are left untouched.
@@ -79,20 +79,23 @@ def _extract_openai_text(result: dict) -> str:
     return "\n".join(chunks).strip()
 
 
-def _extract_gemini_text(result: dict) -> str:
-    direct = str(result.get("output_text") or "").strip()
-    if direct:
-        return direct
-    chunks: list[str] = []
-    for step in result.get("steps") or []:
-        if not isinstance(step, dict) or step.get("type") != "model_output":
-            continue
-        for part in step.get("content") or []:
-            if isinstance(part, dict) and part.get("type") == "text":
-                text = str(part.get("text") or "").strip()
+def _extract_chat_completion_text(result: dict) -> str:
+    choices = result.get("choices") or []
+    if not choices:
+        return ""
+    message = choices[0].get("message") or {}
+    content = message.get("content")
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        chunks = []
+        for part in content:
+            if isinstance(part, dict):
+                text = str(part.get("text") or part.get("content") or "").strip()
                 if text:
                     chunks.append(text)
-    return "\n".join(chunks).strip()
+        return "\n".join(chunks).strip()
+    return ""
 
 
 def _direct_openai(*, model: str, messages: list[dict], max_tokens: int) -> tuple[str, dict, int, str]:
@@ -128,35 +131,39 @@ def _direct_openai(*, model: str, messages: list[dict], max_tokens: int) -> tupl
 
 
 def _direct_gemini(*, model: str, messages: list[dict], max_tokens: int) -> tuple[str, dict, int, str]:
+    """Call Gemini through Google's documented OpenAI-compatible REST endpoint."""
     if not GEMINI_API_KEY:
         raise RuntimeError("GEMINI_API_KEY is not configured")
-    system_text, input_text = _message_parts(messages)
     actual_model = _strip_prefix(model, "google")
     payload = {
         "model": actual_model,
-        "input": input_text,
-        "store": False,
-        "generation_config": {"max_output_tokens": max_tokens},
+        "messages": messages,
     }
-    if system_text:
-        payload["system_instruction"] = system_text
     result, latency_ms = _request_json(
-        GEMINI_API_BASE + "/interactions",
+        GEMINI_API_BASE + "/openai/chat/completions",
         payload,
         {
-            "x-goog-api-key": GEMINI_API_KEY,
+            "Authorization": f"Bearer {GEMINI_API_KEY}",
             "Content-Type": "application/json",
         },
     )
-    answer = _extract_gemini_text(result)
+    answer = _extract_chat_completion_text(result)
     if not answer:
         raise RuntimeError("Gemini returned an empty response")
     usage_raw = result.get("usage") or {}
     usage = {
-        "inputTokens": usage_raw.get("total_input_tokens", ""),
-        "outputTokens": usage_raw.get("total_output_tokens", ""),
+        "inputTokens": usage_raw.get("prompt_tokens", usage_raw.get("input_tokens", "")),
+        "outputTokens": usage_raw.get("completion_tokens", usage_raw.get("output_tokens", "")),
     }
     return answer, usage, latency_ms, str(result.get("model") or actual_model)
+
+
+def _short_provider_error(exc: Exception) -> str:
+    value = str(exc)
+    for secret in (OPENAI_API_KEY, GEMINI_API_KEY):
+        if secret:
+            value = value.replace(secret, "[REDACTED]")
+    return value[:180]
 
 
 def install(gateway) -> None:
@@ -170,6 +177,8 @@ def install(gateway) -> None:
     def routed_chat(*, model: str, messages: list[dict], sensitive: bool = False,
                     max_tokens: int = 1200, temperature: float = 0.2,
                     response_format: dict | None = None):
+        direct_error: Exception | None = None
+
         # Structured-output calls keep the existing OpenRouter implementation.
         # Current GPT/Gemini mission-specialist calls do not request response_format.
         if not sensitive and response_format is None and model.startswith("openai/") and OPENAI_API_KEY:
@@ -179,7 +188,8 @@ def install(gateway) -> None:
                 )
                 gateway._set_route("openai", actual_model)
                 return answer, usage, latency_ms
-            except Exception:
+            except Exception as exc:
+                direct_error = exc
                 if not gateway.configured():
                     raise
 
@@ -190,25 +200,34 @@ def install(gateway) -> None:
                 )
                 gateway._set_route("gemini", actual_model)
                 return answer, usage, latency_ms
-            except Exception:
+            except Exception as exc:
+                direct_error = exc
                 if not gateway.configured():
                     raise
 
-        return original_chat(
-            model=model,
-            messages=messages,
-            sensitive=sensitive,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            response_format=response_format,
-        )
+        try:
+            return original_chat(
+                model=model,
+                messages=messages,
+                sensitive=sensitive,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                response_format=response_format,
+            )
+        except Exception as router_exc:
+            if direct_error is not None:
+                raise RuntimeError(
+                    "Direct provider failed: " + _short_provider_error(direct_error)
+                    + " | OpenRouter fallback failed: " + _short_provider_error(router_exc)
+                ) from router_exc
+            raise
 
     def safe_error(exc: Exception) -> str:
         value = original_safe_error(exc)
         for secret in (OPENAI_API_KEY, GEMINI_API_KEY):
             if secret:
                 value = value.replace(secret, "[REDACTED]")
-        if "402" in value and "credit" in value.lower():
+        if "402" in value and "credit" in value.lower() and "Direct provider failed" not in value:
             return "OpenRouter credits exhausted"
         return value[:240]
 
