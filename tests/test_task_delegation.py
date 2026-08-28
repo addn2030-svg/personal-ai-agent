@@ -76,25 +76,29 @@ class TaskDelegationTests(unittest.TestCase):
                 }
                 return team.AgentResult("claude", "claude", "openrouter", "claude", json.dumps(plan))
             if agent == "gemini":
-                return team.AgentResult("gemini", "gemini", "openrouter", "gemini", "Gemini findings")
+                return team.AgentResult("gemini", "gemini", "gemini", "gemini", "Gemini findings")
             if agent == "gpt":
-                return team.AgentResult("gpt", "gpt", "openrouter", "gpt", "GPT risks")
+                self.assertIn("Gemini findings", task)
+                self.assertIn("GEMINI HANDOFF", task)
+                return team.AgentResult("gpt", "gpt", "openai", "gpt", "GPT risks")
             if agent == "claude" and "MISSION SYNTHESIS" in task:
                 self.assertIn("Gemini findings", task)
                 self.assertIn("GPT risks", task)
+                self.assertIn("COMPLETE: GPT received Gemini output", task)
                 return team.AgentResult("claude", "claude", "openrouter", "claude", "Unified manager decision")
             raise AssertionError("unexpected call")
 
         with patch.object(team, "_openrouter_agent", side_effect=fake):
             result = team.mission(1, "Improve agent reliability")
 
-        self.assertIn("🎯 AI Mission v0.7", result)
-        self.assertIn("Claude/OpenRouter", result)
-        self.assertIn("Gemini — Researcher", result)
-        self.assertIn("GPT — Critic", result)
+        self.assertIn("🎯 AI Mission v0.8", result)
+        self.assertIn("Handoff Gemini→GPT: ✅", result)
+        self.assertIn("Claude/openrouter", result)
+        self.assertIn("Gemini — Researcher [gemini]", result)
+        self.assertIn("GPT — Critic [openai]", result)
         self.assertIn("Unified manager decision", result)
-        self.assertTrue(any(a == "gemini" for a, _t, _k in calls))
-        self.assertTrue(any(a == "gpt" for a, _t, _k in calls))
+        order = [a for a, _t, _k in calls]
+        self.assertLess(order.index("gemini"), order.index("gpt"))
         self.assertGreaterEqual(sum(a == "claude" for a, _t, _k in calls), 2)
 
     def test_mission_continues_when_one_specialist_fails(self):
@@ -113,7 +117,8 @@ class TaskDelegationTests(unittest.TestCase):
             if agent == "gemini":
                 raise RuntimeError("temporary provider error")
             if agent == "gpt":
-                return team.AgentResult("gpt", "gpt", "openrouter", "gpt", "risk review")
+                self.assertIn("GEMINI HANDOFF — unavailable", task)
+                return team.AgentResult("gpt", "gpt", "openai", "gpt", "risk review")
             if agent == "claude" and "MISSION SYNTHESIS" in task:
                 return team.AgentResult("claude", "claude", "openrouter", "claude", "manager result")
             raise AssertionError("unexpected")
@@ -124,6 +129,7 @@ class TaskDelegationTests(unittest.TestCase):
         self.assertIn("GPT — Critic", result)
         self.assertIn("Unavailable specialist", result)
         self.assertIn("Gemini — Researcher", result)
+        self.assertIn("Handoff Gemini→GPT: ⚠️ partial", result)
         self.assertIn("manager result", result)
 
 
