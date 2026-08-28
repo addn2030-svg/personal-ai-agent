@@ -24,3 +24,10 @@ _install_lean_missions()
 from .ops_context import install as _install_ops_context
 
 _install_ops_context()
+
+# v0.9.6 routes explicit natural-language scheduling requests to the guarded
+# Calendar proposal flow before the general AI path. Writes still require
+# /confirm_event approval.
+from .calendar_intent import install as _install_calendar_intent
+
+_install_calendar_intent()
