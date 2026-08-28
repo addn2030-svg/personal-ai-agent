@@ -3,8 +3,8 @@
 
 This module patches only non-sensitive OpenAI/Gemini specialist model calls:
 - openai/* -> direct OpenAI Responses API when OPENAI_API_KEY exists
-- google/* -> direct Gemini Interactions API when GEMINI_API_KEY exists
-- OpenRouter remains the fallback
+- google/* -> direct Gemini Interactions API, then generateContent fallback
+- OpenRouter remains the final fallback
 
 Claude/Anthropic calls and sensitive/private calls are left untouched.
 """
@@ -14,6 +14,7 @@ import json
 import os
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
@@ -79,7 +80,7 @@ def _extract_openai_text(result: dict) -> str:
     return "\n".join(chunks).strip()
 
 
-def _extract_gemini_text(result: dict) -> str:
+def _extract_gemini_interaction_text(result: dict) -> str:
     direct = str(result.get("output_text") or "").strip()
     if direct:
         return direct
@@ -89,6 +90,20 @@ def _extract_gemini_text(result: dict) -> str:
             continue
         for part in step.get("content") or []:
             if isinstance(part, dict) and part.get("type") == "text":
+                text = str(part.get("text") or "").strip()
+                if text:
+                    chunks.append(text)
+    return "\n".join(chunks).strip()
+
+
+def _extract_gemini_generate_text(result: dict) -> str:
+    chunks: list[str] = []
+    for candidate in result.get("candidates") or []:
+        if not isinstance(candidate, dict):
+            continue
+        content = candidate.get("content") or {}
+        for part in content.get("parts") or []:
+            if isinstance(part, dict):
                 text = str(part.get("text") or "").strip()
                 if text:
                     chunks.append(text)
@@ -127,9 +142,7 @@ def _direct_openai(*, model: str, messages: list[dict], max_tokens: int) -> tupl
     return answer, usage, latency_ms, str(result.get("model") or actual_model)
 
 
-def _direct_gemini(*, model: str, messages: list[dict], max_tokens: int) -> tuple[str, dict, int, str]:
-    if not GEMINI_API_KEY:
-        raise RuntimeError("GEMINI_API_KEY is not configured")
+def _direct_gemini_interactions(*, model: str, messages: list[dict], max_tokens: int) -> tuple[str, dict, int, str]:
     system_text, input_text = _message_parts(messages)
     actual_model = _strip_prefix(model, "google")
     payload = {
@@ -140,23 +153,76 @@ def _direct_gemini(*, model: str, messages: list[dict], max_tokens: int) -> tupl
     }
     if system_text:
         payload["system_instruction"] = system_text
+    url = GEMINI_API_BASE + "/interactions?key=" + urllib.parse.quote(GEMINI_API_KEY, safe="")
     result, latency_ms = _request_json(
-        GEMINI_API_BASE + "/interactions",
+        url,
         payload,
         {
-            "x-goog-api-key": GEMINI_API_KEY,
             "Content-Type": "application/json",
+            "Api-Revision": "2026-05-20",
         },
     )
-    answer = _extract_gemini_text(result)
+    answer = _extract_gemini_interaction_text(result)
     if not answer:
-        raise RuntimeError("Gemini returned an empty response")
+        raise RuntimeError("Gemini Interactions returned an empty response")
     usage_raw = result.get("usage") or {}
     usage = {
         "inputTokens": usage_raw.get("total_input_tokens", ""),
         "outputTokens": usage_raw.get("total_output_tokens", ""),
     }
     return answer, usage, latency_ms, str(result.get("model") or actual_model)
+
+
+def _direct_gemini_generate_content(*, model: str, messages: list[dict], max_tokens: int) -> tuple[str, dict, int, str]:
+    system_text, input_text = _message_parts(messages)
+    actual_model = _strip_prefix(model, "google")
+    payload = {
+        "contents": [
+            {
+                "role": "user",
+                "parts": [{"text": input_text}],
+            }
+        ],
+        "generationConfig": {"maxOutputTokens": max_tokens},
+    }
+    if system_text:
+        payload["systemInstruction"] = {"parts": [{"text": system_text}]}
+    url = (
+        GEMINI_API_BASE
+        + "/models/"
+        + urllib.parse.quote(actual_model, safe="")
+        + ":generateContent?key="
+        + urllib.parse.quote(GEMINI_API_KEY, safe="")
+    )
+    result, latency_ms = _request_json(url, payload, {"Content-Type": "application/json"})
+    answer = _extract_gemini_generate_text(result)
+    if not answer:
+        raise RuntimeError("Gemini generateContent returned an empty response")
+    usage_raw = result.get("usageMetadata") or {}
+    usage = {
+        "inputTokens": usage_raw.get("promptTokenCount", ""),
+        "outputTokens": usage_raw.get("candidatesTokenCount", ""),
+    }
+    return answer, usage, latency_ms, actual_model
+
+
+def _direct_gemini(*, model: str, messages: list[dict], max_tokens: int) -> tuple[str, dict, int, str]:
+    if not GEMINI_API_KEY:
+        raise RuntimeError("GEMINI_API_KEY is not configured")
+    interaction_error: Exception | None = None
+    try:
+        return _direct_gemini_interactions(model=model, messages=messages, max_tokens=max_tokens)
+    except Exception as exc:
+        interaction_error = exc
+    try:
+        return _direct_gemini_generate_content(model=model, messages=messages, max_tokens=max_tokens)
+    except Exception as generate_exc:
+        raise RuntimeError(
+            "Gemini direct APIs failed: interactions="
+            + str(interaction_error)[:180]
+            + "; generateContent="
+            + str(generate_exc)[:180]
+        ) from generate_exc
 
 
 def install(gateway) -> None:
