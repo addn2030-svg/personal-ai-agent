@@ -18,6 +18,7 @@ on:
       - 'connectors/task_delegation.py'
       - 'connectors/telegram_bot.py'
       - 'connectors/telegram_bot_legacy.py'
+      - 'connectors/telegram_webhook.py'
       - 'research_capsules/**'
       - 'tests/test_production_model_gateway.py'
       - 'tests/test_direct_specialists.py'
@@ -27,6 +28,7 @@ on:
       - 'tests/test_lean_missions.py'
       - 'tests/test_ops_context.py'
       - 'tests/test_google_context_transport.py'
+      - 'tests/test_calendar_webhook_reminders.py'
       - 'tests/test_task_delegation.py'
       - '.github/workflows/production-model-router.yml'
 
@@ -49,6 +51,7 @@ jobs:
           tests.test_lean_missions
           tests.test_ops_context
           tests.test_google_context_transport
+          tests.test_calendar_webhook_reminders
           tests.test_task_delegation
       - name: Compile production entrypoints
         run: >-
@@ -66,3 +69,4 @@ jobs:
           connectors/task_delegation.py
           connectors/telegram_bot.py
           connectors/telegram_bot_legacy.py
+          connectors/telegram_webhook.py
