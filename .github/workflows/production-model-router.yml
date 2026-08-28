@@ -10,6 +10,7 @@ on:
       - 'connectors/team_orchestrator.py'
       - 'connectors/bedrock_team.py'
       - 'connectors/lean_missions.py'
+      - 'connectors/ops_context.py'
       - 'connectors/__init__.py'
       - 'connectors/task_delegation.py'
       - 'connectors/telegram_bot.py'
@@ -21,6 +22,7 @@ on:
       - 'tests/test_team_orchestrator.py'
       - 'tests/test_bedrock_team.py'
       - 'tests/test_lean_missions.py'
+      - 'tests/test_ops_context.py'
       - 'tests/test_task_delegation.py'
       - '.github/workflows/production-model-router.yml'
 
@@ -41,6 +43,7 @@ jobs:
           tests.test_team_orchestrator
           tests.test_bedrock_team
           tests.test_lean_missions
+          tests.test_ops_context
           tests.test_task_delegation
       - name: Compile production entrypoints
         run: >-
@@ -51,6 +54,7 @@ jobs:
           connectors/team_orchestrator.py
           connectors/bedrock_team.py
           connectors/lean_missions.py
+          connectors/ops_context.py
           connectors/task_delegation.py
           connectors/telegram_bot.py
           connectors/telegram_bot_legacy.py
