@@ -14,6 +14,7 @@ import threading
 from dataclasses import dataclass
 
 from . import lean_missions as lean
+from . import model_gateway as models
 from . import task_delegation as base
 
 OPS_CONTEXT_LIMIT = int(os.environ.get("MISSION_OPS_CONTEXT_CHARS", "2400"))
@@ -45,6 +46,10 @@ _STATE = threading.local()
 class OpsContextPacket:
     text: str = ""
     sources: tuple[str, ...] = ()
+    triggered: bool = False
+    calendar_count: int = 0
+    sheet_count: int = 0
+    errors: tuple[str, ...] = ()
 
 
 def needs_ops_context(goal: str) -> bool:
@@ -60,11 +65,11 @@ def _clean(value: str, limit: int = 180) -> str:
     return text[:limit]
 
 
+def _safe_source_error(source: str, exc: Exception) -> str:
+    return f"{source}: {models._safe_error(exc)[:320]}"
+
+
 def _calendar_lines(goal: str) -> list[str]:
-    if not os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip() and not os.environ.get(
-        "GOOGLE_CALENDAR_SERVICE_ACCOUNT_JSON", ""
-    ).strip():
-        return []
     from . import calendar_actions
 
     rows = calendar_actions.list_events(days_forward=2, max_results=12)
@@ -128,25 +133,53 @@ def build_ops_context(goal: str, limit_chars: int = OPS_CONTEXT_LIMIT) -> OpsCon
 
     lines: list[str] = []
     sources: list[str] = []
+    errors: list[str] = []
+    calendar_count = 0
+    sheet_count = 0
+
     try:
         cal = _calendar_lines(goal)
+        calendar_count = len(cal)
         if cal:
             lines.extend(cal)
             sources.append("calendar")
-    except Exception:
-        pass
+    except Exception as exc:
+        errors.append(_safe_source_error("calendar", exc))
+
     try:
         sheets = _sheet_lines()
+        sheet_count = len(sheets)
         if sheets:
             lines.extend(sheets)
             sources.append("sheets")
-    except Exception:
-        pass
+    except Exception as exc:
+        errors.append(_safe_source_error("sheets", exc))
 
     text = "\n".join(lines).strip()
     if len(text) > max(400, int(limit_chars)):
         text = text[: max(360, int(limit_chars) - 40)].rstrip() + "\n[OPS_CONTEXT_TRUNCATED]"
-    return OpsContextPacket(text=text, sources=tuple(sources))
+    return OpsContextPacket(
+        text=text,
+        sources=tuple(sources),
+        triggered=True,
+        calendar_count=calendar_count,
+        sheet_count=sheet_count,
+        errors=tuple(errors),
+    )
+
+
+def probe(goal: str = "priorities tomorrow") -> dict:
+    """Read-only context diagnostic. It performs no model inference."""
+    packet = build_ops_context(goal)
+    return {
+        "triggered": packet.triggered,
+        "sources": list(packet.sources),
+        "chars": len(packet.text),
+        "calendar_rows": packet.calendar_count,
+        "sheet_rows": packet.sheet_count,
+        "errors": list(packet.errors),
+        "preview": packet.text[:1200],
+    }
 
 
 def _install_manager_prompt() -> None:
@@ -174,12 +207,23 @@ def mission(chat_id: int, objective: str, *, bedrock_fallback=None) -> str:
     _STATE.packet = OpsContextPacket()
     result = _ORIGINAL_MISSION(chat_id, objective, bedrock_fallback=bedrock_fallback)
     packet = getattr(_STATE, "packet", OpsContextPacket())
-    if not packet.text:
+    if not packet.triggered:
         return result
+
     source_text = "+".join(packet.sources) if packet.sources else "none"
+    if packet.text:
+        status = "ready"
+    elif packet.errors:
+        status = "source-error"
+    else:
+        status = "empty"
     lines = result.splitlines()
     insert_at = 2 if len(lines) >= 2 else len(lines)
-    lines.insert(insert_at, f"Context: ops-mini | sources={source_text} | chars={len(packet.text)}")
+    lines.insert(
+        insert_at,
+        f"Context: ops-mini | status={status} | sources={source_text} | "
+        f"calendar={packet.calendar_count} sheets={packet.sheet_count} | chars={len(packet.text)}",
+    )
     return "\n".join(lines)
 
 

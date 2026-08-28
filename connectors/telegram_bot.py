@@ -15,6 +15,7 @@ from connectors import telegram_bot_legacy as _impl
 from connectors import model_gateway as _models
 from connectors import task_delegation as _team
 from connectors import bedrock_team as _bedrock_team
+from connectors import ops_context as _ops_context
 
 _legacy_run = _impl.run
 _legacy_ask_bedrock = _impl.ask_bedrock
@@ -89,6 +90,7 @@ def _command_start(chat_id: int):
         "\n🧠 فريق الوكلاء v0.9\n"
         "/agents — حالة فريق النماذج ومساراته\n"
         "/bedrock_test — اختبار صغير لـ Claude والـLean specialist على Bedrock\n"
+        "/context_test tomorrow — اختبار Calendar/Sheets بدون AI tokens\n"
         "/delegate auto المهمة — المدير يختار الوكيل\n"
         "/delegate claude|gpt|gemini المهمة — تكليف مباشر\n"
         "/council السؤال — مراجعة من الفريق\n"
@@ -131,6 +133,31 @@ def _command_bedrock_test(chat_id: int):
     _impl.send(chat_id, "\n\n".join(lines))
 
 
+def _command_context_test(chat_id: int, goal: str):
+    value = (goal or "").strip() or "priorities tomorrow"
+    result = _ops_context.probe(value)
+    sources = "+".join(result.get("sources") or []) or "none"
+    lines = [
+        "🧪 Ops Context Test v0.9.3a — no model call",
+        f"Goal: {value}",
+        f"Triggered: {'YES ✅' if result.get('triggered') else 'NO'}",
+        f"Sources: {sources}",
+        f"Calendar rows: {result.get('calendar_rows', 0)}",
+        f"Sheet rows: {result.get('sheet_rows', 0)}",
+        f"Chars: {result.get('chars', 0)}",
+    ]
+    errors = result.get("errors") or []
+    if errors:
+        lines.append("Safe errors:\n- " + "\n- ".join(str(x) for x in errors[:3]))
+    preview = str(result.get("preview") or "").strip()
+    if preview:
+        lines.append("Preview (already privacy-filtered):\n" + preview[:1200])
+    else:
+        lines.append("Preview: empty")
+    lines.append("AI/model calls: 0")
+    _send_chunks(chat_id, "\n\n".join(lines))
+
+
 def _send_chunks(chat_id: int, text: str, chunk_size: int = 3500):
     value = str(text or "")
     if not value:
@@ -142,7 +169,7 @@ def _send_chunks(chat_id: int, text: str, chunk_size: int = 3500):
 def _delegated_handle_message(message: dict):
     raw = (message.get("text") or message.get("caption") or "").strip()
     command = raw.split()[0].split("@")[0].lower() if raw else ""
-    if command not in {"/agents", "/bedrock_test", "/delegate", "/council", "/mission"}:
+    if command not in {"/agents", "/bedrock_test", "/context_test", "/delegate", "/council", "/mission"}:
         return _legacy_handle_message(message)
 
     chat = message.get("chat") or {}
@@ -167,6 +194,8 @@ def _delegated_handle_message(message: dict):
             _impl.send(chat_id, answer)
         elif command == "/bedrock_test":
             _command_bedrock_test(chat_id)
+        elif command == "/context_test":
+            _command_context_test(chat_id, text[len(command):].strip())
         elif command == "/delegate":
             value = text[len(command):].strip()
             result = _team.delegate(chat_id, value, bedrock_fallback=_legacy_ask_bedrock)
@@ -197,6 +226,7 @@ def _configure_commands():
         additions = [
             {"command": "agents", "description": "حالة فريق النماذج ومساراته"},
             {"command": "bedrock_test", "description": "اختبار Claude والـLean specialist على Bedrock"},
+            {"command": "context_test", "description": "اختبار سياق Calendar/Sheets بدون AI"},
             {"command": "delegate", "description": "تكليف وكيل أو اختيار تلقائي"},
             {"command": "council", "description": "مراجعة سؤال بواسطة فريق الذكاء"},
             {"command": "mission", "description": "مهمة مشتركة بميزانية tokens"},
