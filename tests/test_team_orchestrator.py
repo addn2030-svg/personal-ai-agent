@@ -8,10 +8,10 @@ from connectors import team_orchestrator as team
 
 class TeamOrchestratorTests(unittest.TestCase):
     def test_bounded_text_marks_truncation(self):
-        text = "A" * 200
-        bounded = team._bounded_text(text, limit=100)
+        text = "A" * 1000
+        bounded = team._bounded_text(text, limit=400)
         self.assertIn("HANDOFF_TRUNCATED", bounded)
-        self.assertLessEqual(len(bounded), 110)
+        self.assertLessEqual(len(bounded), 400)
 
     def test_routed_agent_reports_actual_provider(self):
         with patch.object(
