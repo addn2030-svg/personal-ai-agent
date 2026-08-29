@@ -82,6 +82,68 @@ def _append_direct_first(tab: str, row: list):
 bot._append = _append_direct_first
 
 
+def _direct_error_text(exc: Exception) -> str:
+    status = getattr(getattr(exc, "resp", None), "status", None)
+    prefix = f"HTTP {status}: " if status else ""
+    text = str(exc).replace("\n", " ")
+    return prefix + text[:320]
+
+
+def _command_storage_status(chat_id: int):
+    """Diagnose the direct Sheets route without hiding it behind Apps Script fallback."""
+    info = google_credentials.service_account_info()
+    if not info or not bot.GOOGLE_SHEET_ID:
+        bot.send(
+            chat_id,
+            "❌ Direct Google Sheets غير مهيأ.\n"
+            "GOOGLE_SERVICE_ACCOUNT_JSON أو GOOGLE_SHEET_ID مفقود/غير صالح.",
+        )
+        return
+
+    email = str(info.get("client_email") or "unknown")
+    try:
+        meta = _service().spreadsheets().get(
+            spreadsheetId=bot.GOOGLE_SHEET_ID,
+            fields="spreadsheetId,properties.title",
+        ).execute()
+    except Exception as exc:
+        bot.send(
+            chat_id,
+            "❌ Direct Google Sheets: لا يستطيع فتح الشيت.\n"
+            f"Service account: {email}\n"
+            f"Error: {_direct_error_text(exc)}\n\n"
+            "الحل المتوقع: شارك Google Sheet مع Service account أعلاه بصلاحية Editor.",
+        )
+        return
+
+    try:
+        _direct_append(
+            bot.STATUS_TAB,
+            [bot._now(), "STORAGE_TEST", "OK", "Direct Sheets API connected", "v1.3", bot.AWS_REGION, bot.BEDROCK_MODEL_ID, bot._now()],
+        )
+    except Exception as exc:
+        bot.send(
+            chat_id,
+            "⚠️ Direct Google Sheets: يستطيع فتح الشيت لكن فشل اختبار الكتابة.\n"
+            f"Sheet: {meta.get('properties', {}).get('title', 'connected')}\n"
+            f"Service account: {email}\n"
+            f"Error: {_direct_error_text(exc)}",
+        )
+        return
+
+    bot.send(
+        chat_id,
+        "💾 Google Sheets Direct: connected ✅\n"
+        f"Sheet: {meta.get('properties', {}).get('title', 'connected')}\n"
+        f"Service account: {email}\n"
+        "اختبار القراءة والكتابة نجح.",
+    )
+
+
+# Replace the legacy status command with an actionable direct-route diagnostic.
+bot.command_storage_status = _command_storage_status
+
+
 def run():
     state = google_credentials.status()
     print(
