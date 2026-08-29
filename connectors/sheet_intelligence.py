@@ -115,6 +115,15 @@ def metadata():
     raise RuntimeError("Google Sheets is not configured")
 
 
+def _column_letter(number: int) -> str:
+    number = max(1, int(number))
+    out = ""
+    while number:
+        number, remainder = divmod(number - 1, 26)
+        out = chr(65 + remainder) + out
+    return out
+
+
 def _direct_snapshot(max_rows=80, max_cols=16):
     out = {}
     sheets = _direct_metadata()
@@ -126,9 +135,13 @@ def _direct_snapshot(max_rows=80, max_cols=16):
     ]
     for s in ordered[:18]:
         title = s["title"]
+        row_limit = max(1, min(max_rows, int(s.get("rows") or max_rows)))
+        col_limit = max(1, min(max_cols, int(s.get("columns") or max_cols)))
+        end_col = _column_letter(col_limit)
+        safe_title = title.replace("'", "''")
         values = _service().spreadsheets().values().get(
             spreadsheetId=SHEET_ID,
-            range=f"'{title}'!A1:T{max_rows}",
+            range=f"'{safe_title}'!A1:{end_col}{row_limit}",
         ).execute().get("values", [])
         if values:
             out[title] = [r[:max_cols] for r in values]
@@ -175,35 +188,51 @@ def search(query, max_results=25):
     return results
 
 
-def update_cell(sheet, a1, value):
-    if not re.fullmatch(r"[A-Z]{1,3}[1-9][0-9]{0,5}", a1 or ""):
-        raise ValueError("Use one cell such as B12")
-    titles = {s["title"] for s in metadata()}
-    if sheet not in titles:
-        raise ValueError("Unknown sheet: " + sheet)
-    if _webhook_ready():
-        return _webhook("update", sheet=sheet, range=a1, value=value, approved=True)
+def _direct_update_cell(sheet, a1, value):
+    safe_sheet = sheet.replace("'", "''")
     _service().spreadsheets().values().update(
         spreadsheetId=SHEET_ID,
-        range=f"'{sheet}'!{a1}",
+        range=f"'{safe_sheet}'!{a1}",
         valueInputOption="USER_ENTERED",
         body={"values": [[value]]},
     ).execute()
     return {"ok": True, "sheet": sheet, "range": a1}
 
 
-def upsert_metrics(metrics, sheet="Executive_Brief"):
-    if not isinstance(metrics, dict) or not metrics:
-        return {"ok": True, "updated": 0}
-    clean = {str(k)[:160]: str(v)[:5000] for k, v in metrics.items()}
-    if _webhook_ready():
-        return _webhook("upsert_metrics", sheet=sheet, metrics=clean)
-
+def update_cell(sheet, a1, value):
+    if not re.fullmatch(r"[A-Z]{1,3}[1-9][0-9]{0,5}", a1 or ""):
+        raise ValueError("Use one cell such as B12")
     titles = {s["title"] for s in metadata()}
     if sheet not in titles:
         raise ValueError("Unknown sheet: " + sheet)
+
+    direct_error = None
+    if _direct_ready():
+        try:
+            return _direct_update_cell(sheet, a1, value)
+        except Exception as exc:
+            direct_error = exc
+    if _webhook_ready():
+        try:
+            return _webhook("update", sheet=sheet, range=a1, value=value, approved=True)
+        except Exception as webhook_exc:
+            if direct_error:
+                raise RuntimeError(
+                    f"Sheets direct update failed: {direct_error}; webhook failed: {webhook_exc}"
+                ) from webhook_exc
+            raise
+    if direct_error:
+        raise direct_error
+    raise RuntimeError("Google Sheets update route is not configured")
+
+
+def _direct_upsert_metrics(clean, sheet):
+    titles = {s["title"] for s in _direct_metadata()}
+    if sheet not in titles:
+        raise ValueError("Unknown sheet: " + sheet)
+    safe_sheet = sheet.replace("'", "''")
     values = _service().spreadsheets().values().get(
-        spreadsheetId=SHEET_ID, range=f"'{sheet}'!A:B"
+        spreadsheetId=SHEET_ID, range=f"'{safe_sheet}'!A:B"
     ).execute().get("values", [])
     labels = {str(row[0]): i + 1 for i, row in enumerate(values) if row}
     updates = []
@@ -212,12 +241,37 @@ def upsert_metrics(metrics, sheet="Executive_Brief"):
         row = labels.get(label)
         if row is None:
             row, next_row = next_row, next_row + 1
-        updates.append({"range": f"'{sheet}'!A{row}:B{row}", "values": [[label, value]]})
+        updates.append({"range": f"'{safe_sheet}'!A{row}:B{row}", "values": [[label, value]]})
     _service().spreadsheets().values().batchUpdate(
         spreadsheetId=SHEET_ID,
         body={"valueInputOption": "USER_ENTERED", "data": updates},
     ).execute()
-    return {"ok": True, "updated": len(updates)}
+    return {"ok": True, "updated": len(updates), "route": "direct"}
+
+
+def upsert_metrics(metrics, sheet="Executive_Brief"):
+    if not isinstance(metrics, dict) or not metrics:
+        return {"ok": True, "updated": 0}
+    clean = {str(k)[:160]: str(v)[:5000] for k, v in metrics.items()}
+
+    direct_error = None
+    if _direct_ready():
+        try:
+            return _direct_upsert_metrics(clean, sheet)
+        except Exception as exc:
+            direct_error = exc
+    if _webhook_ready():
+        try:
+            return _webhook("upsert_metrics", sheet=sheet, metrics=clean)
+        except Exception as webhook_exc:
+            if direct_error:
+                raise RuntimeError(
+                    f"Sheets direct metrics update failed: {direct_error}; webhook failed: {webhook_exc}"
+                ) from webhook_exc
+            raise
+    if direct_error:
+        raise direct_error
+    raise RuntimeError("Google Sheets metrics route is not configured")
 
 
 def compact_context(data=None, limit=12000):
