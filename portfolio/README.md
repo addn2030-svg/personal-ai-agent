@@ -1,34 +1,16 @@
-# Expert Portfolio
+# Expert Portfolio — Archived Copy
 
-This folder contains the public-facing professional portfolio for Abdulrahman Bakr Hawsawi.
+This folder is retained only as a private historical backup.
 
-## Included work
-- Advanced rehabilitation and movement/pain analysis
-- Fascial Functional Assessment
-- MyoMentor AI
-- Personal Business Manager (in development)
-- IMTAF / Precision Rehabilitation
-- Rehabilitation operations and responsible healthcare AI
+The canonical public portfolio now lives in the separate public repository:
 
-## Social links
-Edit only `links.js` and add the exact public profile URL for each platform:
+`addn2030-svg/abdulrahman-portfolio`
 
-```js
-window.PORTFOLIO_LINKS = {
-  github: "https://github.com/addn2030-svg",
-  linkedin: "https://www.linkedin.com/in/YOUR-PROFILE",
-  x: "https://x.com/YOUR-HANDLE",
-  instagram: "https://instagram.com/YOUR-HANDLE",
-  youtube: "https://youtube.com/@YOUR-HANDLE"
-};
-```
+## Important
 
-Empty links remain hidden automatically.
+- Do not publish this folder from the private `personal-ai-agent` repository.
+- The former GitHub Pages deployment workflow has been removed from this repository.
+- Make all future portfolio content and design updates in `abdulrahman-portfolio` using a feature branch and Pull Request.
+- Do not copy private agent code, secrets, operational state, patient data, or confidential information into the public portfolio.
 
-## Publishing
-The repository includes `.github/workflows/portfolio-pages.yml`, which uploads only the `portfolio/` directory to GitHub Pages. This prevents the private agent code, data, and internal documentation from being included in the Pages artifact.
-
-If GitHub Pages is not yet enabled for this repository, enable GitHub Pages with **GitHub Actions** as the source in repository Settings → Pages. The deployment workflow will then publish this folder.
-
-## Privacy
-Do not add patient-identifiable information, credentials, API keys, private calendar data, internal hospital documents, or confidential business records to this public portfolio.
+The public repository is now the single source of truth for the portfolio website.
