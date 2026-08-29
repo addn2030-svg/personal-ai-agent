@@ -125,7 +125,15 @@ def _column_letter(number: int) -> str:
 
 
 def _direct_snapshot(max_rows=80, max_cols=16):
+    """Read the live workbook directly, tolerating an isolated bad tab.
+
+    The Service Account has already been validated by /storage_status. One malformed,
+    protected, or transiently failing tab should not force the whole brief onto the
+    legacy Apps Script webhook. We therefore read each tab independently, log safe
+    diagnostics, and only fail when every attempted tab failed.
+    """
     out = {}
+    errors = []
     sheets = _direct_metadata()
     by_title = {s["title"]: s for s in sheets}
     ordered = [by_title[t] for t in PRIORITY_TABS if t in by_title]
@@ -133,41 +141,58 @@ def _direct_snapshot(max_rows=80, max_cols=16):
         s for s in sheets
         if s["title"] not in PRIORITY_TABS and s["title"] not in EXCLUDED_CONTEXT_TABS
     ]
+
+    attempted = 0
     for s in ordered[:18]:
+        attempted += 1
         title = s["title"]
         row_limit = max(1, min(max_rows, int(s.get("rows") or max_rows)))
         col_limit = max(1, min(max_cols, int(s.get("columns") or max_cols)))
         end_col = _column_letter(col_limit)
         safe_title = title.replace("'", "''")
-        values = _service().spreadsheets().values().get(
-            spreadsheetId=SHEET_ID,
-            range=f"'{safe_title}'!A1:{end_col}{row_limit}",
-        ).execute().get("values", [])
-        if values:
-            out[title] = [r[:max_cols] for r in values]
-    return out
+        a1 = f"'{safe_title}'!A1:{end_col}{row_limit}"
+        try:
+            values = _service().spreadsheets().values().get(
+                spreadsheetId=SHEET_ID,
+                range=a1,
+            ).execute().get("values", [])
+            if values:
+                out[title] = [r[:max_cols] for r in values]
+        except Exception as exc:
+            safe = str(exc).replace("\n", " ")[:220]
+            errors.append(f"{title}: {safe}")
+            print(f"Sheets snapshot tab warning [{title}] range={a1}: {safe}", flush=True)
+
+    if out:
+        if errors:
+            print(
+                f"Sheets direct snapshot partial success: tabs={len(out)} failed={len(errors)}",
+                flush=True,
+            )
+        return out
+
+    # An entirely empty workbook is a valid (though unusual) result. Only raise when
+    # actual read errors occurred for all attempted tabs.
+    if errors and attempted:
+        raise RuntimeError(
+            "Direct Sheets snapshot failed for all attempted tabs: " + " | ".join(errors[:3])
+        )
+    return {}
 
 
 def snapshot(max_rows=80, max_cols=16):
     max_rows = max(2, min(int(max_rows), 150))
     max_cols = max(2, min(int(max_cols), 20))
-    direct_error = None
+
+    # Production preference is explicit: once a valid Service Account exists, use it
+    # as the authoritative route. Do not mask a direct error behind the legacy webhook,
+    # because that webhook may return an HTML login/deployment page with HTTP 200.
     if _direct_ready():
-        try:
-            return _direct_snapshot(max_rows=max_rows, max_cols=max_cols)
-        except Exception as exc:
-            direct_error = exc
+        return _direct_snapshot(max_rows=max_rows, max_cols=max_cols)
+
     if _webhook_ready():
-        try:
-            return _webhook("snapshot", maxRows=max_rows, maxCols=max_cols).get("data", {})
-        except Exception as webhook_exc:
-            if direct_error:
-                raise RuntimeError(
-                    f"Sheets direct failed: {type(direct_error).__name__}; webhook failed: {webhook_exc}"
-                ) from webhook_exc
-            raise
-    if direct_error:
-        raise direct_error
+        return _webhook("snapshot", maxRows=max_rows, maxCols=max_cols).get("data", {})
+
     state = google_credentials.status()
     if state["present"] and not state["valid"]:
         raise RuntimeError("GOOGLE_SERVICE_ACCOUNT_JSON is present but invalid")
