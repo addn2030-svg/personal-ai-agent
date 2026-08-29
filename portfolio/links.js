@@ -1,8 +1,10 @@
 window.PORTFOLIO_LINKS = {
   github: "https://github.com/addn2030-svg",
   linkedin: "https://www.linkedin.com/in/abdulrahman-howsawy-89757825",
-  x: "",
-  instagram: "",
+  x: "https://x.com/ABDUL4000",
+  instagram: "https://www.instagram.com/ABDUL4000",
+  tiktok: "https://www.tiktok.com/@add30nkt",
+  facebook: "https://www.facebook.com/ABDUL4000",
   youtube: ""
 };
 
