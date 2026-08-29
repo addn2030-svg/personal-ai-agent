@@ -6,7 +6,13 @@ Sheets API. The Apps Script webhook remains a fallback only.
 """
 from __future__ import annotations
 
+import sys
 import time
+from pathlib import Path
+
+BASE = Path(__file__).resolve().parents[1]
+if str(BASE) not in sys.path:
+    sys.path.insert(0, str(BASE))
 
 from connectors import telegram_webhook as webhook
 from connectors import google_credentials
