@@ -1,6 +1,6 @@
 window.PORTFOLIO_LINKS = {
   github: "https://github.com/addn2030-svg",
-  linkedin: "",
+  linkedin: "https://www.linkedin.com/in/abdulrahman-howsawy-89757825",
   x: "",
   instagram: "",
   youtube: ""
