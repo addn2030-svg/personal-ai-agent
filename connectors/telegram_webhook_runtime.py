@@ -121,7 +121,7 @@ def _command_storage_status(chat_id: int):
     try:
         _direct_append(
             bot.STATUS_TAB,
-            [bot._now(), "STORAGE_TEST", "OK", "Direct Sheets API connected", "v2.0", bot.AWS_REGION, bot.BEDROCK_MODEL_ID, bot._now()],
+            [bot._now(), "STORAGE_TEST", "OK", "Direct Sheets API connected", "v2.1", bot.AWS_REGION, bot.BEDROCK_MODEL_ID, bot._now()],
         )
     except Exception as exc:
         bot.send(
@@ -146,11 +146,12 @@ bot.command_storage_status = _command_storage_status
 
 
 # ---------------------------------------------------------------------------
-# Direct Brief v2
+# Direct Brief v2.1 — Google Sheets + Google Calendar
 # ---------------------------------------------------------------------------
-# This command intentionally does NOT import connectors.sheet_intelligence and
-# never calls GOOGLE_SHEETS_WEBHOOK_URL / Apps Script. It is fully isolated from
-# the legacy brief stack and uses the already verified Service Account route.
+# The brief reads Google Sheets through the verified Service Account route and
+# reads Google Calendar through the existing calendar_actions connector. It never
+# calls the Apps Script Sheets webhook. Calendar is fail-soft: a Calendar failure
+# must not discard a valid Sheets brief.
 
 _BRIEF_PRIORITY_TABS = [
     "Projects",
@@ -168,6 +169,7 @@ _BRIEF_PRIORITY_TABS = [
     "لوحة التحكم",
 ]
 _BRIEF_EXCLUDED_TABS = {"Calc_Data", "مدخلات الوكيل", "محادثات الوكيل", "حالة الوكيل"}
+_BRIEF_CALENDAR_DAYS = 7
 
 
 def _column_letter(number: int) -> str:
@@ -180,7 +182,7 @@ def _column_letter(number: int) -> str:
 
 
 def _direct_brief_snapshot(max_rows: int = 80, max_cols: int = 16) -> dict:
-    """Read the brief source tabs in one direct Sheets API batch request."""
+    """Read brief source tabs in one direct Sheets API batch request."""
     if not _direct_ready():
         raise RuntimeError("Direct Service Account route is not configured")
 
@@ -210,7 +212,7 @@ def _direct_brief_snapshot(max_rows: int = 80, max_cols: int = 16) -> dict:
     ]
     selected = selected[:18]
     if not selected:
-        raise RuntimeError("No eligible sheet tabs found for Direct Brief v2")
+        raise RuntimeError("No eligible sheet tabs found for Direct Brief v2.1")
 
     ranges = []
     for item in selected:
@@ -238,6 +240,29 @@ def _direct_brief_snapshot(max_rows: int = 80, max_cols: int = 16) -> dict:
     return out
 
 
+def _calendar_brief_snapshot(days_forward: int = _BRIEF_CALENDAR_DAYS) -> dict:
+    """Return upcoming Calendar facts as a separate, provenance-labelled source."""
+    from connectors.calendar_actions import calendar_auth_status, list_events, now_local
+
+    events = list_events(days_forward=days_forward, max_results=30)
+    return {
+        "source": "Google Calendar",
+        "window_days": days_forward,
+        "retrieved_at": now_local().isoformat(timespec="seconds"),
+        "auth": calendar_auth_status(),
+        "events": events,
+        "count": len(events),
+    }
+
+
+def _calendar_event_line(event: dict) -> str:
+    title = str(event.get("title") or "(بدون عنوان)")
+    start = str(event.get("start") or "غير محدد")
+    end = str(event.get("end") or "")
+    suffix = f" → {end}" if end else ""
+    return f"• Google Calendar: {title} | {start}{suffix}"
+
+
 def _brief_item_line(item: dict) -> str:
     values = [str(x).strip() for x in (item.get("values") or []) if str(x).strip()]
     preview = " | ".join(values[:4])[:220] or "بدون وصف واضح"
@@ -254,19 +279,19 @@ def _brief_section(title: str, items: list[dict], limit: int = 3) -> list[str]:
     return lines
 
 
-def _direct_evidence_brief(discovery: dict) -> str:
+def _direct_evidence_brief(discovery: dict, calendar_data: dict | None = None) -> str:
     """Useful fallback if all model providers are unavailable."""
+    calendar_data = calendar_data or {}
     stats = discovery.get("stats") or {}
     blockers = discovery.get("blockers_and_risks") or []
     decisions = discovery.get("decisions_required") or []
-    upcoming = discovery.get("upcoming_dates") or []
     incomplete = discovery.get("missing_or_incomplete") or []
     important = discovery.get("important_information") or []
     changed = discovery.get("new_or_changed") or []
 
     priorities = []
     seen = set()
-    for group in (blockers, decisions, upcoming, incomplete, changed):
+    for group in (blockers, decisions, incomplete, changed):
         for item in group:
             key = (item.get("sheet"), item.get("row"))
             if key in seen:
@@ -278,7 +303,7 @@ def _direct_evidence_brief(discovery: dict) -> str:
         if len(priorities) >= 3:
             break
 
-    lines = ["⚙️ Executive Brief — Direct Evidence Mode", ""]
+    lines = ["⚙️ Executive Brief — Direct Evidence Mode v2.1", ""]
     lines += _brief_section("1) أهم الأولويات", priorities)
     lines += [
         "",
@@ -287,13 +312,20 @@ def _direct_evidence_brief(discovery: dict) -> str:
         f"• أزيل/أغلق: {stats.get('removed_or_resolved', 0)}",
         f"• إجمالي الصفوف المفهرسة: {stats.get('rows', 0)}",
         "",
+        "3) المواعيد القادمة — Google Calendar",
     ]
-    lines += _brief_section("3) المواعيد القادمة", upcoming)
+    calendar_events = calendar_data.get("events") or []
+    if calendar_events:
+        lines.extend(_calendar_event_line(event) for event in calendar_events[:8])
+    elif calendar_data.get("error"):
+        lines.append("• تعذر قراءة Google Calendar في هذه الدورة.")
+    else:
+        lines.append("• لا توجد مواعيد مؤكدة خلال 7 أيام القادمة.")
     lines += [""] + _brief_section("4) المخاطر والتعثرات", blockers)
     lines += [""] + _brief_section("5) القرارات المطلوبة", decisions)
     lines += [""] + _brief_section("6) المهام الناقصة", incomplete)
     lines += [""] + _brief_section("7) المعلومات المهمة والفرص", important)
-    return "\n".join(lines)[:3000]
+    return "\n".join(lines)[:3200]
 
 
 def _direct_upsert_brief_metrics(metrics: dict, sheet: str = "Executive_Brief") -> int:
@@ -324,8 +356,8 @@ def _direct_upsert_brief_metrics(metrics: dict, sheet: str = "Executive_Brief") 
     return len(updates)
 
 
-def _command_brief_v2(chat_id: int):
-    bot.send(chat_id, "🧠 Direct Brief v2: أقرأ Google Sheets مباشرة وأبني الملخص...")
+def _command_brief_v21(chat_id: int):
+    bot.send(chat_id, "🧠 Direct Brief v2.1: أقرأ Google Sheets + Google Calendar وأبني الملخص...")
     stage = "direct_snapshot"
     try:
         from connectors.brief_discovery import (
@@ -339,6 +371,24 @@ def _command_brief_v2(chat_id: int):
         stage = "discovery"
         discovery = discover(live, persist=False)
 
+        calendar_data = {}
+        calendar_ok = True
+        calendar_error = ""
+        stage = "calendar_read"
+        try:
+            calendar_data = _calendar_brief_snapshot(days_forward=_BRIEF_CALENDAR_DAYS)
+        except Exception as exc:
+            calendar_ok = False
+            calendar_error = _direct_error_text(exc)
+            calendar_data = {
+                "source": "Google Calendar",
+                "window_days": _BRIEF_CALENDAR_DAYS,
+                "events": [],
+                "count": 0,
+                "error": calendar_error,
+            }
+            print(f"Direct Brief v2.1 calendar warning: {calendar_error}", flush=True)
+
         prompt = (
             "أنشئ Executive Brief عربيًا مختصرًا بصفتك مدير أعمال عبدالرحمن. "
             "استخدم فقط الأدلة المرفقة وافصل المؤكد عن الاستنتاج. رتّب النتيجة إلى: "
@@ -346,15 +396,19 @@ def _command_brief_v2(chat_id: int):
             "4) المواعيد القادمة 5) المخاطر والتعثرات مع السبب وخيارَي حل وتوصية "
             "6) القرارات المطلوبة 7) الالتزامات والطلبات المالية "
             "8) المعلومات المهمة والفرص 9) ما يحتاج تدخل عبدالرحمن اليوم. "
+            "في قسم المواعيد القادمة: اعتبر Google Calendar المرجع الأساسي للمواعيد المؤكدة "
+            "خلال 7 أيام، واستخدم تواريخ الشيت كمرجع ثانوي فقط. اذكر المصدر بوضوح: Google Calendar "
+            "أو اسم الشيت ورقم الصف. إذا تعذر مصدر فلا تحول ذلك إلى حقيقة سلبية عن المصدر الآخر. "
             "إذا لم توجد بيانات لقسم فاكتب: لا توجد بيانات مؤكدة. "
-            "اذكر اسم الشيت ورقم الصف عند الإمكان. لا تستخدم جداول Markdown، "
-            "ولا تتجاوز 3000 حرف."
+            "لا تستخدم جداول Markdown، ولا تتجاوز 3200 حرف."
         )
         context = (
-            "DIRECT BRIEF V2 DISCOVERY:\n"
-            + compact_discovery(discovery, limit=5500)
+            "DIRECT BRIEF V2.1 DISCOVERY:\n"
+            + compact_discovery(discovery, limit=5200)
             + "\n\nDIRECT GOOGLE SHEETS SNAPSHOT:\n"
-            + json.dumps(live, ensure_ascii=False, separators=(",", ":"))[:5500]
+            + json.dumps(live, ensure_ascii=False, separators=(",", ":"))[:5000]
+            + "\n\nGOOGLE CALENDAR — PRIMARY SOURCE FOR UPCOMING APPOINTMENTS:\n"
+            + json.dumps(calendar_data, ensure_ascii=False, separators=(",", ":"))[:4200]
         )
 
         ai_ok = True
@@ -365,8 +419,8 @@ def _command_brief_v2(chat_id: int):
         except Exception as exc:
             ai_ok = False
             ai_error = _direct_error_text(exc)
-            print(f"Direct Brief v2 model warning: {ai_error}", flush=True)
-            answer = _direct_evidence_brief(discovery)
+            print(f"Direct Brief v2.1 model warning: {ai_error}", flush=True)
+            answer = _direct_evidence_brief(discovery, calendar_data)
 
         dashboard_ok = True
         stage = "direct_dashboard_write"
@@ -378,12 +432,14 @@ def _command_brief_v2(chat_id: int):
                 "عناصر أزيلت أو أغلقت": discovery["stats"]["removed_or_resolved"],
                 "قرارات تحتاج مراجعة": len(discovery["decisions_required"]),
                 "مخاطر وتعثرات مكتشفة": len(discovery["blockers_and_risks"]),
-                "Brief Runtime": "DIRECT_V2",
+                "مواعيد Google Calendar القادمة 7 أيام": calendar_data.get("count", 0),
+                "حالة Google Calendar": "OK" if calendar_ok else "DEGRADED",
+                "Brief Runtime": "DIRECT_V2.1_CALENDAR",
                 "حالة طبقة AI": "OK" if ai_ok else "EVIDENCE_FALLBACK",
             })
         except Exception as exc:
             dashboard_ok = False
-            print(f"Direct Brief v2 dashboard warning: {_direct_error_text(exc)}", flush=True)
+            print(f"Direct Brief v2.1 dashboard warning: {_direct_error_text(exc)}", flush=True)
 
         stage = "snapshot_save"
         snapshot_ok = True
@@ -391,9 +447,16 @@ def _command_brief_v2(chat_id: int):
             save_snapshot(normalize_snapshot(live))
         except Exception as exc:
             snapshot_ok = False
-            print(f"Direct Brief v2 snapshot warning: {_direct_error_text(exc)}", flush=True)
+            print(f"Direct Brief v2.1 snapshot warning: {_direct_error_text(exc)}", flush=True)
 
-        notes = ["✅ Direct Brief v2 استخدم Google Sheets API مباشرة — بدون Apps Script/Webhook."]
+        notes = ["✅ Direct Brief v2.1 استخدم Google Sheets API مباشرة."]
+        if calendar_ok:
+            notes.append(
+                f"✅ Google Calendar داخل البحث: {calendar_data.get('count', 0)} موعد خلال 7 أيام."
+            )
+        else:
+            notes.append("⚠️ Google Calendar لم يُقرأ هذه الدورة، لكن الـBrief استمر من الشيت.")
+            notes.append("Calendar error: " + calendar_error[:220])
         notes.append("✅ طبقة AI عملت." if ai_ok else "⚠️ طبقة AI لم تعمل؛ تم استخدام Evidence Mode.")
         if not ai_ok:
             notes.append("AI error: " + ai_error[:220])
@@ -404,18 +467,18 @@ def _command_brief_v2(chat_id: int):
 
     except Exception as exc:
         safe = _direct_error_text(exc)
-        print(f"Direct Brief v2 fatal error at {stage}: {safe}", flush=True)
+        print(f"Direct Brief v2.1 fatal error at {stage}: {safe}", flush=True)
         bot.send(
             chat_id,
-            "❌ Direct Brief v2 تعذر إكماله.\n"
+            "❌ Direct Brief v2.1 تعذر إكماله.\n"
             f"Stage: {stage}\n"
             f"Error: {safe}\n\n"
-            "هذا المسار لا يستخدم Apps Script أو Webhook.",
+            "مسار Google Sheets لا يستخدم Apps Script أو Webhook.",
         )
 
 
 # Override every older /brief implementation at the actual Railway entrypoint.
-bot.command_brief = _command_brief_v2
+bot.command_brief = _command_brief_v21
 
 
 def run():
@@ -426,7 +489,7 @@ def run():
         + f" | service_account={state.get('source')} valid={state.get('valid')}",
         flush=True,
     )
-    print("Direct Brief v2 override: active", flush=True)
+    print("Direct Brief v2.1 Calendar override: active", flush=True)
     webhook.run()
 
 
