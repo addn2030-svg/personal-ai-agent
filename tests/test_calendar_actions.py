@@ -53,6 +53,30 @@ class CalendarActionsTests(unittest.TestCase):
         self.assertTrue(routed_text(text).startswith("/remind "))
         self.assertFalse(is_calendar_action("Explain how Google Calendar works"))
 
+    def test_monday_from_saturday_resolves_to_august_31(self):
+        base = dt.datetime(2026, 8, 29, 12, 0, tzinfo=TZ)
+        event = parse_event_request("اجتماع الاثنين الساعة 9:30", base)
+        self.assertEqual(event["start"], dt.datetime(2026, 8, 31, 9, 30, tzinfo=TZ))
+
+    def test_multiple_date_references_fail_closed(self):
+        base = dt.datetime(2026, 8, 29, 12, 0, tzinfo=TZ)
+        text = (
+            "لازم أقرر هل نبدأ الأحد القادم أو نأجلها أسبوعين. "
+            "الملف مطلوب قبل الخميس، والاثنين الساعة 9:30 عندي اجتماع."
+        )
+        with self.assertRaisesRegex(ValueError, "NEEDS_INPUT"):
+            parse_event_request(text, base)
+
+    def test_multiple_clock_references_fail_closed(self):
+        base = dt.datetime(2026, 8, 29, 12, 0, tzinfo=TZ)
+        with self.assertRaisesRegex(ValueError, "NEEDS_INPUT"):
+            parse_event_request("اجتماع الاثنين الساعة 9:30 أو الساعة 10:30", base)
+
+    def test_bare_number_is_not_silently_used_as_clock(self):
+        base = dt.datetime(2026, 8, 29, 12, 0, tzinfo=TZ)
+        with self.assertRaisesRegex(ValueError, "حدد الوقت"):
+            parse_event_request("اجتماع الاثنين رقم 9 لمراجعة الملفات", base)
+
 
 if __name__ == "__main__":
     unittest.main()
