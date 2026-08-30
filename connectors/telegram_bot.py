@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Guarded Telegram entrypoint, unified model routing, delegation, and missions."""
+"""Guarded Telegram entrypoint, unified model routing, delegation, missions, and Super Manager."""
 from __future__ import annotations
 
 import json
@@ -16,6 +16,7 @@ from connectors import model_gateway as _models
 from connectors import task_delegation as _team
 from connectors import bedrock_team as _bedrock_team
 from connectors import ops_context as _ops_context
+from connectors import super_manager as _super_manager
 
 _legacy_run = _impl.run
 _legacy_ask_bedrock = _impl.ask_bedrock
@@ -23,6 +24,9 @@ _legacy_save_conversation = _impl._save_conversation
 _legacy_handle_message = _impl.handle_message
 _legacy_configure_commands = _impl.configure_commands
 _legacy_command_start = _impl.command_start
+
+_MANAGER_COMMANDS = {"/manager", "/manager_shadow", "/manager_status"}
+_TEAM_COMMANDS = {"/agents", "/bedrock_test", "/context_test", "/delegate", "/council", "/mission"} | _MANAGER_COMMANDS
 
 
 def _guarded_run():
@@ -87,7 +91,10 @@ def _command_start(chat_id: int):
     _legacy_command_start(chat_id)
     _impl.send(
         chat_id,
-        "\n🧠 فريق الوكلاء v0.9\n"
+        "\n🧠 فريق الوكلاء + Super Manager\n"
+        "/manager الطلب — رئيس الأركان: يربط، يكشف النقص، يوصي\n"
+        "/manager_shadow الطلب — مقارنة Legacy مع Super Manager بلا أثر خارجي\n"
+        "/manager_status — حالة طبقة المدير\n"
         "/agents — حالة فريق النماذج ومساراته\n"
         "/bedrock_test — اختبار صغير لـ Claude والـLean specialist على Bedrock\n"
         "/context_test tomorrow — اختبار Calendar/Sheets بدون AI tokens\n"
@@ -95,7 +102,7 @@ def _command_start(chat_id: int):
         "/delegate claude|gpt|gemini المهمة — تكليف مباشر\n"
         "/council السؤال — مراجعة من الفريق\n"
         "/mission [lean|standard|deep] الهدف — مهمة بميزانية tokens\n"
-        "لا توجد أدوات خارجية تلقائية داخل /mission؛ أي تنفيذ حساس يبقى خلف الموافقة.",
+        "أي أثر خارجي يبقى خلف الاقتراح/المعاينة/الموافقة/التنفيذ.",
     )
 
 
@@ -166,10 +173,24 @@ def _send_chunks(chat_id: int, text: str, chunk_size: int = 3500):
         _impl.send(chat_id, value[start:start + chunk_size])
 
 
+def _natural_manager_request(raw: str) -> tuple[bool, str]:
+    text = (raw or "").strip()
+    if not text or text.startswith("/"):
+        return False, ""
+    lower = text.lower()
+    for prefix in ("مدير ", "manager "):
+        if lower.startswith(prefix):
+            return True, text[len(prefix):].strip()
+    if os.environ.get("AI_SUPER_MANAGER_DEFAULT", "0").strip() == "1":
+        return True, text
+    return False, ""
+
+
 def _delegated_handle_message(message: dict):
     raw = (message.get("text") or message.get("caption") or "").strip()
     command = raw.split()[0].split("@")[0].lower() if raw else ""
-    if command not in {"/agents", "/bedrock_test", "/context_test", "/delegate", "/council", "/mission"}:
+    natural_manager, natural_objective = _natural_manager_request(raw)
+    if command not in _TEAM_COMMANDS and not natural_manager:
         return _legacy_handle_message(message)
 
     chat = message.get("chat") or {}
@@ -183,13 +204,26 @@ def _delegated_handle_message(message: dict):
     text, kind, attachment = _impl._message_payload(message)
     iid = _impl._local_capture(text, message, kind)
     if kind != "TEXT":
-        _impl.send(chat_id, "استخدم أوامر الفريق كنص. دعم التكليف الصوتي سيأتي لاحقًا.")
+        _impl.send(chat_id, "استخدم أوامر الفريق/المدير كنص. الصوت يبقى في مسار التفريغ الحالي.")
         _impl._save_intake(iid, message, text, kind, attachment, "ERROR", error="TEAM_COMMAND_TEXT_ONLY")
         return
 
     try:
         _impl.api("sendChatAction", {"chat_id": chat_id, "action": "typing"})
-        if command == "/agents":
+        if natural_manager:
+            answer = _super_manager.manager(chat_id, natural_objective, bedrock_fallback=_legacy_ask_bedrock)
+            _send_chunks(chat_id, answer)
+        elif command == "/manager":
+            objective = text[len(command):].strip()
+            answer = _super_manager.manager(chat_id, objective, bedrock_fallback=_legacy_ask_bedrock)
+            _send_chunks(chat_id, answer)
+        elif command == "/manager_shadow":
+            objective = text[len(command):].strip()
+            answer = _super_manager.shadow(chat_id, objective, bedrock_fallback=_legacy_ask_bedrock)
+            _send_chunks(chat_id, answer)
+        elif command == "/manager_status":
+            _impl.send(chat_id, _super_manager.status_text())
+        elif command == "/agents":
             answer = _team.agents_status_text()
             _impl.send(chat_id, answer)
         elif command == "/bedrock_test":
@@ -224,6 +258,9 @@ def _configure_commands():
         commands = _impl.api("getMyCommands") or []
         existing = {str(item.get("command", "")) for item in commands}
         additions = [
+            {"command": "manager", "description": "رئيس الأركان: تحليل وربط وتوصية"},
+            {"command": "manager_shadow", "description": "قارن Legacy وSuper Manager بلا تنفيذ"},
+            {"command": "manager_status", "description": "حالة Super Manager"},
             {"command": "agents", "description": "حالة فريق النماذج ومساراته"},
             {"command": "bedrock_test", "description": "اختبار Claude والـLean specialist على Bedrock"},
             {"command": "context_test", "description": "اختبار سياق Calendar/Sheets بدون AI"},
