@@ -11,6 +11,7 @@ on:
       - 'connectors/bedrock_team.py'
       - 'connectors/lean_missions.py'
       - 'connectors/ops_context.py'
+      - 'connectors/super_manager.py'
       - 'connectors/google_credentials.py'
       - 'connectors/calendar_actions.py'
       - 'connectors/calendar_intent.py'
@@ -31,6 +32,7 @@ on:
       - 'tests/test_bedrock_team.py'
       - 'tests/test_lean_missions.py'
       - 'tests/test_ops_context.py'
+      - 'tests/test_super_manager.py'
       - 'tests/test_google_context_transport.py'
       - 'tests/test_calendar_actions.py'
       - 'tests/test_calendar_webhook_reminders.py'
@@ -57,6 +59,7 @@ jobs:
           tests.test_bedrock_team
           tests.test_lean_missions
           tests.test_ops_context
+          tests.test_super_manager
           tests.test_google_context_transport
           tests.test_calendar_actions
           tests.test_calendar_webhook_reminders
@@ -73,6 +76,7 @@ jobs:
           connectors/bedrock_team.py
           connectors/lean_missions.py
           connectors/ops_context.py
+          connectors/super_manager.py
           connectors/google_credentials.py
           connectors/calendar_actions.py
           connectors/calendar_intent.py
