@@ -2,7 +2,7 @@ name: Production Model Router
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, state-safety-manager-foundation]
     paths:
       - 'connectors/model_gateway.py'
       - 'connectors/direct_specialists.py'
