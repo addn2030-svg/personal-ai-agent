@@ -43,6 +43,7 @@ on:
       - 'tests/test_task_delegation.py'
       - 'tests/test_state_safety_manager.py'
       - 'tests/test_multi_intent.py'
+      - 'tests/test_manager_wo8_compat.py'
       - '.github/workflows/production-model-router.yml'
 
 jobs:
@@ -71,6 +72,7 @@ jobs:
           tests.test_task_delegation
           tests.test_state_safety_manager
           tests.test_multi_intent
+          tests.test_manager_wo8_compat
       - name: Compile production entrypoints
         run: >-
           python -m py_compile
