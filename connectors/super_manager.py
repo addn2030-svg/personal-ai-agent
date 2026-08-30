@@ -11,14 +11,13 @@ import os
 import re
 from dataclasses import dataclass
 
-from connectors import bedrock_team
 from connectors import lean_missions as lean
 from connectors import model_gateway as models
 from connectors import ops_context
 from connectors import task_delegation as base
 
-VERSION = "v1.0"
-MAX_STATE_CHARS = max(800, int(os.environ.get("SUPER_MANAGER_STATE_CONTEXT_CHARS", "2600")))
+VERSION = "v1.1"
+MAX_STATE_CHARS = max(800, int(os.environ.get("SUPER_MANAGER_STATE_CONTEXT_CHARS", "3200")))
 MAX_OPS_CHARS = max(800, int(os.environ.get("SUPER_MANAGER_OPS_CONTEXT_CHARS", "2800")))
 MAX_TOKENS = max(500, int(os.environ.get("SUPER_MANAGER_MAX_TOKENS", "1000")))
 
@@ -40,9 +39,10 @@ EVIDENCE DISCIPLINE
 - INFERENCE must name the evidence that supports it.
 - Unknown execution-critical fields are NEEDS_INPUT. Ask one blocking question, not a questionnaire.
 - Do not claim that you performed an external action. Calendar, messages, and record mutations require proposal -> preview -> approval -> execution.
+- WO-8 record_links are authoritative only at their recorded status: BLOCKED_BY/CONFIRMED may be treated as a confirmed dependency; POSSIBLE_DEPENDENCY/NEEDS_INPUT must remain an inference/question.
 
 C1 LINK BEFORE ANSWERING
-Check whether the request is blocked by an open waiting item, depends on unfinished work, conflicts with a confirmed appointment, or connects to a current project/decision. A blocked execution decision must be described as blocked, not treated as freely executable.
+Check whether the request is blocked by an open waiting item, depends on unfinished work, conflicts with a confirmed appointment, or connects to a current project/decision. Use shared intake_id/relation_group_id and record_links when supplied. A blocked execution decision must be described as blocked, not treated as freely executable.
 
 C2 SURFACE THE UNSAID
 For a new commitment, check owner, deadline, approver, dependency, and success criterion. Surface only the single missing field that most blocks execution.
@@ -109,21 +109,23 @@ def _clean(value, limit: int = 220) -> str:
 def _record_line(section: str, row: dict) -> str:
     if not isinstance(row, dict):
         return ""
+    link_keys = ("record_id", "intake_id", "relation_group_id", "record_type")
     preferred = {
-        "tasks": ("id", "task_id", "title", "المهمة", "status", "الحالة", "owner", "المالك", "due_date", "الموعد"),
+        "tasks": link_keys + ("id", "task_id", "title", "العنوان", "المهمة", "status", "الحالة", "owner", "المالك", "due_date", "الموعد", "next_step"),
         "projects": ("id", "project_id", "Project_ID", "المشروع", "اسم المشروع", "status", "الحالة", "phase", "المرحلة", "next", "الخطوة التالية"),
-        "waiting_for": ("wid", "task", "item", "project_id", "expected_from", "expected_by", "status"),
+        "waiting_for": link_keys + ("wid", "task", "item", "project_id", "expected_from", "expected_by", "follow_up_date", "status"),
         "decision_requests": ("id", "project", "title", "deadline", "status"),
-        "decisions": ("التاريخ", "القرار", "الخيار", "الحالة", "تاريخ المراجعة"),
-        "action_queue": ("action_id", "type", "status", "created_at", "expires_at"),
+        "decisions": link_keys + ("التاريخ", "القرار", "الخيار", "الحالة", "decision_criterion", "review_date", "تاريخ المراجعة"),
+        "action_queue": link_keys + ("action_id", "type", "status", "raw_temporal_text", "resolved_start", "approval_required"),
+        "record_links": ("relation_id", "intake_id", "relation_group_id", "source_record_id", "target_record_id", "relation", "status", "basis"),
     }
     values = []
     for key in preferred.get(section, ()):
         value = row.get(key)
         if value not in (None, "", []):
-            values.append(f"{key}={_clean(value, 120)}")
+            values.append(f"{key}={_clean(value, 140)}")
     if not values:
-        for key, value in list(row.items())[:5]:
+        for key, value in list(row.items())[:6]:
             if value not in (None, "", []):
                 values.append(f"{_clean(key, 50)}={_clean(value, 120)}")
     line = " | ".join(values)
@@ -141,15 +143,21 @@ def _state_context() -> tuple[str, int, str | None]:
         return "", 0, models._safe_error(exc)[:180]
 
     lines = []
-    for section in ("waiting_for", "decision_requests", "projects", "tasks", "decisions", "action_queue"):
+    # WO-8 links and newly captured records are appended, so read the most recent
+    # rows rather than the oldest rows. Links come first so C1 sees relationship
+    # evidence before individual record detail if the context limit is reached.
+    for section in (
+        "record_links", "waiting_for", "decisions", "decision_requests",
+        "projects", "tasks", "action_queue",
+    ):
         rows = state.get(section) or []
-        for row in rows[:8]:
+        for row in rows[-8:]:
             line = _record_line(section, row)
             if line:
                 lines.append(line)
-            if len(lines) >= 24:
+            if len(lines) >= 28:
                 break
-        if len(lines) >= 24:
+        if len(lines) >= 28:
             break
     text = "\n".join(lines)
     if len(text) > MAX_STATE_CHARS:
@@ -253,5 +261,5 @@ def status_text() -> str:
         f"Default natural-text routing: {'ON' if mode == '1' else 'OFF'}\n"
         "Commands: /manager, /manager_shadow\n"
         "External effects: approval-gated / not executed by this module\n"
-        "Thinking: C1-C6 + CONFIRMED/INFERENCE/NEEDS_INPUT"
+        "Thinking: C1-C6 + CONFIRMED/INFERENCE/NEEDS_INPUT + WO-8 record_links"
     )
