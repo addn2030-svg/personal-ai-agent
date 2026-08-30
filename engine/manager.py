@@ -25,6 +25,7 @@ MORNING_MINUTE = int(os.environ.get("MANAGER_MORNING_MINUTE", "0"))
 TZ = ZoneInfo(os.environ.get("MANAGER_TIMEZONE", "Asia/Riyadh"))
 STALLED_DAYS = int(os.environ.get("MANAGER_STALLED_DAYS", "30"))
 DR_COOLDOWN_DAYS = 7
+NEEDS_INPUT = "NEEDS_INPUT"
 
 now = lambda: dt.datetime.now(TZ)
 
@@ -34,33 +35,43 @@ def _hash(txt):
 
 
 def _as_date(x):
+    """Return a date only for confirmed parseable values; unknowns stay unknown."""
+    if x in (None, "", NEEDS_INPUT):
+        return None
     if isinstance(x, dt.datetime):
         return x.date()
     if isinstance(x, dt.date):
         return x
-    return dt.date.fromisoformat(str(x)[:10])
+    try:
+        return dt.date.fromisoformat(str(x)[:10])
+    except (TypeError, ValueError):
+        return None
 
 
 def normalize_waiting(S):
+    """Normalize legacy waiting rows without destroying WO-8 provenance/link fields."""
     changed = False
     for i, w in enumerate(S["waiting_for"]):
         if w.get("schema_version") == 2:
             continue
         task = w.get("task") or w.get("item") or w.get("title") or f"عنصر انتظار {i + 1}"
-        since = w.get("expected_by") or w.get("since") or w.get("expected_date") or now().date()
-        S["waiting_for"][i] = {
+        raw_due = w.get("expected_by") or w.get("since") or w.get("expected_date")
+        since = raw_due if raw_due not in (None, "") else NEEDS_INPUT
+        normalized = dict(w)
+        normalized.update({
             "schema_version": 2,
-            "wid": "W-" + _hash(str(task))[:6],
+            "wid": w.get("wid") or "W-" + _hash(str(task))[:6],
             "task": task,
             "project_id": w.get("project_id"),
-            "expected_from": w.get("expected_from", ""),
+            "expected_from": w.get("expected_from", NEEDS_INPUT),
             "expected_by": since,
             "follow_up_draft": w.get("follow_up_draft"),
             "status": w.get("status") or "WAITING",
             "source": w.get("source", ""),
             "item": task,
-            "since": since,
-        }
+            "since": w.get("since") or since,
+        })
+        S["waiting_for"][i] = normalized
         changed = True
     return changed
 
@@ -75,9 +86,9 @@ def _mutate_fast(S):
     for w in S["waiting_for"]:
         if w.get("status") != "WAITING":
             continue
-        due = w.get("expected_by")
-        overdue = (_as_date(due) < t.date()) if due else False
-        if not overdue:
+        due_date = _as_date(w.get("expected_by"))
+        # Unknown expected dates are not guessed and therefore cannot be called overdue.
+        if due_date is None or due_date >= t.date():
             continue
         w["status"] = "OVERDUE"
         changed = True
@@ -85,7 +96,7 @@ def _mutate_fast(S):
         draft = w.get("follow_up_draft") or f"السلام عليكم، أتابع بخصوص «{w['task']}» — هل من تحديث؟ (عبدالرحمن)"
         content = (
             f"متابعة متأخرة: {w['task']}\n"
-            f"كان متوقعًا من: {w.get('expected_from') or '—'} بحلول {_as_date(due).isoformat()}\n"
+            f"كان متوقعًا من: {w.get('expected_from') or '—'} بحلول {due_date.isoformat()}\n"
             f"المسودة المقترحة:\n{draft}"
         )
         h = _hash(content)
@@ -106,41 +117,45 @@ def _mutate_fast(S):
             events.append(("action_enqueued", {"action_id": queue[-1]["action_id"], "hash": h, "origin": "manager_fast"}))
 
     for a in queue:
-        if a.get("status") == "PENDING_APPROVAL" and a.get("expires_at") and _as_date(a["expires_at"]) < t.date():
+        expiry = _as_date(a.get("expires_at"))
+        if a.get("status") == "PENDING_APPROVAL" and expiry and expiry < t.date():
             a["status"] = "EXPIRED"
             changed = True
             summary["expired"] += 1
 
     for x in S.get("learning_reviews", []):
-        if x.get("status") == "SCHEDULED" and x.get("due_date") and _as_date(x["due_date"]) <= t.date():
+        due_date = _as_date(x.get("due_date"))
+        if x.get("status") == "SCHEDULED" and due_date and due_date <= t.date():
             x["status"] = "DUE"
             changed = True
             events.append(("REVIEW_DUE", {"review": x.get("review_id")}))
 
     drs = S.get("decision_requests", [])
-    stalled = [
-        p for p in S["projects"]
-        if p.get("الحالة") == "نشط"
-        and p.get("آخر تقدم")
-        and _as_date(p["آخر تقدم"]) < t.date() - dt.timedelta(days=STALLED_DAYS)
-    ]
-    stalled_names = {p.get("المشروع") for p in stalled}
+    stalled = []
+    for p in S["projects"]:
+        last_progress = _as_date(p.get("آخر تقدم"))
+        if (
+            p.get("الحالة") == "نشط"
+            and last_progress
+            and last_progress < t.date() - dt.timedelta(days=STALLED_DAYS)
+        ):
+            stalled.append((p, last_progress))
+    stalled_names = {p.get("المشروع") for p, _ in stalled}
     for dr in drs:
         if dr.get("status") == "PENDING" and dr.get("project") and dr.get("project") not in stalled_names:
             dr["status"] = "SUPERSEDED"
             changed = True
             summary["superseded"] += 1
 
-    for p in stalled:
+    for p, last_progress in stalled:
         name = p["المشروع"]
-        recent = [
-            d for d in drs
-            if d.get("project") == name and (d.get("resolved_at") or d.get("created_at"))
-        ]
-        recent = [
-            d for d in recent
-            if _as_date(d.get("resolved_at") or d.get("created_at")) >= t.date() - dt.timedelta(days=DR_COOLDOWN_DAYS)
-        ]
+        recent = []
+        for d in drs:
+            if d.get("project") != name:
+                continue
+            event_date = _as_date(d.get("resolved_at") or d.get("created_at"))
+            if event_date and event_date >= t.date() - dt.timedelta(days=DR_COOLDOWN_DAYS):
+                recent.append(d)
         pending = [d for d in drs if d.get("project") == name and d.get("status") == "PENDING"]
         if recent or pending:
             continue
@@ -149,8 +164,8 @@ def _mutate_fast(S):
             "project": name,
             "title": f"قرار مشروع متوقف: {name}",
             "context": (
-                f"حالته «نشط» لكن آخر تقدم قبل {_as_date(p['آخر تقدم']).isoformat()} "
-                f"({(t.date() - _as_date(p['آخر تقدم'])).days} يومًا)"
+                f"حالته «نشط» لكن آخر تقدم قبل {last_progress.isoformat()} "
+                f"({(t.date() - last_progress).days} يومًا)"
             ),
             "options": [
                 "استئناف بخطوة واحدة محددة هذا الأسبوع",
