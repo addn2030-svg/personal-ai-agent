@@ -22,6 +22,15 @@ AR_DAYS = {
 }
 AR_DIGITS = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
 _PERIODS = r"صباحا|صباحًا|صباح|ص|am|مساء|مساءً|م|pm"
+class NeedsInputError(ValueError):
+    """The request is recognized, but clarification is required before proposing a write."""
+
+    code = "NEEDS_INPUT"
+
+    def __init__(self, message: str):
+        super().__init__(f"{self.code}: {message}")
+
+
 _DATE_TOKEN_RE = re.compile(
     r"\b20\d{2}[-/]\d{1,2}[-/]\d{1,2}\b"
     r"|\b\d{1,2}[-/]\d{1,2}[-/]20\d{2}\b"
@@ -45,10 +54,20 @@ def _date_value(token: str, base: dt.datetime) -> dt.date:
     value = token.strip().translate(AR_DIGITS)
     iso = re.fullmatch(r"(20\d{2})[-/](\d{1,2})[-/](\d{1,2})", value)
     if iso:
-        return dt.date(int(iso.group(1)), int(iso.group(2)), int(iso.group(3)))
+        try:
+            return dt.date(int(iso.group(1)), int(iso.group(2)), int(iso.group(3)))
+        except ValueError as exc:
+            raise NeedsInputError(
+                f"التاريخ الصريح غير صالح ({value}). صححه بصيغة YYYY-MM-DD."
+            ) from exc
     dmy = re.fullmatch(r"(\d{1,2})[-/](\d{1,2})[-/](20\d{2})", value)
     if dmy:
-        return dt.date(int(dmy.group(3)), int(dmy.group(2)), int(dmy.group(1)))
+        try:
+            return dt.date(int(dmy.group(3)), int(dmy.group(2)), int(dmy.group(1)))
+        except ValueError as exc:
+            raise NeedsInputError(
+                f"التاريخ الصريح غير صالح ({value}). صححه بصيغة DD-MM-YYYY."
+            ) from exc
     if re.fullmatch(r"بعد\s+(?:غد|بكره)", value, re.I):
         return base.date() + dt.timedelta(days=2)
     if re.fullmatch(r"غد[ًاا]?|بكره|بكرة|tomorrow", value, re.I):
@@ -66,10 +85,7 @@ def _date_candidates(text: str, base: dt.datetime):
     rows = []
     for match in _DATE_TOKEN_RE.finditer(normalized):
         token = match.group(0)
-        try:
-            date_value = _date_value(token, base)
-        except ValueError:
-            continue
+        date_value = _date_value(token, base)
         rows.append({"text": token.strip(), "date": date_value, "span": match.span()})
     return rows
 
@@ -79,14 +95,22 @@ def _parse_date(text: str, base: dt.datetime) -> dt.date:
     if not candidates:
         raise ValueError("حدد التاريخ: اليوم، غدًا، اسم اليوم، أو YYYY-MM-DD")
 
+    # "اليوم الاثنين" is one date when the named weekday matches today.
+    has_today = any(item["text"].strip().lower() in {"اليوم", "today"} for item in candidates)
+    if has_today:
+        for item in candidates:
+            day_name = re.sub(r"^يوم\s+", "", item["text"]).strip()
+            if AR_DAYS.get(day_name) == base.date().weekday():
+                item["date"] = base.date()
+
     unique = []
     for item in candidates:
         if not any(row["date"] == item["date"] for row in unique):
             unique.append(item)
     if len(unique) > 1:
         refs = "، ".join(row["text"] for row in unique[:4])
-        raise ValueError(
-            "NEEDS_INPUT: وجدت أكثر من تاريخ محتمل (" + refs + "). "
+        raise NeedsInputError(
+            "وجدت أكثر من تاريخ محتمل (" + refs + "). "
             "اكتب موعدًا واحدًا فقط مع تاريخه ووقته."
         )
     return unique[0]["date"]
@@ -95,7 +119,11 @@ def _parse_date(text: str, base: dt.datetime) -> dt.date:
 def _normalize_clock(hour: int, minute: int, period: str):
     period = (period or "").lower()
     if minute > 59 or hour > 23:
-        raise ValueError("الوقت غير صالح")
+        raise NeedsInputError("الوقت غير صالح. استخدم ساعة بين 0 و23 ودقائق بين 00 و59.")
+    if period and not 1 <= hour <= 12:
+        raise NeedsInputError(
+            "الوقت مع صباحًا/مساءً يجب أن يستخدم ساعة بين 1 و12."
+        )
     if period in {"مساء", "مساءً", "م", "pm"} and hour < 12:
         hour += 12
     if period in {"صباحا", "صباحًا", "صباح", "ص", "am"} and hour == 12:
@@ -149,9 +177,9 @@ def _parse_time(text: str):
             unique.append(item)
     if len(unique) > 1:
         refs = "، ".join(row["text"] for row in unique[:4])
-        raise ValueError(
-            "NEEDS_INPUT: وجدت أكثر من وقت محتمل (" + refs + "). "
-            "اكتب موعدًا واحدًا فقط مع تاريخه ووقته."
+        raise NeedsInputError(
+            "وجدت أكثر من وقت محتمل (" + refs + "). "
+            "إذا كنت تقصد نطاقًا، اكتب وقت البداية والمدة، مثال: الساعة 9 لمدة 60 دقيقة."
         )
     return unique[0]["hour"], unique[0]["minute"]
 
