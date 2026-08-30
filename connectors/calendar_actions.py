@@ -21,6 +21,26 @@ AR_DAYS = {
     "الخميس": 3, "الجمعه": 4, "الجمعة": 4, "السبت": 5, "الاحد": 6, "الأحد": 6,
 }
 AR_DIGITS = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
+_PERIODS = r"صباحا|صباحًا|صباح|ص|am|مساء|مساءً|م|pm"
+
+
+class NeedsInputError(ValueError):
+    """The request is recognized, but clarification is required before proposing a write."""
+
+    code = "NEEDS_INPUT"
+
+    def __init__(self, message: str):
+        super().__init__(f"{self.code}: {message}")
+
+
+_DATE_TOKEN_RE = re.compile(
+    r"\b20\d{2}[-/]\d{1,2}[-/]\d{1,2}\b"
+    r"|\b\d{1,2}[-/]\d{1,2}[-/]20\d{2}\b"
+    r"|بعد\s+(?:غد|بكره)"
+    r"|غد[ًاا]?|بكره|بكرة|tomorrow|اليوم|today"
+    r"|(?:يوم\s+)?(?:" + "|".join(map(re.escape, AR_DAYS)) + r")",
+    re.I,
+)
 
 
 def now_local():
@@ -32,55 +52,137 @@ def _next_weekday(base: dt.date, weekday: int) -> dt.date:
     return base + dt.timedelta(days=days or 7)
 
 
-def _parse_date(text: str, base: dt.datetime) -> dt.date:
-    normalized = text.translate(AR_DIGITS)
-    iso = re.search(r"\b(20\d{2})[-/](\d{1,2})[-/](\d{1,2})\b", normalized)
+def _date_value(token: str, base: dt.datetime) -> dt.date:
+    value = token.strip().translate(AR_DIGITS)
+    iso = re.fullmatch(r"(20\d{2})[-/](\d{1,2})[-/](\d{1,2})", value)
     if iso:
-        return dt.date(int(iso.group(1)), int(iso.group(2)), int(iso.group(3)))
-    dmy = re.search(r"\b(\d{1,2})[-/](\d{1,2})[-/](20\d{2})\b", normalized)
+        try:
+            return dt.date(int(iso.group(1)), int(iso.group(2)), int(iso.group(3)))
+        except ValueError as exc:
+            raise NeedsInputError(
+                f"التاريخ الصريح غير صالح ({value}). صححه بصيغة YYYY-MM-DD."
+            ) from exc
+    dmy = re.fullmatch(r"(\d{1,2})[-/](\d{1,2})[-/](20\d{2})", value)
     if dmy:
-        return dt.date(int(dmy.group(3)), int(dmy.group(2)), int(dmy.group(1)))
-    if re.search(r"بعد\s+غد|بعد\s+بكره", normalized):
+        try:
+            return dt.date(int(dmy.group(3)), int(dmy.group(2)), int(dmy.group(1)))
+        except ValueError as exc:
+            raise NeedsInputError(
+                f"التاريخ الصريح غير صالح ({value}). صححه بصيغة DD-MM-YYYY."
+            ) from exc
+    if re.fullmatch(r"بعد\s+(?:غد|بكره)", value, re.I):
         return base.date() + dt.timedelta(days=2)
-    if re.search(r"غد[ًاا]?|بكره|بكرة|tomorrow", normalized, re.I):
+    if re.fullmatch(r"غد[ًاا]?|بكره|بكرة|tomorrow", value, re.I):
         return base.date() + dt.timedelta(days=1)
-    if re.search(r"اليوم|today", normalized, re.I):
+    if re.fullmatch(r"اليوم|today", value, re.I):
         return base.date()
-    for name, weekday in AR_DAYS.items():
-        if name in normalized:
-            return _next_weekday(base.date(), weekday)
-    raise ValueError("حدد التاريخ: اليوم، غدًا، اسم اليوم، أو YYYY-MM-DD")
+    day_name = re.sub(r"^يوم\s+", "", value).strip()
+    if day_name in AR_DAYS:
+        return _next_weekday(base.date(), AR_DAYS[day_name])
+    raise ValueError("مرجع التاريخ غير صالح")
 
 
-def _parse_time(text: str):
+def _date_candidates(text: str, base: dt.datetime):
     normalized = text.translate(AR_DIGITS)
-    match = re.search(
-        r"(?:الساعه|الساعة|عند|at)?\s*(\d{1,2})(?::(\d{2}))?\s*"
-        r"(صباحا|صباحًا|صباح|ص|am|مساء|مساءً|م|pm)?",
-        normalized, re.I,
-    )
-    candidates = []
-    for item in re.finditer(
-        r"(\d{1,2})(?::(\d{2}))?\s*(صباحا|صباحًا|صباح|ص|am|مساء|مساءً|م|pm)",
-        normalized, re.I,
-    ):
-        candidates.append(item)
-    if candidates:
-        match = candidates[-1]
-    if not match:
-        clock = re.search(r"(?:الساعه|الساعة|عند|at)\s*(\d{1,2})(?::(\d{2}))?", normalized, re.I)
-        if not clock:
-            raise ValueError("حدد الوقت، مثال: الساعة 5:30 مساءً")
-        hour, minute, period = int(clock.group(1)), int(clock.group(2) or 0), ""
-    else:
-        hour, minute, period = int(match.group(1)), int(match.group(2) or 0), (match.group(3) or "").lower()
+    rows = []
+    for match in _DATE_TOKEN_RE.finditer(normalized):
+        token = match.group(0)
+        date_value = _date_value(token, base)
+        rows.append({"text": token.strip(), "date": date_value, "span": match.span()})
+    return rows
+
+
+def _parse_date(text: str, base: dt.datetime) -> dt.date:
+    candidates = _date_candidates(text, base)
+    if not candidates:
+        raise ValueError("حدد التاريخ: اليوم، غدًا، اسم اليوم، أو YYYY-MM-DD")
+
+    has_today = any(item["text"].strip().lower() in {"اليوم", "today"} for item in candidates)
+    if has_today:
+        for item in candidates:
+            day_name = re.sub(r"^يوم\s+", "", item["text"]).strip()
+            if AR_DAYS.get(day_name) == base.date().weekday():
+                item["date"] = base.date()
+
+    unique = []
+    for item in candidates:
+        if not any(row["date"] == item["date"] for row in unique):
+            unique.append(item)
+    if len(unique) > 1:
+        refs = "، ".join(row["text"] for row in unique[:4])
+        raise NeedsInputError(
+            "وجدت أكثر من تاريخ محتمل (" + refs + "). "
+            "اكتب موعدًا واحدًا فقط مع تاريخه ووقته."
+        )
+    return unique[0]["date"]
+
+
+def _normalize_clock(hour: int, minute: int, period: str):
+    period = (period or "").lower()
     if minute > 59 or hour > 23:
-        raise ValueError("الوقت غير صالح")
+        raise NeedsInputError("الوقت غير صالح. استخدم ساعة بين 0 و23 ودقائق بين 00 و59.")
+    if period and not 1 <= hour <= 12:
+        raise NeedsInputError(
+            "الوقت مع صباحًا/مساءً يجب أن يستخدم ساعة بين 1 و12."
+        )
     if period in {"مساء", "مساءً", "م", "pm"} and hour < 12:
         hour += 12
     if period in {"صباحا", "صباحًا", "صباح", "ص", "am"} and hour == 12:
         hour = 0
     return hour, minute
+
+
+def _time_candidates(text: str):
+    normalized = text.translate(AR_DIGITS)
+    rows = []
+    occupied = []
+
+    patterns = [
+        re.compile(
+            rf"(?:الساعه|الساعة|عند|at)\s*(\d{{1,2}})(?::(\d{{2}}))?\s*({_PERIODS})?",
+            re.I,
+        ),
+        re.compile(rf"\b(\d{{1,2}}):(\d{{2}})\s*({_PERIODS})?", re.I),
+        re.compile(rf"\b(\d{{1,2}})\s*({_PERIODS})\b", re.I),
+    ]
+
+    for index, pattern in enumerate(patterns):
+        for match in pattern.finditer(normalized):
+            span = match.span()
+            if any(span[0] < end and span[1] > start for start, end in occupied):
+                continue
+            if index < 2:
+                hour = int(match.group(1))
+                minute = int(match.group(2) or 0)
+                period = match.group(3) or ""
+            else:
+                hour = int(match.group(1))
+                minute = 0
+                period = match.group(2) or ""
+            hour, minute = _normalize_clock(hour, minute, period)
+            rows.append({"text": match.group(0).strip(), "hour": hour, "minute": minute, "span": span})
+            occupied.append(span)
+    rows.sort(key=lambda row: row["span"][0])
+    return rows
+
+
+def _parse_time(text: str):
+    candidates = _time_candidates(text)
+    if not candidates:
+        raise ValueError("حدد الوقت، مثال: الساعة 5:30 مساءً")
+
+    unique = []
+    for item in candidates:
+        key = (item["hour"], item["minute"])
+        if not any((row["hour"], row["minute"]) == key for row in unique):
+            unique.append(item)
+    if len(unique) > 1:
+        refs = "، ".join(row["text"] for row in unique[:4])
+        raise NeedsInputError(
+            "وجدت أكثر من وقت محتمل (" + refs + "). "
+            "إذا كنت تقصد نطاقًا، اكتب وقت البداية والمدة، مثال: الساعة 9 لمدة 60 دقيقة."
+        )
+    return unique[0]["hour"], unique[0]["minute"]
 
 
 def _parse_reminder_minutes(text: str, default=60):
