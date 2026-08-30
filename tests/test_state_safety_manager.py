@@ -1,3 +1,4 @@
+import datetime as dt
 import json
 import tempfile
 import threading
@@ -63,10 +64,10 @@ class StateSafetyManagerTests(unittest.TestCase):
             finally:
                 manager.Store = original_store
 
-            self.assertEqual(reloaded["manager_markers"]["hb_day"], "2026-08-30")
+            self.assertEqual(reloaded["manager_markers"]["hb_day"], dt.date(2026, 8, 30))
             self.assertEqual(
                 reloaded["manager_markers"]["last_fast"],
-                "2026-08-30T06:00:00+03:00",
+                dt.datetime.fromisoformat("2026-08-30T06:00:00+03:00"),
             )
             self.assertFalse((Path(tmp) / ".manager-markers.json").exists())
 
