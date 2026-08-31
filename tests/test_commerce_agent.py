@@ -27,6 +27,17 @@ class CommerceAgentTests(unittest.TestCase):
         self.assertIn("[PHONE_REDACTED]", cleaned)
         self.assertNotIn("طريق الاختبار", cleaned)
 
+    def test_natural_order_query_excludes_address_and_phone(self):
+        raw = "ابدأ واطلب كيس منديل فئة ١٠ حبات بأفضل سعر، ارسل الى العنوان: حي مثال، طريق الاختبار، عمارة 3، شقة 12، جوال +966545684917"
+        query = c.natural_order_product_query(raw)
+        self.assertIn("كيس منديل", query)
+        self.assertIn("١٠", query)
+        self.assertNotIn("العنوان", query)
+        self.assertNotIn("حي مثال", query)
+        self.assertNotIn("طريق الاختبار", query)
+        self.assertNotIn("545684917", query)
+        self.assertNotIn("أفضل سعر", query)
+
     def test_preview_never_persists_address_or_phone(self):
         offer = c.make_offer(retailer="R", title="10 boxes", pack_count=10, item_count_each=180, price_sar=8, shipping_sar=12, url="https://r", in_stock=True, shipping_verified=True)
         fake_store = unittest.mock.MagicMock()
