@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Telegram surface for Commerce Agent v0.3."""
+"""Telegram surface for Commerce Agent v0.4."""
 from __future__ import annotations
 
 import json
@@ -100,12 +100,24 @@ def install():
                     raise ValueError("الاستخدام: /approve_order ORDER_ID CODE")
                 result = commerce_agent.execute_order(parts[1], parts[2])
                 receipt = (result.get("receipts") or [{}])[0]
-                answer = (
-                    "✅ تم تنفيذ الطلب\n"
-                    f"رقم الطلب: {receipt.get('order_id')}\n"
-                    f"المتجر: {receipt.get('retailer')}\n"
-                    f"الإجمالي: {receipt.get('total_sar')} ر.س"
-                )
+                status = str(receipt.get("status") or "submitted")
+                if status == "payment_required":
+                    answer = (
+                        "✅ تم إنشاء الطلب لدى المتجر\n"
+                        f"رقم الطلب: {receipt.get('order_id')}\n"
+                        f"المتجر: {receipt.get('retailer')}\n"
+                        f"الإجمالي: {receipt.get('total_sar')} ر.س\n"
+                        "💳 الدفع لم يكتمل بعد."
+                    )
+                    if receipt.get("payment_url"):
+                        answer += "\nرابط الدفع الآمن: " + str(receipt.get("payment_url"))
+                else:
+                    answer = (
+                        "✅ تم إنشاء الطلب لدى المتجر\n"
+                        f"رقم الطلب: {receipt.get('order_id')}\n"
+                        f"المتجر: {receipt.get('retailer')}\n"
+                        f"الإجمالي: {receipt.get('total_sar')} ر.س"
+                    )
             else:
                 if natural_order:
                     query = commerce_agent.natural_order_product_query(raw)
