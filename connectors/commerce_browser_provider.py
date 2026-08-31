@@ -14,12 +14,13 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-# This service is launched directly as connectors/commerce_browser_provider.py
-# inside the standalone Railway container. Import the sibling module directly
-# so startup does not depend on the repository root being on PYTHONPATH or on
-# importing connectors/__init__.py (which initializes unrelated production
-# integrations).
-from commerce_browser_checkout import execute
+# Support both execution modes:
+# 1) package import in CI/tests: connectors.commerce_browser_provider
+# 2) direct Railway startup: python connectors/commerce_browser_provider.py
+try:
+    from .commerce_browser_checkout import execute
+except ImportError:
+    from commerce_browser_checkout import execute
 
 PORT = int(os.environ.get("PORT", "8080") or "8080")
 DATA_DIR = Path(os.environ.get("COMMERCE_BROWSER_DATA_DIR", "/data"))
