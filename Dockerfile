@@ -10,4 +10,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-CMD ["python3", "-u", "connectors/telegram_webhook_runtime.py"]
+CMD ["bash", "-lc", "if [ \"${AI_OS_DISABLE_TELEGRAM:-0}\" = \"1\" ]; then exec python3 -u connectors/commerce_staging_server.py; else exec python3 -u connectors/telegram_webhook_runtime.py; fi"]
