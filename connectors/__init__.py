@@ -37,3 +37,10 @@ _install_calendar_intent()
 from .multi_intent_runtime import install as _install_multi_intent_runtime
 
 _install_multi_intent_runtime()
+
+# Capability Truth makes runtime/tool capability authoritative instead of asking
+# the language model to guess. It also installs the stricter privacy classifier so
+# generic phrases such as "physical therapy" do not become clinical-private logs.
+from .capability_runtime import install as _install_capability_runtime
+
+_install_capability_runtime()
