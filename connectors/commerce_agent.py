@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Commerce Agent v0.2 — deal ranking + approval-gated checkout adapter.
+"""Commerce Agent v0.3 — deal ranking + approval-gated checkout adapter.
 
 Safety invariants:
 - personal delivery data is never persisted in StateStore/Sheets/log output;
+- personal delivery data is stripped before any product search query;
 - offers must carry verified price + pack count; unknown shipping is not treated as cheapest;
 - purchase requires explicit approval;
 - every approved order carries a stable idempotency key to prevent duplicate purchase;
@@ -19,11 +20,34 @@ from engine.store import Store
 
 _PHONE_RE = re.compile(r"(?:\+?966|0)?5\d{8}")
 _ADDRESS_HINT_RE = re.compile(r"(?:حي|شارع|طريق|عمارة|شقة|منزل|building|apartment|address)\s*[^,،\n]{2,80}", re.I)
+_PRIVATE_TAIL_RE = re.compile(r"(?:،|,)?\s*(?:أرسل|ارسل)\s+(?:إلى|الى)\s+العنوان|(?:،|,)?\s*(?:العنوان|الجوال|جوال|الهاتف|هاتف)\s*[:：]", re.I)
+_ORDER_START_RE = re.compile(r"(?:^|\s)(?:اطلب|أطلب|اشتري|اشترِ)\s+", re.I)
+_PRICE_WORDS_RE = re.compile(r"\s*(?:ب|في)?\s*(?:أفضل|افضل)\s+سعر(?:\s+نهائي)?\s*", re.I)
 
 
 def redact_private(text: str) -> str:
     value = _PHONE_RE.sub("[PHONE_REDACTED]", str(text or ""))
     return _ADDRESS_HINT_RE.sub("[ADDRESS_REDACTED]", value)
+
+
+def natural_order_product_query(text: str) -> str:
+    """Extract only the product phrase from a natural purchase request.
+
+    Delivery address/phone tails are removed before the query can reach a search
+    provider. The function intentionally does not infer quantity/brand beyond the
+    user's own product phrase.
+    """
+    raw = str(text or "").strip()
+    if not raw:
+        return ""
+    m = _ORDER_START_RE.search(raw)
+    candidate = raw[m.end():] if m else raw
+    candidate = _PRIVATE_TAIL_RE.split(candidate, maxsplit=1)[0]
+    candidate = _PHONE_RE.sub(" ", candidate)
+    candidate = _ADDRESS_HINT_RE.sub(" ", candidate)
+    candidate = _PRICE_WORDS_RE.sub(" ", candidate)
+    candidate = re.sub(r"\s+", " ", candidate).strip(" ،,.-")
+    return candidate[:240]
 
 
 @dataclass(frozen=True)
