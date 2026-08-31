@@ -61,3 +61,10 @@ _install_action_deadline_report()
 from .action_language_safety import install as _install_action_language_safety
 
 _install_action_language_safety()
+
+# Executive Brief v3 discovers non-task operating context from Sheets + StateStore:
+# constraints, logistics rules, commitments, decision criteria, financial boundaries,
+# and capability/status changes. Read-only discovery; no external action is executed.
+from .brief_signal_runtime import install as _install_brief_signal_runtime
+
+_install_brief_signal_runtime()
