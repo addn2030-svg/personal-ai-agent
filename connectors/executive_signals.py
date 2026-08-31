@@ -24,6 +24,11 @@ _ARRIVAL_RE = re.compile(
     r"(?P<time>(?:[01]?\d|2[0-3]):[0-5]\d)",
     re.I,
 )
+_TRAVEL_MIN_RE = re.compile(
+    r"(?:مدة\s*الطريق|وقت\s*الطريق|المشوار|travel\s*time|route\s*duration)"
+    r"\s*(?:هو|هي|=|:)?\s*(?P<minutes>\d{1,3})\s*(?:دقيقة|دقائق|د|minutes?|mins?|min)\b",
+    re.I,
+)
 _PRIVATE_RE = re.compile(
     r"patient|مريض|diagnosis|تشخيص|mrn|medical\s*record|رقم\s*الملف|رقم\s*الهوية|هوية\s*المريض",
     re.I,
@@ -90,23 +95,6 @@ def _clean(text: str, limit: int = 500) -> str:
     return value[:limit]
 
 
-def _arrival_rule(text: str) -> dict:
-    value = _clean(text)
-    match = _ARRIVAL_RE.search(value)
-    if not match:
-        return {}
-    target = match.group("time")
-    if len(target.split(":", 1)[0]) == 1:
-        target = "0" + target
-    route_based = bool(re.search(r"مدة\s*الطريق|وقت\s*الطريق|travel\s*time|route\s*duration", value, re.I))
-    result = {
-        "arrival_target": target,
-        "departure_rule": f"departure_time = {target} - live_route_duration",
-        "requires_live_route_duration": route_based,
-    }
-    return result
-
-
 def calculate_departure(arrival_target: str, travel_minutes: int) -> dict:
     """Calculate a departure clock from a confirmed target and route duration.
 
@@ -126,6 +114,32 @@ def calculate_departure(arrival_target: str, travel_minutes: int) -> dict:
         "day_offset": (departure.date() - base.date()).days,
         "travel_minutes": minutes,
     }
+
+
+def _arrival_rule(text: str) -> dict:
+    value = _clean(text)
+    match = _ARRIVAL_RE.search(value)
+    if not match:
+        return {}
+    target = match.group("time")
+    if len(target.split(":", 1)[0]) == 1:
+        target = "0" + target
+    route_based = bool(re.search(r"مدة\s*الطريق|وقت\s*الطريق|travel\s*time|route\s*duration", value, re.I))
+    result = {
+        "arrival_target": target,
+        "departure_rule": f"departure_time = {target} - live_route_duration",
+        "requires_live_route_duration": route_based,
+    }
+    duration = _TRAVEL_MIN_RE.search(value)
+    if duration:
+        calculated = calculate_departure(target, int(duration.group("minutes")))
+        result.update({
+            "travel_minutes": calculated["travel_minutes"],
+            "departure_time": calculated["time"],
+            "departure_day_offset": calculated["day_offset"],
+            "requires_live_route_duration": False,
+        })
+    return result
 
 
 def detect_signals(
