@@ -9,11 +9,21 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+# When Railway starts this file by path (python connectors/commerce_staging_server.py),
+# Python puts /app/connectors on sys.path rather than the repository root. Add the
+# root explicitly before importing the connectors package, matching the production
+# runtime's boot behavior.
+BASE = Path(__file__).resolve().parents[1]
+if str(BASE) not in sys.path:
+    sys.path.insert(0, str(BASE))
 
 from connectors.commerce_sandbox import render_smoke_test, run_smoke_test
 
-PORT = int(os.environ.get("PORT", "8080"))
+PORT = int(os.environ.get("PORT", "8080") or "8080")
 
 
 class Handler(BaseHTTPRequestHandler):
