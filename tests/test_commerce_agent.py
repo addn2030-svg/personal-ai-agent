@@ -4,6 +4,7 @@ from decimal import Decimal
 from unittest.mock import patch
 
 from connectors import commerce_agent as c
+from connectors import commerce_sandbox
 
 
 class CommerceAgentTests(unittest.TestCase):
@@ -36,20 +37,44 @@ class CommerceAgentTests(unittest.TestCase):
         self.assertNotIn("secret address", payload)
         self.assertNotIn("0500000000", payload)
         self.assertEqual(row["plan"]["delivery_profile_ref"], "env:commerce_delivery_profile")
+        self.assertEqual(row["plan"]["idempotency_key"], row["action_id"])
 
     def test_execute_requires_checkout_receipt(self):
-        action = {"plan":{"retailer":"R","title":"x","quantity":1,"url":"https://r","delivered_total_sar":"20.00","delivery_profile_ready":True,"payment_profile_ready":True}}
+        action = {"plan":{"retailer":"R","title":"x","quantity":1,"url":"https://r","delivered_total_sar":"20.00","delivery_profile_ready":True,"payment_profile_ready":True,"idempotency_key":"SHOP-1"}}
         with patch.object(c, "_claim", return_value=action):
             with self.assertRaisesRegex(RuntimeError, "رقم طلب"):
                 c.execute_order("SHOP-1", "CODE", checkout_call=lambda plan: {"ok":True})
 
+    def test_execute_rejects_price_above_approved_ceiling(self):
+        action = {"plan":{"retailer":"R","title":"x","quantity":1,"url":"https://r","delivered_total_sar":"20.00","delivery_profile_ready":True,"payment_profile_ready":True,"idempotency_key":"SHOP-1"}}
+        with patch.object(c, "_claim", return_value=action):
+            with self.assertRaisesRegex(RuntimeError, "PRICE_CEILING_VIOLATION"):
+                c.execute_order("SHOP-1", "CODE", checkout_call=lambda plan: {"order_id":"ORD-1","total_sar":"21.00"})
+
     def test_execute_accepts_receipt_and_stores_non_sensitive_fields(self):
-        action = {"plan":{"retailer":"R","title":"x","quantity":1,"url":"https://r","delivered_total_sar":"20.00","delivery_profile_ready":True,"payment_profile_ready":True}}
+        action = {"plan":{"retailer":"R","title":"x","quantity":1,"url":"https://r","delivered_total_sar":"20.00","delivery_profile_ready":True,"payment_profile_ready":True,"idempotency_key":"SHOP-1"}}
         fake_store = unittest.mock.MagicMock()
         fake_store.transaction.return_value = {"status":"EXECUTED","receipts":[{"order_id":"ORD-1"}]}
         with patch.object(c, "_claim", return_value=action), patch.object(c, "Store", return_value=fake_store):
-            result = c.execute_order("SHOP-1", "CODE", checkout_call=lambda plan: {"order_id":"ORD-1"})
+            result = c.execute_order("SHOP-1", "CODE", checkout_call=lambda plan: {"order_id":"ORD-1","total_sar":"20.00"})
         self.assertEqual(result["status"], "EXECUTED")
+
+    def test_sandbox_is_explicit_and_never_real_purchase(self):
+        with patch.dict(os.environ, {
+            "COMMERCE_DELIVERY_ADDRESS":"must-not-be-read",
+            "COMMERCE_DELIVERY_PHONE":"0500000000",
+            "COMMERCE_PAYMENT_PROFILE":"vault:real",
+        }, clear=False):
+            result = commerce_sandbox.run_smoke_test()
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["mode"], "SANDBOX")
+        self.assertFalse(result["real_purchase"])
+        self.assertFalse(result["private_profile_used"])
+        self.assertTrue(result["order_id"].startswith("SANDBOX-"))
+        rendered = commerce_sandbox.render_smoke_test(result)
+        self.assertIn("لا يوجد شراء حقيقي", rendered)
+        self.assertNotIn("0500000000", rendered)
+        self.assertNotIn("must-not-be-read", rendered)
 
 
 if __name__ == "__main__":
