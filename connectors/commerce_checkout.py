@@ -20,9 +20,17 @@ def _d(value) -> Decimal:
     return Decimal(str(value)).quantize(Decimal("0.01"))
 
 
+def _checkout_secret() -> str:
+    """Use the canonical shared credential, with legacy fallback."""
+    return (
+        os.environ.get("COMMERCE_SHARED_SECRET", "").strip()
+        or os.environ.get("COMMERCE_CHECKOUT_SECRET", "").strip()
+    )
+
+
 def checkout(plan: dict) -> dict:
     url = os.environ.get("COMMERCE_CHECKOUT_WEBHOOK_URL", "").strip()
-    secret = os.environ.get("COMMERCE_CHECKOUT_SECRET", "").strip()
+    secret = _checkout_secret()
     address = os.environ.get("COMMERCE_DELIVERY_ADDRESS", "").strip()
     phone = os.environ.get("COMMERCE_DELIVERY_PHONE", "").strip()
     payment_profile = os.environ.get("COMMERCE_PAYMENT_PROFILE", "").strip()
