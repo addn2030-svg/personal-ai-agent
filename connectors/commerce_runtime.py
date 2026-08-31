@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-"""Telegram surface for Commerce Agent v0.1."""
+"""Telegram surface for Commerce Agent v0.2."""
 from __future__ import annotations
 
 import json
 
-from connectors import commerce_agent, commerce_scout
+from connectors import commerce_agent, commerce_scout, commerce_sandbox
 
 _INSTALLED = False
 _LAST_OFFERS: dict[int, list] = {}
@@ -23,6 +23,7 @@ def install():
         original_start(chat_id)
         legacy.send(chat_id,
             "\n🛒 Commerce Agent\n"
+            "/commerce_test — اختبار كامل آمن بدون شراء حقيقي\n"
             "/shop المنتج — اقتنص عروضًا موثقة\n"
             "/prepare_order N — جهّز الطلب من العرض رقم N\n"
             "/approve_order ID CODE — وافق ونفّذ عبر Checkout connector\n"
@@ -35,6 +36,7 @@ def install():
             commands = legacy.api("getMyCommands") or []
             existing = {str(x.get("command", "")) for x in commands}
             additions = [
+                {"command":"commerce_test","description":"اختبار Commerce آمن بدون شراء"},
                 {"command":"shop","description":"ابحث عن أفضل عروض موثقة"},
                 {"command":"prepare_order","description":"جهز طلبًا من عرض مختار"},
                 {"command":"approve_order","description":"اعتمد الشراء عبر Checkout connector"},
@@ -53,6 +55,7 @@ def install():
             f"Delivery profile: {'ready ✅' if profile['address_configured'] and profile['phone_configured'] else 'not ready'}\n"
             f"Payment profile: {'ready ✅' if profile['payment_profile_configured'] else 'not ready'}\n"
             f"Checkout connector: {'ready ✅' if commerce_agent.checkout_configured() else 'not connected'}\n"
+            "Sandbox test: available ✅\n"
             "Purchase rule: preview → explicit approval → checkout receipt."
         )
 
@@ -60,7 +63,7 @@ def install():
         raw = (message.get("text") or message.get("caption") or "").strip()
         command = raw.split()[0].split("@")[0].lower() if raw else ""
         natural_shop = raw.lower().startswith(("اقتنص عروض ", "ابحث عن أفضل سعر ", "shop "))
-        supported = command in {"/shop", "/prepare_order", "/approve_order", "/commerce_status"}
+        supported = command in {"/commerce_test", "/shop", "/prepare_order", "/approve_order", "/commerce_status"}
         if not supported and not natural_shop:
             return original_handle(message)
         chat = message.get("chat") or {}
@@ -73,7 +76,9 @@ def install():
         text, kind, attachment = legacy._message_payload(message)
         iid = legacy._local_capture(commerce_agent.redact_private(text), message, kind)
         try:
-            if command == "/commerce_status":
+            if command == "/commerce_test":
+                answer = commerce_sandbox.render_smoke_test(commerce_sandbox.run_smoke_test())
+            elif command == "/commerce_status":
                 answer = _status()
             elif command == "/prepare_order":
                 parts = raw.split()
