@@ -2,39 +2,10 @@ name: Production Model Router
 
 on:
   pull_request:
-    branches: [main, state-safety-manager-foundation, wo8-linked-multi-intent, feature/super-manager-v1-after-wo8, manager-fast-canary-after-super-manager, capability-truth-action-sync]
+    branches: [main, state-safety-manager-foundation, wo8-linked-multi-intent, feature/super-manager-v1-after-wo8, manager-fast-canary-after-super-manager, capability-truth-action-sync, natural-action-executor-v1]
     paths:
-      - 'connectors/model_gateway.py'
-      - 'connectors/direct_specialists.py'
-      - 'connectors/provider_diagnostics.py'
-      - 'connectors/team_orchestrator.py'
-      - 'connectors/bedrock_team.py'
-      - 'connectors/lean_missions.py'
-      - 'connectors/ops_context.py'
-      - 'connectors/super_manager.py'
-      - 'connectors/manager_fast_canary.py'
-      - 'connectors/capability_truth.py'
-      - 'connectors/capability_runtime.py'
-      - 'connectors/action_executor.py'
-      - 'connectors/action_runtime.py'
-      - 'connectors/action_deadline_report.py'
-      - 'connectors/action_language_safety.py'
-      - 'connectors/google_credentials.py'
-      - 'connectors/calendar_actions.py'
-      - 'connectors/calendar_intent.py'
-      - 'connectors/mobile_calendar_confirm.py'
-      - 'connectors/sheet_intelligence.py'
-      - 'connectors/multi_intent_runtime.py'
-      - 'connectors/__init__.py'
-      - 'connectors/task_delegation.py'
-      - 'connectors/telegram_bot.py'
-      - 'connectors/telegram_bot_legacy.py'
-      - 'connectors/telegram_webhook.py'
-      - 'engine/store.py'
-      - 'engine/manager.py'
-      - 'engine/unified_inbox.py'
-      - 'engine/multi_intent.py'
-      - 'research_capsules/**'
+      - 'connectors/**'
+      - 'engine/**'
       - 'tests/test_production_model_gateway.py'
       - 'tests/test_direct_specialists.py'
       - 'tests/test_provider_diagnostics.py'
@@ -46,6 +17,7 @@ on:
       - 'tests/test_manager_fast_canary.py'
       - 'tests/test_capability_truth.py'
       - 'tests/test_natural_action_executor.py'
+      - 'tests/test_commerce_agent.py'
       - 'tests/test_google_context_transport.py'
       - 'tests/test_calendar_actions.py'
       - 'tests/test_calendar_webhook_reminders.py'
@@ -78,6 +50,7 @@ jobs:
           tests.test_manager_fast_canary
           tests.test_capability_truth
           tests.test_natural_action_executor
+          tests.test_commerce_agent
           tests.test_google_context_transport
           tests.test_calendar_actions
           tests.test_calendar_webhook_reminders
@@ -104,6 +77,10 @@ jobs:
           connectors/action_runtime.py
           connectors/action_deadline_report.py
           connectors/action_language_safety.py
+          connectors/commerce_agent.py
+          connectors/commerce_scout.py
+          connectors/commerce_checkout.py
+          connectors/commerce_runtime.py
           connectors/google_credentials.py
           connectors/calendar_actions.py
           connectors/calendar_intent.py
