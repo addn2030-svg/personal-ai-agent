@@ -2,7 +2,7 @@ name: Production Model Router
 
 on:
   pull_request:
-    branches: [main, state-safety-manager-foundation, wo8-linked-multi-intent, feature/super-manager-v1-after-wo8, manager-fast-canary-after-super-manager, capability-truth-action-sync]
+    branches: [main, state-safety-manager-foundation, wo8-linked-multi-intent, feature/super-manager-v1-after-wo8, manager-fast-canary-after-super-manager, capability-truth-action-sync, natural-action-executor-v1]
     paths:
       - 'connectors/model_gateway.py'
       - 'connectors/direct_specialists.py'
@@ -19,6 +19,9 @@ on:
       - 'connectors/action_runtime.py'
       - 'connectors/action_deadline_report.py'
       - 'connectors/action_language_safety.py'
+      - 'connectors/executive_signals.py'
+      - 'connectors/brief_signal_runtime.py'
+      - 'connectors/brief_discovery.py'
       - 'connectors/google_credentials.py'
       - 'connectors/calendar_actions.py'
       - 'connectors/calendar_intent.py'
@@ -46,6 +49,7 @@ on:
       - 'tests/test_manager_fast_canary.py'
       - 'tests/test_capability_truth.py'
       - 'tests/test_natural_action_executor.py'
+      - 'tests/test_executive_signals.py'
       - 'tests/test_google_context_transport.py'
       - 'tests/test_calendar_actions.py'
       - 'tests/test_calendar_webhook_reminders.py'
@@ -78,6 +82,7 @@ jobs:
           tests.test_manager_fast_canary
           tests.test_capability_truth
           tests.test_natural_action_executor
+          tests.test_executive_signals
           tests.test_google_context_transport
           tests.test_calendar_actions
           tests.test_calendar_webhook_reminders
@@ -104,6 +109,9 @@ jobs:
           connectors/action_runtime.py
           connectors/action_deadline_report.py
           connectors/action_language_safety.py
+          connectors/executive_signals.py
+          connectors/brief_signal_runtime.py
+          connectors/brief_discovery.py
           connectors/google_credentials.py
           connectors/calendar_actions.py
           connectors/calendar_intent.py
