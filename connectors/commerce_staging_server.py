@@ -29,6 +29,14 @@ from connectors.commerce_sandbox import render_smoke_test, run_smoke_test
 PORT = int(os.environ.get("PORT", "8080") or "8080")
 
 
+def _checkout_secret() -> str:
+    """Use one canonical shared secret name, with legacy fallback."""
+    return (
+        os.environ.get("COMMERCE_SHARED_SECRET", "").strip()
+        or os.environ.get("COMMERCE_CHECKOUT_SECRET", "").strip()
+    )
+
+
 def checkout_link_selftest() -> dict:
     """Verify staging agent -> checkout provider URL/auth without any checkout.
 
@@ -38,7 +46,7 @@ def checkout_link_selftest() -> dict:
     browser executor or retailer checkout path.
     """
     url = os.environ.get("COMMERCE_CHECKOUT_WEBHOOK_URL", "").strip()
-    secret = os.environ.get("COMMERCE_CHECKOUT_SECRET", "").strip()
+    secret = _checkout_secret()
     if not url or not secret:
         raise RuntimeError("CHECKOUT_LINK_NOT_CONFIGURED")
 
