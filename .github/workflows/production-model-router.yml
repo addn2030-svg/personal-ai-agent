@@ -80,6 +80,7 @@ jobs:
           connectors/commerce_agent.py
           connectors/commerce_scout.py
           connectors/commerce_checkout.py
+          connectors/commerce_sandbox.py
           connectors/commerce_runtime.py
           connectors/google_credentials.py
           connectors/calendar_actions.py
