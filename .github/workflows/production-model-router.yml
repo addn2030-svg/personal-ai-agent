@@ -18,6 +18,7 @@ on:
       - 'connectors/action_executor.py'
       - 'connectors/action_runtime.py'
       - 'connectors/action_deadline_report.py'
+      - 'connectors/action_language_safety.py'
       - 'connectors/google_credentials.py'
       - 'connectors/calendar_actions.py'
       - 'connectors/calendar_intent.py'
@@ -102,6 +103,7 @@ jobs:
           connectors/action_executor.py
           connectors/action_runtime.py
           connectors/action_deadline_report.py
+          connectors/action_language_safety.py
           connectors/google_credentials.py
           connectors/calendar_actions.py
           connectors/calendar_intent.py
