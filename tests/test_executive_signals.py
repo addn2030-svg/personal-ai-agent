@@ -27,6 +27,15 @@ class ExecutiveSignalsTests(unittest.TestCase):
             "departure_time = 06:45 - live_route_duration",
         )
 
+    def test_arrival_rule_calculates_departure_when_duration_is_in_evidence(self):
+        rows = executive_signals.detect_signals(
+            "الوصول للكلية قبل 06:45، مدة الطريق 35 دقيقة"
+        )
+        logistics = rows[0]["logistics"]
+        self.assertEqual(logistics["travel_minutes"], 35)
+        self.assertEqual(logistics["departure_time"], "06:10")
+        self.assertFalse(logistics["requires_live_route_duration"])
+
     def test_departure_calculation_uses_only_confirmed_route_duration(self):
         result = executive_signals.calculate_departure("06:45", 35)
         self.assertEqual(result["time"], "06:10")
