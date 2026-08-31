@@ -1,16 +1,18 @@
 # -*- coding: utf-8 -*-
-"""Commerce Agent v0.1 — deal ranking + approval-gated checkout adapter.
+"""Commerce Agent v0.2 — deal ranking + approval-gated checkout adapter.
 
 Safety invariants:
 - personal delivery data is never persisted in StateStore/Sheets/log output;
 - offers must carry verified price + pack count; unknown shipping is not treated as cheapest;
-- purchase requires explicit approved action OR an already-approved policy supplied by caller;
-- checkout success requires a provider receipt/order id; otherwise status is not EXECUTED.
+- purchase requires explicit approval;
+- every approved order carries a stable idempotency key to prevent duplicate purchase;
+- checkout success requires a concrete provider order id;
+- the provider must not exceed the approved delivered-total ceiling.
 """
 from __future__ import annotations
 
 import hashlib, json, os, re, secrets
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from decimal import Decimal
 
 from engine.store import Store
@@ -107,6 +109,7 @@ def create_order_preview(offer: Offer, quantity: int = 1, *, source_ref: str = "
         "delivered_total_sar": str(total * quantity),
         "url": offer.url,
         "quantity": quantity,
+        "idempotency_key": action_id,
         "delivery_profile_ref": "env:commerce_delivery_profile",
         "delivery_profile_ready": profile["address_configured"] and profile["phone_configured"],
         "payment_profile_ready": profile["payment_profile_configured"],
@@ -175,7 +178,17 @@ def execute_order(action_id: str, code: str, *, checkout_call=None) -> dict:
     order_id = str((receipt or {}).get("order_id") or (receipt or {}).get("id") or "").strip()
     if not order_id:
         raise RuntimeError("Checkout لم يُرجع رقم طلب؛ لا أعتبر الشراء منفذًا.")
-    clean = {"order_id": order_id, "retailer": p["retailer"], "total_sar": p["delivered_total_sar"], "status": "EXECUTED"}
+    approved_total = _d(p["delivered_total_sar"])
+    receipt_total = _d((receipt or {}).get("total_sar", approved_total))
+    if receipt_total > approved_total:
+        raise RuntimeError("PRICE_CEILING_VIOLATION: مزود Checkout أعاد إجماليًا أعلى من السعر الموافق عليه.")
+    clean = {
+        "order_id": order_id,
+        "retailer": p["retailer"],
+        "total_sar": str(receipt_total),
+        "status": "EXECUTED",
+        "idempotency_key": p.get("idempotency_key", action_id),
+    }
     def finish(state):
         target = next(x for x in state["action_queue"] if x.get("action_id") == action_id)
         target["status"] = "EXECUTED"
