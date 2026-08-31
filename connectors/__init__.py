@@ -31,3 +31,10 @@ _install_ops_context()
 from .calendar_intent import install as _install_calendar_intent
 
 _install_calendar_intent()
+
+# Hotfix: ground statements about the configured Main Sheet in a live read-only
+# connector probe. This corrects false "no Sheets API / no access" answers while
+# preserving approval-gated writes and making no claim about arbitrary sheet URLs.
+from .capability_hotfix import install as _install_capability_hotfix
+
+_install_capability_hotfix()
