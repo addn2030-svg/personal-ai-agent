@@ -56,3 +56,8 @@ _install_action_runtime()
 from .action_deadline_report import install as _install_action_deadline_report
 
 _install_action_deadline_report()
+
+# Explicit negation (e.g. "لا يوجد تذكير") must outrank reminder keywords.
+from .action_language_safety import install as _install_action_language_safety
+
+_install_action_language_safety()
