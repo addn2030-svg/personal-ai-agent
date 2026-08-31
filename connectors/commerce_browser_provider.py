@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """HTTP checkout provider for Commerce Agent.
 
-Deploy this as a separate Railway service. It accepts only requests carrying
-COMMERCE_BROWSER_PROVIDER_SECRET, enforces idempotency, delegates to the
+Deploy this as a separate Railway service. It accepts only requests carrying the
+configured commerce shared secret, enforces idempotency, delegates to the
 fail-closed browser executor, and never accepts raw card data.
 """
 from __future__ import annotations
@@ -53,8 +53,16 @@ def _save(data: dict) -> None:
                 os.unlink(tmp)
 
 
+def _provider_secret() -> str:
+    """Use the canonical shared credential, with legacy fallback."""
+    return (
+        os.environ.get("COMMERCE_SHARED_SECRET", "").strip()
+        or os.environ.get("COMMERCE_BROWSER_PROVIDER_SECRET", "").strip()
+    )
+
+
 def checkout_payload(body: dict) -> dict:
-    expected = os.environ.get("COMMERCE_BROWSER_PROVIDER_SECRET", "").strip()
+    expected = _provider_secret()
     if not expected or str(body.get("secret") or "") != expected:
         raise PermissionError("UNAUTHORIZED")
     if body.get("action") != "checkout":
