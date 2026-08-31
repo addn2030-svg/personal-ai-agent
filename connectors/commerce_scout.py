@@ -3,12 +3,12 @@
 
 Uses Brave Search only for discovery, then fetches retailer pages directly and
 extracts a conservative price/pack match. Search snippets alone are never marked
-verified. Checkout is handled elsewhere.
+verified. Known retailer shipping policy pages are fetched live before ranking.
+Checkout is handled elsewhere.
 """
 from __future__ import annotations
 
 import html, json, os, re, urllib.parse, urllib.request
-from decimal import Decimal
 from connectors.commerce_agent import Offer, make_offer, rank_offers
 
 _ALLOWED = {
@@ -16,9 +16,14 @@ _ALLOWED = {
     "order.lamina-ksa.com", "azwasa.com", "www.azwasa.com", "tbmart.sa", "www.tbmart.sa",
     "cleandishes1.com", "www.cleandishes1.com",
 }
+_SHIPPING_POLICY = {
+    "riyal1.com": "https://riyal1.com/shipping-and-payment",
+    "www.riyal1.com": "https://riyal1.com/shipping-and-payment",
+}
 _PRICE_RE = re.compile(r"(?<!\d)(\d{1,4}(?:[.,]\d{1,2})?)\s*(?:ر\.?\s*س|SAR|ريال)", re.I)
 _PACK10_RE = re.compile(r"(?:10|١٠)\s*(?:علب|عبوات|مغلفات|قطع|pack|boxes|pcs)", re.I)
 _COUNT_RE = re.compile(r"(?:×|x|داخل\s+(?:الواحد\s+)?(?:المغلف|العلبة)|تضم)\s*(\d{2,4})\s*(?:منديل|ورقة)?", re.I)
+_SHIPPING_RE = re.compile(r"(?:رسوم\s+الشحن|shipping(?:\s+fee)?)\s*[:\-]?\s*(\d{1,3}(?:[.,]\d{1,2})?)\s*(?:ر\.?\s*س|SAR|ريال)", re.I)
 
 
 def _brave(query: str, count: int = 10) -> list[dict]:
@@ -40,14 +45,32 @@ def _plain(raw: str) -> str:
     return re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", raw))).strip()
 
 
+def _fetch_text(url: str) -> str:
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 Abdulrahman-AI-OS/1.0"})
+    with urllib.request.urlopen(req, timeout=25) as r:
+        return _plain(r.read(1_500_000).decode("utf-8", errors="replace"))
+
+
+def _shipping_for(host: str) -> tuple[str | None, bool]:
+    url = _SHIPPING_POLICY.get(host)
+    if not url:
+        return None, False
+    try:
+        text = _fetch_text(url)
+    except Exception:
+        return None, False
+    match = _SHIPPING_RE.search(text)
+    if not match:
+        return None, False
+    return match.group(1).replace(",", "."), True
+
+
 def _verify_page(url: str, required_pack: int = 10) -> Offer | None:
     parsed = urllib.parse.urlparse(url)
     if parsed.hostname not in _ALLOWED:
         return None
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 Abdulrahman-AI-OS/1.0"})
     try:
-        with urllib.request.urlopen(req, timeout=25) as r:
-            text = _plain(r.read(1_500_000).decode("utf-8", errors="replace"))
+        text = _fetch_text(url)
     except Exception:
         return None
     if required_pack == 10 and not _PACK10_RE.search(text):
@@ -65,17 +88,18 @@ def _verify_page(url: str, required_pack: int = 10) -> Offer | None:
         try: count = int(m_count.group(1))
         except Exception: count = None
     retailer = parsed.hostname or "unknown"
+    shipping, shipping_verified = _shipping_for(retailer)
     return make_offer(
         retailer=retailer,
         title=title,
         pack_count=required_pack,
         item_count_each=count,
         price_sar=price_match.group(1).replace(",", "."),
-        shipping_sar=None,
+        shipping_sar=shipping,
         url=url,
         in_stock=not bool(re.search(r"غير\s+متوفر|out\s+of\s+stock", text, re.I)),
         price_verified=True,
-        shipping_verified=False,
+        shipping_verified=shipping_verified,
     )
 
 
@@ -100,7 +124,7 @@ def scout(query: str, required_pack: int = 10, max_results: int = 8) -> list[Off
 def render_offers(offers: list[Offer]) -> str:
     if not offers:
         return "لم أجد عروضًا موثقة مطابقة الآن."
-    lines = ["🛒 عروض موثقة — السعر النهائي يحتاج شحنًا مؤكدًا قبل الاختيار النهائي"]
+    lines = ["🛒 عروض موثقة — أفضلية للسعر النهائي المؤكد"]
     for i, o in enumerate(offers, 1):
         shipping = f"{o.shipping_sar} ر.س" if o.shipping_sar is not None else "NEEDS_INPUT"
         total = f"{o.total_sar} ر.س" if o.total_sar is not None else "NEEDS_INPUT"
