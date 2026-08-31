@@ -128,7 +128,7 @@ def direct_preflight_response(text: str) -> str | None:
         sheet_line = "❌ Google Sheets: no configured route detected."
 
     write_line = (
-        "✅ Sheet update route exists, but each business-data mutation stays preview/approval/receipt gated."
+        "✅ Sheet write route exists, but each business-data mutation stays preview/approval/receipt gated."
         if cap.sheet_write_route else
         "⚠️ No verified Sheet write route is available right now."
     )
@@ -138,7 +138,7 @@ def direct_preflight_response(text: str) -> str | None:
         + write_line + "\n"
         "✅ Conversation memory: automatic runtime save path is enabled.\n"
         "✅ Durable semantic memory: supported; promotion requires review before it becomes a durable fact.\n\n"
-        "I will not invent TODAY/PROJECTS tabs, dates, owners, or facts. I also will not claim a write until I have its receipt.\n\n"
+        "I will not invent tab names, dates, owners, or facts. I also will not claim a write until I have its receipt.\n\n"
         "NEEDS_INPUT: Which exact information from the conversation should be promoted into operational Sheets/durable memory?\n"
         "Once identified, I will produce one preview, then execute only after approval and return the destination/receipt."
     )
