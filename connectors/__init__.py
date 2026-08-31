@@ -44,3 +44,9 @@ _install_multi_intent_runtime()
 from .capability_runtime import install as _install_capability_runtime
 
 _install_capability_runtime()
+
+# Natural Action Executor turns bounded natural-language operational requests into
+# preview -> approval -> execution -> receipt without replacing Telegram/webhook.
+from .action_runtime import install as _install_action_runtime
+
+_install_action_runtime()
