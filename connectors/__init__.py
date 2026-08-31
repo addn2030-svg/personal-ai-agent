@@ -50,3 +50,9 @@ _install_capability_runtime()
 from .action_runtime import install as _install_action_runtime
 
 _install_action_runtime()
+
+# Adds simple deadline/date-time language, Calendar reminders after approval,
+# and read-only project reports sent directly to the authorized Telegram chat.
+from .action_deadline_report import install as _install_action_deadline_report
+
+_install_action_deadline_report()
