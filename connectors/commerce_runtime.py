@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Telegram surface for Commerce Agent v0.2."""
+"""Telegram surface for Commerce Agent v0.3."""
 from __future__ import annotations
 
 import json
@@ -28,7 +28,8 @@ def install():
             "/prepare_order N — جهّز الطلب من العرض رقم N\n"
             "/approve_order ID CODE — وافق ونفّذ عبر Checkout connector\n"
             "/commerce_status — حالة البحث/التوصيل/الدفع/Checkout\n"
-            "بيانات العنوان/الجوال لا تُحفظ في StateStore أو Sheets بواسطة Commerce Agent.")
+            "أو اكتب طبيعيًا: اطلب مناديل 10 علب بأفضل سعر.\n"
+            "بيانات العنوان/الجوال لا تُرسل لمحرك البحث ولا تُحفظ في StateStore أو Sheets بواسطة Commerce Agent.")
 
     def configure_commands():
         original_configure()
@@ -61,10 +62,12 @@ def install():
 
     def handle_message(message: dict):
         raw = (message.get("text") or message.get("caption") or "").strip()
+        low = raw.lower()
         command = raw.split()[0].split("@")[0].lower() if raw else ""
-        natural_shop = raw.lower().startswith(("اقتنص عروض ", "ابحث عن أفضل سعر ", "shop "))
+        natural_shop = low.startswith(("اقتنص عروض ", "ابحث عن أفضل سعر ", "shop "))
+        natural_order = any(x in low for x in ("اطلب ", "أطلب ", "اشتري ", "اشترِ ")) and any(x in low for x in ("أفضل سعر", "افضل سعر", "اقتنص", "العروض"))
         supported = command in {"/commerce_test", "/shop", "/prepare_order", "/approve_order", "/commerce_status"}
-        if not supported and not natural_shop:
+        if not supported and not natural_shop and not natural_order:
             return original_handle(message)
         chat = message.get("chat") or {}
         chat_id = chat.get("id")
@@ -74,7 +77,8 @@ def install():
             legacy.send(chat_id, "⛔ هذه المحادثة غير مصرح لها باستخدام الوكيل.")
             return
         text, kind, attachment = legacy._message_payload(message)
-        iid = legacy._local_capture(commerce_agent.redact_private(text), message, kind)
+        safe_text = commerce_agent.redact_private(text)
+        iid = legacy._local_capture(safe_text, message, kind)
         try:
             if command == "/commerce_test":
                 answer = commerce_sandbox.render_smoke_test(commerce_sandbox.run_smoke_test())
@@ -103,11 +107,13 @@ def install():
                     f"الإجمالي: {receipt.get('total_sar')} ر.س"
                 )
             else:
-                if command == "/shop":
+                if natural_order:
+                    query = commerce_agent.natural_order_product_query(raw)
+                elif command == "/shop":
                     query = raw[len(command):].strip()
-                elif raw.lower().startswith("اقتنص عروض "):
+                elif low.startswith("اقتنص عروض "):
                     query = raw[len("اقتنص عروض "):].strip()
-                elif raw.lower().startswith("ابحث عن أفضل سعر "):
+                elif low.startswith("ابحث عن أفضل سعر "):
                     query = raw[len("ابحث عن أفضل سعر "):].strip()
                 else:
                     query = raw[5:].strip()
@@ -116,13 +122,16 @@ def install():
                 offers = commerce_scout.scout(query, required_pack=10)
                 _LAST_OFFERS[int(chat_id)] = offers
                 answer = commerce_scout.render_offers(offers)
-                if offers and offers[0].total_sar is not None:
+                if natural_order and offers and offers[0].total_sar is not None:
+                    preview = commerce_agent.create_order_preview(offers[0], source_ref=f"telegram:{iid}")
+                    answer += "\n\n" + commerce_agent.render_preview(preview)
+                elif offers and offers[0].total_sar is not None:
                     answer += "\n\nالأفضل بالسعر النهائي المؤكد حاليًا: العرض 1.\nللتجهيز: /prepare_order 1"
             legacy.send(chat_id, answer)
-            legacy._save_intake(iid, message, commerce_agent.redact_private(text), kind, attachment, "COMPLETED")
+            legacy._save_intake(iid, message, safe_text, kind, attachment, "COMPLETED")
         except Exception as exc:
             legacy.send(chat_id, "❌ " + str(exc)[:1200])
-            legacy._save_intake(iid, message, commerce_agent.redact_private(text), kind, attachment, "ERROR", error=exc)
+            legacy._save_intake(iid, message, safe_text, kind, attachment, "ERROR", error=exc)
 
     legacy.handle_message = handle_message
     legacy.command_start = command_start
