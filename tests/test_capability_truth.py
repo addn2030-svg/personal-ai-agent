@@ -12,6 +12,10 @@ class CapabilityTruthTests(unittest.TestCase):
             sheet_read_verified=True,
             sheet_write_route=True,
             sheet_tabs=("Projects", "مدخلات الوكيل", "محادثات الوكيل", "Executive_Brief"),
+            calendar_tools_implemented=True,
+            calendar_read_verified=True,
+            calendar_write_route=True,
+            telegram_configured=True,
         )
 
     def test_professional_physical_therapy_phrase_is_not_clinical_private(self):
@@ -51,8 +55,39 @@ class CapabilityTruthTests(unittest.TestCase):
         self.assertIn("Live tab count: 4", packet)
         self.assertIn("Projects", packet)
         self.assertIn("Executive_Brief", packet)
+        self.assertIn("Google Calendar live read verified: YES", packet)
+        self.assertIn("Browser/web-navigation tool in this Telegram runtime: NO", packet)
         self.assertIn("proposal -> preview -> approval -> execution -> receipt", packet)
         self.assertIn("Unknown = NEEDS_INPUT", packet)
+
+    def test_blanket_text_only_denial_is_replaced_but_shopping_limit_remains(self):
+        request = "هل تستطيع أن تطلب منظفات للمنزل وتدفع؟"
+        bad = "أنا حالياً نظام نصي فقط، لا أملك أدوات تنفيذ خارجية، لا أفتح مواقع، ولا أتصرف خارج المحادثة."
+        with patch.object(truth, "snapshot", return_value=self._live_snapshot()):
+            corrected = truth.guard_response(request, bad)
+        self.assertIn("حالة القدرات الفعلية", corrected)
+        self.assertIn("Google Sheets", corrected)
+        self.assertIn("Google Calendar", corrected)
+        self.assertIn("Telegram", corrected)
+        self.assertNotIn("نظام نصي فقط", corrected)
+        self.assertIn("Browser", corrected)
+        self.assertIn("Checkout/Payment", corrected)
+        self.assertIn("لا أستطيع إتمام شراء أو دفع الآن", corrected)
+
+    def test_agent_framework_is_not_claimed_as_missing_prerequisite(self):
+        request = "هل تحتاج LangChain أو CrewAI لكي تصبح وكيلا حقيقيا؟"
+        with patch.object(truth, "snapshot", return_value=self._live_snapshot()):
+            answer = truth.capability_summary_response(request)
+        self.assertIn("لا نحتاج LangChain أو CrewAI", answer)
+        self.assertIn("Runtime Python الحالي هو إطار الوكيل بالفعل", answer)
+
+    def test_unsupported_browser_checkout_payment_are_never_overclaimed(self):
+        request = "Can you open Amazon and buy this for me?"
+        with patch.object(truth, "snapshot", return_value=self._live_snapshot()):
+            answer = truth.capability_summary_response(request)
+        self.assertIn("Browser/retail site navigation: not implemented", answer)
+        self.assertIn("Checkout/payment: not implemented", answer)
+        self.assertIn("cannot complete or pay", answer)
 
 
 if __name__ == "__main__":
