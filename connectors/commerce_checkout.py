@@ -1,19 +1,22 @@
 # -*- coding: utf-8 -*-
 """Trusted production checkout adapter.
 
-The retailer/browser executor is external to this repo. This module sends only an
-approved order plan plus delivery/payment profile values from runtime secrets.
-Those values are never persisted in StateStore or returned in receipts.
+The retailer/browser executor is external to the main Telegram runtime. This
+module sends only an approved order plan plus delivery/payment profile values
+from runtime secrets. Those values are never persisted in StateStore or
+returned in receipts.
 
 Provider contract:
 - must honor idempotency_key (same key => same purchase result, never duplicate);
 - must refuse checkout when final_total_sar would exceed max_total_sar;
-- must return a concrete order_id only after the retailer accepted the order.
+- must return a concrete order_id only after the retailer accepted the order;
+- may return an HTTPS payment_url when the created order still needs payment.
 """
 from __future__ import annotations
 
 import json, os, urllib.request
 from decimal import Decimal
+from urllib.parse import urlparse
 
 
 def _d(value) -> Decimal:
@@ -62,10 +65,16 @@ def checkout(plan: dict) -> dict:
     final_total = _d(result.get("total_sar", max_total))
     if final_total > max_total:
         raise RuntimeError("PRICE_CEILING_VIOLATION: provider total exceeds approved ceiling")
-    # Return only non-sensitive receipt fields.
-    return {
+    receipt = {
         "order_id": order_id,
         "status": str(result.get("status") or "submitted"),
         "total_sar": str(final_total),
         "idempotency_key": idempotency_key,
     }
+    payment_url = str(result.get("payment_url") or "").strip()
+    if payment_url:
+        parsed = urlparse(payment_url)
+        if parsed.scheme != "https" or not parsed.netloc:
+            raise RuntimeError("INVALID_PAYMENT_URL")
+        receipt["payment_url"] = payment_url
+    return receipt
