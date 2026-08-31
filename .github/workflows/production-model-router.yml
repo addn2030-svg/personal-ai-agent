@@ -18,6 +18,7 @@ on:
       - 'tests/test_capability_truth.py'
       - 'tests/test_natural_action_executor.py'
       - 'tests/test_commerce_agent.py'
+      - 'tests/test_commerce_staging_boot.py'
       - 'tests/test_google_context_transport.py'
       - 'tests/test_calendar_actions.py'
       - 'tests/test_calendar_webhook_reminders.py'
@@ -51,6 +52,7 @@ jobs:
           tests.test_capability_truth
           tests.test_natural_action_executor
           tests.test_commerce_agent
+          tests.test_commerce_staging_boot
           tests.test_google_context_transport
           tests.test_calendar_actions
           tests.test_calendar_webhook_reminders
@@ -82,6 +84,7 @@ jobs:
           connectors/commerce_checkout.py
           connectors/commerce_sandbox.py
           connectors/commerce_runtime.py
+          connectors/commerce_staging_server.py
           connectors/google_credentials.py
           connectors/calendar_actions.py
           connectors/calendar_intent.py
