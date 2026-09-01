@@ -68,3 +68,10 @@ _install_action_language_safety()
 from .brief_signal_runtime import install as _install_brief_signal_runtime
 
 _install_brief_signal_runtime()
+
+# Commerce Agent is installed last so its bounded Telegram commands wrap the current
+# runtime without replacing Manager/Brief/Calendar behavior. Deal scouting is read-only;
+# order execution remains preview -> explicit approval -> checkout receipt.
+from .commerce_runtime import install as _install_commerce_runtime
+
+_install_commerce_runtime()
