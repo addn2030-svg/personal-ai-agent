@@ -49,6 +49,30 @@ class CapabilityTruthTests(unittest.TestCase):
         self.assertNotIn("I CANNOT", corrected)
         self.assertIn("write route exists", corrected)
 
+    def test_read_only_main_sheet_request_gets_runtime_context(self):
+        request = "Check the Main Sheet and tell me what changed"
+        with patch.object(truth, "snapshot", return_value=self._live_snapshot()):
+            packet = truth.prompt_context(request)
+        self.assertIn("Google Sheets live read verified this request: YES", packet)
+        self.assertIn("Live tab count: 4", packet)
+        self.assertIn("configured workbook", packet)
+
+    def test_false_read_denial_for_main_sheet_is_replaced(self):
+        request = "Check the Main Sheet and tell me what changed"
+        bad = "I cannot read or access the Main Sheet and have no active Google Sheets API connection."
+        with patch.object(truth, "snapshot", return_value=self._live_snapshot()):
+            corrected = truth.guard_response(request, bad)
+        self.assertIn("VERIFIED CAPABILITY STATUS", corrected)
+        self.assertIn("Google Sheets: live read verified", corrected)
+        self.assertNotIn("cannot read or access", corrected)
+
+    def test_arbitrary_sheet_url_is_not_silently_promoted_to_configured_access(self):
+        request = "Read https://docs.google.com/spreadsheets/d/OTHER_SHEET_ID/edit"
+        bad = "I cannot access this spreadsheet URL directly."
+        with patch.object(truth, "snapshot", return_value=self._live_snapshot()):
+            corrected = truth.guard_response(request, bad)
+        self.assertEqual(corrected, bad)
+
     def test_prompt_context_contains_live_schema_not_invented_schema(self):
         with patch.object(truth, "snapshot", return_value=self._live_snapshot()):
             packet = truth.prompt_context("please update sheets and memory")
@@ -59,6 +83,7 @@ class CapabilityTruthTests(unittest.TestCase):
         self.assertIn("Browser/web-navigation tool in this Telegram runtime: NO", packet)
         self.assertIn("proposal -> preview -> approval -> execution -> receipt", packet)
         self.assertIn("Unknown = NEEDS_INPUT", packet)
+        self.assertIn("arbitrary Sheet URL", packet)
 
     def test_blanket_text_only_denial_is_replaced_but_shopping_limit_remains(self):
         request = "هل تستطيع أن تطلب منظفات للمنزل وتدفع؟"
