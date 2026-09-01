@@ -31,3 +31,9 @@ _install_ops_context()
 from .calendar_intent import install as _install_calendar_intent
 
 _install_calendar_intent()
+
+# WO-8 upgrades Telegram capture from one-label classification to conservative
+# multi-intent recording in StateStore. It does not execute external actions.
+from .multi_intent_runtime import install as _install_multi_intent_runtime
+
+_install_multi_intent_runtime()
