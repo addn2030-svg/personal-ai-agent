@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Commerce Agent v0.4 — deal ranking + approval-gated checkout adapter.
+"""Commerce Agent v0.5 — deal ranking + approval-gated checkout adapter.
 
 Safety invariants:
 - personal delivery data is never persisted in StateStore/Sheets/log output;
@@ -8,13 +8,16 @@ Safety invariants:
 - purchase requires explicit approval;
 - every approved order carries a stable idempotency key to prevent duplicate purchase;
 - checkout success requires a concrete provider order id;
-- the provider must not exceed the approved delivered-total ceiling.
+- the provider must not exceed the approved delivered-total ceiling;
+- pilot purchases are hard-capped at 375 SAR per order and 375 SAR total per Riyadh day.
 """
 from __future__ import annotations
 
 import hashlib, json, os, re, secrets
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 from engine.store import Store
 
@@ -23,6 +26,58 @@ _ADDRESS_HINT_RE = re.compile(r"(?:حي|شارع|طريق|عمارة|شقة|من
 _PRIVATE_TAIL_RE = re.compile(r"(?:،|,)?\s*(?:أرسل|ارسل)\s+(?:إلى|الى)\s+العنوان|(?:،|,)?\s*(?:العنوان|الجوال|جوال|الهاتف|هاتف)\s*[:：]", re.I)
 _ORDER_START_RE = re.compile(r"(?:^|\s)(?:اطلب|أطلب|اشتري|اشترِ)\s+", re.I)
 _PRICE_WORDS_RE = re.compile(r"\s*(?:ب|في)?\s*(?:أفضل|افضل)\s+سعر(?:\s+نهائي)?\s*", re.I)
+
+# Approved pilot ceiling: USD 100 at the SAR 3.75/USD peg.
+# These are code-level hard limits, not environment variables, so a runtime typo
+# cannot silently raise the approved financial exposure.
+PILOT_MAX_ORDER_SAR = Decimal("375.00")
+PILOT_MAX_DAILY_SAR = Decimal("375.00")
+_PILOT_TZ = ZoneInfo("Asia/Riyadh")
+
+
+def _pilot_now() -> datetime:
+    return datetime.now(_PILOT_TZ)
+
+
+def _pilot_now_iso() -> str:
+    return _pilot_now().isoformat(timespec="seconds")
+
+
+def _pilot_day() -> str:
+    return _pilot_now().date().isoformat()
+
+
+def _timestamp_day(value: str) -> str:
+    try:
+        parsed = datetime.fromisoformat(str(value or ""))
+        if parsed.tzinfo is None:
+            raise ValueError("timezone required")
+        return parsed.astimezone(_PILOT_TZ).date().isoformat()
+    except Exception as exc:
+        raise RuntimeError("PILOT_DAILY_LEDGER_INCOMPLETE: executed commerce receipt lacks a valid timestamp") from exc
+
+
+def _pilot_exposure_for_day(state: dict, day: str) -> Decimal:
+    """Return executed + in-flight Commerce exposure for one Riyadh day.
+
+    EXECUTING reservations are included so two approvals cannot race past the
+    daily pilot ceiling while checkout is still in progress.
+    """
+    total = Decimal("0.00")
+    for row in state.get("action_queue", []):
+        if row.get("type") != "COMMERCE_ORDER":
+            continue
+        status = row.get("status")
+        if status == "EXECUTED":
+            receipts = row.get("receipts") or []
+            if not receipts:
+                raise RuntimeError("PILOT_DAILY_LEDGER_INCOMPLETE: executed commerce order has no receipt")
+            receipt = receipts[0]
+            if _timestamp_day(receipt.get("executed_at")) == day:
+                total += _d(receipt.get("total_sar", "0"))
+        elif status == "EXECUTING" and row.get("pilot_reserved_day") == day:
+            total += _d(row.get("pilot_reserved_total_sar", "0"))
+    return _d(total)
 
 
 def redact_private(text: str) -> str:
@@ -117,6 +172,11 @@ def create_order_preview(offer: Offer, quantity: int = 1, *, source_ref: str = "
     total = offer.total_sar
     if total is None:
         raise ValueError("NEEDS_INPUT: تكلفة الشحن غير مؤكدة؛ لا يمكن وصف العرض بأنه أفضل سعر نهائي.")
+    approved_total = _d(total * quantity)
+    if approved_total > PILOT_MAX_ORDER_SAR:
+        raise RuntimeError(
+            f"PILOT_ORDER_LIMIT_EXCEEDED: الحد الأقصى للعملية الواحدة {PILOT_MAX_ORDER_SAR} ر.س."
+        )
     profile = delivery_profile_status()
     action_id = "SHOP-" + secrets.token_hex(4).upper()
     content = {
@@ -126,7 +186,7 @@ def create_order_preview(offer: Offer, quantity: int = 1, *, source_ref: str = "
         "item_count_each": offer.item_count_each,
         "unit_offer_price_sar": str(offer.price_sar),
         "shipping_sar": str(offer.shipping_sar),
-        "delivered_total_sar": str(total * quantity),
+        "delivered_total_sar": str(approved_total),
         "url": offer.url,
         "quantity": quantity,
         "idempotency_key": action_id,
@@ -134,6 +194,9 @@ def create_order_preview(offer: Offer, quantity: int = 1, *, source_ref: str = "
         "delivery_profile_ready": profile["address_configured"] and profile["phone_configured"],
         "payment_profile_ready": profile["payment_profile_configured"],
         "source_ref": source_ref,
+        "pilot_mode": True,
+        "pilot_max_order_sar": str(PILOT_MAX_ORDER_SAR),
+        "pilot_max_daily_sar": str(PILOT_MAX_DAILY_SAR),
     }
     digest = hashlib.sha256(json.dumps(content, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
     row = {
@@ -142,6 +205,7 @@ def create_order_preview(offer: Offer, quantity: int = 1, *, source_ref: str = "
         "status": "PENDING_APPROVAL",
         "approval_code": digest[:10].upper(),
         "content_hash": digest,
+        "created_at": _pilot_now_iso(),
         "plan": content,
         "receipts": [],
     }
@@ -165,7 +229,8 @@ def render_preview(row: dict) -> str:
         f"السعر: {p['unit_offer_price_sar']} ر.س\n"
         f"الشحن: {p['shipping_sar']} ر.س\n"
         f"الإجمالي المؤكد: {p['delivered_total_sar']} ر.س\n"
-        f"{profile_line}\n{payment_line}\n\n"
+        f"{profile_line}\n{payment_line}\n"
+        f"🛡️ Pilot: ≤ {PILOT_MAX_ORDER_SAR} ر.س للعملية و≤ {PILOT_MAX_DAILY_SAR} ر.س لليوم\n\n"
         "لم يتم الشراء بعد.\n"
         f"للموافقة: /approve_order {row['action_id']} {row['approval_code']}"
     )
@@ -180,7 +245,22 @@ def _claim(action_id: str, code: str) -> dict:
             raise ValueError("الطلب ليس بانتظار الموافقة.")
         if str(row.get("approval_code", "")).upper() != str(code or "").upper():
             raise ValueError("رمز الموافقة غير مطابق.")
+        approved_total = _d((row.get("plan") or {}).get("delivered_total_sar", "0"))
+        if approved_total > PILOT_MAX_ORDER_SAR:
+            raise RuntimeError(
+                f"PILOT_ORDER_LIMIT_EXCEEDED: الحد الأقصى للعملية الواحدة {PILOT_MAX_ORDER_SAR} ر.س."
+            )
+        day = _pilot_day()
+        current_exposure = _pilot_exposure_for_day(state, day)
+        if current_exposure + approved_total > PILOT_MAX_DAILY_SAR:
+            remaining = max(Decimal("0.00"), PILOT_MAX_DAILY_SAR - current_exposure)
+            raise RuntimeError(
+                f"PILOT_DAILY_LIMIT_EXCEEDED: المتاح اليوم {remaining} ر.س من حد {PILOT_MAX_DAILY_SAR} ر.س."
+            )
         row["status"] = "EXECUTING"
+        row["pilot_reserved_day"] = day
+        row["pilot_reserved_total_sar"] = str(approved_total)
+        row["pilot_approved_at"] = _pilot_now_iso()
         return True, row
 
     return Store().transaction(claim, "commerce_order_claim", action_id=action_id)
@@ -205,12 +285,15 @@ def execute_order(action_id: str, code: str, *, checkout_call=None) -> dict:
     receipt_total = _d((receipt or {}).get("total_sar", approved_total))
     if receipt_total > approved_total:
         raise RuntimeError("PRICE_CEILING_VIOLATION: مزود Checkout أعاد إجماليًا أعلى من السعر الموافق عليه.")
+    if receipt_total > PILOT_MAX_ORDER_SAR:
+        raise RuntimeError("PILOT_ORDER_LIMIT_EXCEEDED: مزود Checkout أعاد إجماليًا أعلى من حد الـPilot.")
     clean = {
         "order_id": order_id,
         "retailer": p["retailer"],
         "total_sar": str(receipt_total),
         "status": str((receipt or {}).get("status") or "EXECUTED"),
         "idempotency_key": p.get("idempotency_key", action_id),
+        "executed_at": _pilot_now_iso(),
     }
     payment_url = str((receipt or {}).get("payment_url") or "").strip()
     if payment_url.startswith("https://"):
@@ -219,6 +302,9 @@ def execute_order(action_id: str, code: str, *, checkout_call=None) -> dict:
     def finish(state):
         target = next(x for x in state["action_queue"] if x.get("action_id") == action_id)
         target["status"] = "EXECUTED"
+        target.pop("pilot_reserved_day", None)
+        target.pop("pilot_reserved_total_sar", None)
+        target["executed_at"] = clean["executed_at"]
         target["receipts"] = [clean]
         return True, target
 
