@@ -44,3 +44,20 @@ _install_multi_intent_runtime()
 from .capability_runtime import install as _install_capability_runtime
 
 _install_capability_runtime()
+
+# Natural Action Executor turns bounded natural-language operational requests into
+# preview -> approval -> execution -> receipt without replacing Telegram/webhook.
+from .action_runtime import install as _install_action_runtime
+
+_install_action_runtime()
+
+# Adds simple deadline/date-time language, Calendar reminders after approval,
+# and read-only project reports sent directly to the authorized Telegram chat.
+from .action_deadline_report import install as _install_action_deadline_report
+
+_install_action_deadline_report()
+
+# Explicit negation (e.g. "لا يوجد تذكير") must outrank reminder keywords.
+from .action_language_safety import install as _install_action_language_safety
+
+_install_action_language_safety()
