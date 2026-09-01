@@ -6,7 +6,8 @@ P0 goals:
 - retry transient Google Sheets writes without adding a new database/queue,
 - validate the live Sheets gateway/schema at startup,
 - keep the existing bot command/business logic unchanged,
-- keep Calendar/Telegram reminders alive while production runs in webhook mode.
+- keep Calendar/Telegram reminders alive while production runs in webhook mode,
+- optionally run the FAST-only Manager canary behind an explicit feature flag.
 """
 from __future__ import annotations
 
@@ -26,6 +27,7 @@ sys.path.insert(0, str(BASE))
 sys.path.insert(0, str(BASE / "engine"))
 
 from connectors import telegram_bot as bot
+from connectors import manager_fast_canary
 from connectors.brief_runtime import install as install_brief_runtime
 from connectors.mobile_calendar_confirm import install as install_mobile_calendar_confirm
 
@@ -212,7 +214,7 @@ def _start_calendar_alert_worker():
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "AbdulrahmanAgentWebhook/1.4"
+    server_version = "AbdulrahmanAgentWebhook/1.5"
 
     def log_message(self, fmt, *args):
         print("http:", fmt % args, flush=True)
@@ -229,11 +231,27 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/health":
             # Liveness must not depend on Google availability; Railway should not restart
             # a healthy process merely because an external API is temporarily degraded.
-            self._send_json(200, {"ok": True, "telegram_mode": "webhook", "calendar_reminders": True})
+            self._send_json(
+                200,
+                {
+                    "ok": True,
+                    "telegram_mode": "webhook",
+                    "calendar_reminders": True,
+                    "manager_fast_canary": manager_fast_canary.enabled(),
+                },
+            )
             return
         if self.path == "/ready":
             ok, detail = _probe_sheets()
-            self._send_json(200 if ok else 503, {"ok": ok, "telegram_mode": "webhook", "sheets": detail})
+            self._send_json(
+                200 if ok else 503,
+                {
+                    "ok": ok,
+                    "telegram_mode": "webhook",
+                    "sheets": detail,
+                    "manager_fast_canary": manager_fast_canary.enabled(),
+                },
+            )
             return
         self._send_json(404, {"ok": False})
 
@@ -288,6 +306,7 @@ def run():
         f"Calendar reminder worker active: heartbeat={CALENDAR_ALERT_LOOP_SECONDS}s",
         flush=True,
     )
+    manager_fast_canary.start_if_enabled()
     server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     print(f"HTTP webhook server listening on :{PORT}{WEBHOOK_PATH}", flush=True)
     server.serve_forever()

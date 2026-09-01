@@ -2,7 +2,7 @@ name: Production Model Router
 
 on:
   pull_request:
-    branches: [main, state-safety-manager-foundation, wo8-linked-multi-intent]
+    branches: [main, state-safety-manager-foundation, wo8-linked-multi-intent, feature/super-manager-v1-after-wo8]
     paths:
       - 'connectors/model_gateway.py'
       - 'connectors/direct_specialists.py'
@@ -12,6 +12,7 @@ on:
       - 'connectors/lean_missions.py'
       - 'connectors/ops_context.py'
       - 'connectors/super_manager.py'
+      - 'connectors/manager_fast_canary.py'
       - 'connectors/google_credentials.py'
       - 'connectors/calendar_actions.py'
       - 'connectors/calendar_intent.py'
@@ -36,6 +37,7 @@ on:
       - 'tests/test_lean_missions.py'
       - 'tests/test_ops_context.py'
       - 'tests/test_super_manager.py'
+      - 'tests/test_manager_fast_canary.py'
       - 'tests/test_google_context_transport.py'
       - 'tests/test_calendar_actions.py'
       - 'tests/test_calendar_webhook_reminders.py'
@@ -65,6 +67,7 @@ jobs:
           tests.test_lean_missions
           tests.test_ops_context
           tests.test_super_manager
+          tests.test_manager_fast_canary
           tests.test_google_context_transport
           tests.test_calendar_actions
           tests.test_calendar_webhook_reminders
@@ -84,6 +87,7 @@ jobs:
           connectors/lean_missions.py
           connectors/ops_context.py
           connectors/super_manager.py
+          connectors/manager_fast_canary.py
           connectors/google_credentials.py
           connectors/calendar_actions.py
           connectors/calendar_intent.py
