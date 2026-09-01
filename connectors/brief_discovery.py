@@ -9,6 +9,8 @@ import os
 import re
 from pathlib import Path
 
+from connectors.executive_signals import detect_row_signals
+
 DATA_DIR = Path(os.environ.get("AI_OS_DATA_DIR", "/tmp/abdulrahman-ai-os"))
 SNAPSHOT_FILE = DATA_DIR / "brief-sheet-snapshot.json"
 DATE_RX = re.compile(r"\b(20\d{2})[-/](\d{1,2})[-/](\d{1,2})\b")
@@ -76,6 +78,17 @@ def discover(data, today=None, persist=True):
     previous = previous_payload.get("rows", {})
     changed = [v for k, v in current.items() if k not in previous][:30]
     removed = [v for k, v in previous.items() if k not in current][:20]
+
+    # Executive signals deliberately go beyond TASK-like language. This catches durable
+    # operating constraints, logistics rules, commitments, financial boundaries,
+    # decision criteria and capability/status changes even when a row never says "مهمة".
+    executive_signals = detect_row_signals(current.values(), limit=30)
+    logistics_rules = [x for x in executive_signals if "LOGISTICS_RULE" in x.get("categories", [])][:10]
+    important_keyword_rows = _flagged(
+        current,
+        r"معلومة مهمة|فرصة|نمط متكرر|تحسين|سلامة|opportunity|important|safety",
+    )
+
     report = {
         "snapshot_previous_at": previous_payload.get("generated_at", ""),
         "snapshot_current_at": dt.datetime.now().isoformat(timespec="seconds"),
@@ -85,8 +98,16 @@ def discover(data, today=None, persist=True):
         "missing_or_incomplete": _flagged(current, r"ناقص|غير مكتمل|بدون مالك|بدون موعد|pending|missing|incomplete"),
         "blockers_and_risks": _flagged(current, r"تعثر|عائق|مخاطر|متأخر|عاجل|block|risk|overdue"),
         "decisions_required": _flagged(current, r"قرار مطلوب|يحتاج قرار|موافقة|اعتماد|decision|required approval"),
-        "important_information": _flagged(current, r"معلومة مهمة|فرصة|نمط متكرر|تحسين|سلامة|opportunity|important|safety"),
-        "stats": {"rows": len(current), "new_or_changed": len(changed), "removed_or_resolved": len(removed)},
+        "important_information": important_keyword_rows,
+        "executive_signals": executive_signals,
+        "logistics_rules": logistics_rules,
+        "stats": {
+            "rows": len(current),
+            "new_or_changed": len(changed),
+            "removed_or_resolved": len(removed),
+            "executive_signals": len(executive_signals),
+            "logistics_rules": len(logistics_rules),
+        },
     }
     if persist:
         save_snapshot(current)
