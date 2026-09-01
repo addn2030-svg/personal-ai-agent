@@ -15,6 +15,8 @@ from __future__ import annotations
 import json, os, urllib.request
 from decimal import Decimal
 
+PILOT_MAX_ORDER_SAR = Decimal("375.00")
+
 
 def _d(value) -> Decimal:
     return Decimal(str(value)).quantize(Decimal("0.01"))
@@ -39,6 +41,10 @@ def checkout(plan: dict) -> dict:
     if not idempotency_key:
         raise RuntimeError("Checkout plan is missing idempotency_key")
     max_total = _d(plan["delivered_total_sar"])
+    if max_total > PILOT_MAX_ORDER_SAR:
+        raise RuntimeError(
+            f"PILOT_ORDER_LIMIT_EXCEEDED: checkout adapter limit is {PILOT_MAX_ORDER_SAR} SAR"
+        )
     payload = {
         "secret": secret,
         "action": "checkout",
@@ -69,6 +75,8 @@ def checkout(plan: dict) -> dict:
     final_total = _d(result.get("total_sar", max_total))
     if final_total > max_total:
         raise RuntimeError("PRICE_CEILING_VIOLATION: provider total exceeds approved ceiling")
+    if final_total > PILOT_MAX_ORDER_SAR:
+        raise RuntimeError("PILOT_ORDER_LIMIT_EXCEEDED: provider total exceeds pilot ceiling")
     receipt = {
         "order_id": order_id,
         "status": str(result.get("status") or "submitted"),
