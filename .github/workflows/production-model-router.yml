@@ -21,6 +21,8 @@ on:
       - 'connectors/telegram_bot.py'
       - 'connectors/telegram_bot_legacy.py'
       - 'connectors/telegram_webhook.py'
+      - 'engine/store.py'
+      - 'engine/manager.py'
       - 'research_capsules/**'
       - 'tests/test_production_model_gateway.py'
       - 'tests/test_direct_specialists.py'
@@ -34,6 +36,7 @@ on:
       - 'tests/test_calendar_webhook_reminders.py'
       - 'tests/test_mobile_calendar_confirm.py'
       - 'tests/test_task_delegation.py'
+      - 'tests/test_state_safety_manager.py'
       - '.github/workflows/production-model-router.yml'
 
 jobs:
@@ -59,6 +62,7 @@ jobs:
           tests.test_calendar_webhook_reminders
           tests.test_mobile_calendar_confirm
           tests.test_task_delegation
+          tests.test_state_safety_manager
       - name: Compile production entrypoints
         run: >-
           python -m py_compile
@@ -78,3 +82,5 @@ jobs:
           connectors/telegram_bot.py
           connectors/telegram_bot_legacy.py
           connectors/telegram_webhook.py
+          engine/store.py
+          engine/manager.py
