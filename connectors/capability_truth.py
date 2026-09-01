@@ -18,6 +18,12 @@ _ACTION_RE = re.compile(
     re.I,
 )
 _SHEET_RE = re.compile(r"sheet|sheets|spreadsheet|google\s*sheet|شيت|شيتات|جدول|جداول", re.I)
+_SHEET_CAPABILITY_RE = re.compile(
+    r"google\s*sheets?|spreadsheet|main\s+sheet|financial\s+sheet|\bsheets?\b|"
+    r"شيت|شيتات|الشيت|الشيت\s+الرئيسي",
+    re.I,
+)
+_SHEET_URL_RE = re.compile(r"https?://(?:docs\.)?google\.com/spreadsheets/", re.I)
 _MEMORY_RE = re.compile(r"memory|remember|ذاكر[ةه]|تذكر|احفظ", re.I)
 _CAPABILITY_RE = re.compile(
     r"can\s+you|are\s+you\s+(?:able|text)|tools?|browser|open\s+(?:a\s+)?site|"
@@ -41,8 +47,9 @@ _CLINICAL_PAIN_RE = re.compile(
     re.I,
 )
 _FALSE_SHEET_DENIAL_RE = re.compile(
-    r"(?:i\s+)?(?:can\s*not|cannot|can't)\s+(?:directly\s+)?(?:write|access).*?(?:sheet|spreadsheet)|"
-    r"لا\s+أستطيع.*?(?:الكتابة|الوصول).*?(?:شيت|جدول)",
+    r"(?:i\s+)?(?:can\s*not|cannot|can't|unable\s+to)\s+(?:directly\s+)?(?:write|access|read|open).*?(?:sheet|spreadsheet)|"
+    r"no\s+(?:active\s+)?google\s+sheets\s+api\s+connection|"
+    r"لا\s+أستطيع.*?(?:الكتابة|الوصول|قراءة|فتح).*?(?:شيت|جدول)",
     re.I | re.S,
 )
 _FALSE_BLANKET_DENIAL_RE = re.compile(
@@ -96,10 +103,19 @@ def capability_related(text: str) -> bool:
     return bool(_CAPABILITY_RE.search(text or ""))
 
 
+def sheet_capability_related(text: str) -> bool:
+    return bool(_SHEET_CAPABILITY_RE.search(text or ""))
+
+
+def arbitrary_sheet_url_request(text: str) -> bool:
+    return bool(_SHEET_URL_RE.search(text or ""))
+
+
 def action_related(text: str) -> bool:
     value = text or ""
     return bool(
         capability_related(value)
+        or sheet_capability_related(value)
         or (_ACTION_RE.search(value) and (_SHEET_RE.search(value) or _MEMORY_RE.search(value)))
     )
 
@@ -166,6 +182,7 @@ def prompt_context(text: str) -> str:
         f"- Google Sheets write route available: {'YES' if cap.sheet_write_route else 'NO'}\n"
         f"- Live tab count: {cap.tab_count}\n"
         f"- Live tab names: {tabs}\n"
+        "- Google Sheets verification applies only to the configured workbook; never assume an arbitrary Sheet URL is accessible without separate verification.\n"
         f"- Google Calendar tooling implemented: {'YES' if cap.calendar_tools_implemented else 'NO'}\n"
         f"- Google Calendar live read verified: {'YES' if cap.calendar_read_verified else 'NO'}\n"
         f"- Google Calendar write route verified: {'YES' if cap.calendar_write_route else 'NO'}\n"
@@ -219,6 +236,7 @@ def capability_summary_response(text: str) -> str:
         lines = [
             "🧭 حالة القدرات الفعلية",
             f"✅ Google Sheets: {'قراءة مباشرة مؤكدة' if cap.sheet_read_verified else 'غير مؤكدة الآن'}؛ {'مسار كتابة موجود خلف الموافقة' if cap.sheet_write_route else 'لا يوجد مسار كتابة مؤكد الآن'}.",
+            "ℹ️ تحقق Google Sheets خاص بالشيت المهيأ؛ أي رابط شيت آخر يحتاج تحققًا منفصلًا.",
             f"✅ Google Calendar: {'القراءة/المسار متحقق' if cap.calendar_read_verified else 'الأداة موجودة لكن الاتصال الحي غير متحقق الآن'}؛ أي كتابة تبقى خلف المعاينة والموافقة.",
             f"✅ Telegram: {'متصل' if cap.telegram_configured else 'غير مثبت من البيئة الحالية'}؛ المحادثات تُسجل عبر المسار الحالي.",
             "✅ الذاكرة: ذاكرة محادثة تلقائية + ذاكرة دائمة بمراجعة قبل ترقية الحقائق.",
@@ -233,6 +251,7 @@ def capability_summary_response(text: str) -> str:
     lines = [
         "🧭 VERIFIED CAPABILITY STATUS",
         f"✅ Google Sheets: {'live read verified' if cap.sheet_read_verified else 'not live-verified now'}; {'write route exists behind approval' if cap.sheet_write_route else 'no verified write route now'}.",
+        "ℹ️ Google Sheets verification applies only to the configured workbook; arbitrary Sheet URLs require separate verification.",
         f"✅ Google Calendar: {'live route verified' if cap.calendar_read_verified else 'tooling exists but live connectivity is not verified now'}; writes remain preview/approval gated.",
         f"✅ Telegram: {'configured' if cap.telegram_configured else 'not proven by the current environment'}.",
         "✅ Memory: automatic conversation memory plus review-gated durable semantic memory.",
@@ -249,7 +268,11 @@ def guard_response(text: str, answer: str) -> str:
     if not action_related(text):
         return answer
     cap = snapshot()
-    if cap.sheet_read_verified and _FALSE_SHEET_DENIAL_RE.search(answer or ""):
+    if (
+        cap.sheet_read_verified
+        and not arbitrary_sheet_url_request(text)
+        and _FALSE_SHEET_DENIAL_RE.search(answer or "")
+    ):
         direct = direct_preflight_response(text)
         if direct:
             return direct
