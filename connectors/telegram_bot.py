@@ -17,6 +17,7 @@ from connectors import task_delegation as _team
 from connectors import bedrock_team as _bedrock_team
 from connectors import ops_context as _ops_context
 from connectors import super_manager as _super_manager
+from connectors import clinical_sheet_knowledge as _clinical_knowledge
 
 _legacy_run = _impl.run
 _legacy_ask_bedrock = _impl.ask_bedrock
@@ -26,7 +27,8 @@ _legacy_configure_commands = _impl.configure_commands
 _legacy_command_start = _impl.command_start
 
 _MANAGER_COMMANDS = {"/manager", "/manager_shadow", "/manager_status"}
-_TEAM_COMMANDS = {"/agents", "/bedrock_test", "/context_test", "/delegate", "/council", "/mission"} | _MANAGER_COMMANDS
+_CLINICAL_COMMANDS = {"/clinical_source_status", "/clinical_ref"}
+_TEAM_COMMANDS = {"/agents", "/bedrock_test", "/context_test", "/delegate", "/council", "/mission"} | _MANAGER_COMMANDS | _CLINICAL_COMMANDS
 
 
 def _guarded_run():
@@ -39,12 +41,26 @@ def _guarded_run():
 
 
 def _unified_ask(chat_id: int, text: str, sheet_context: str = ""):
+    sensitive = _impl._clinical_hint(text)
+    if sensitive:
+        try:
+            clinical_context = _clinical_knowledge.compact_context(text)
+            if clinical_context:
+                sheet_context = "\n\n".join(part for part in (sheet_context, clinical_context) if part)
+        except ValueError as exc:
+            sheet_context = "\n\n".join(part for part in (
+                sheet_context,
+                "CLINICAL SOURCE RETRIEVAL BLOCKED: " + str(exc) +
+                " Do not claim that the clinical workbook was consulted.",
+            ) if part)
+        except Exception as exc:
+            print(f"Clinical knowledge retrieval warning: {_models._safe_error(exc)}", flush=True)
     return _models.ask(
         chat_id,
         text,
         system_prompt=_impl.SYSTEM_PROMPT,
         sheet_context=sheet_context,
-        sensitive=_impl._clinical_hint(text),
+        sensitive=sensitive,
         bedrock_fallback=_legacy_ask_bedrock,
     )
 
@@ -98,6 +114,8 @@ def _command_start(chat_id: int):
         "/agents — حالة فريق النماذج ومساراته\n"
         "/bedrock_test — اختبار صغير لـ Claude والـLean specialist على Bedrock\n"
         "/context_test tomorrow — اختبار Calendar/Sheets بدون AI tokens\n"
+        "/clinical_source_status — فحص مرجع ConvCS السريري\n"
+        "/clinical_ref العرض أو المفهوم — بحث مرجعي آمن بلا أسماء مرضى\n"
         "/delegate auto المهمة — المدير يختار الوكيل\n"
         "/delegate claude|gpt|gemini المهمة — تكليف مباشر\n"
         "/council السؤال — مراجعة من الفريق\n"
@@ -165,6 +183,27 @@ def _command_context_test(chat_id: int, goal: str):
     _send_chunks(chat_id, "\n\n".join(lines))
 
 
+def _command_clinical_ref(chat_id: int, query: str):
+    value = (query or "").strip()
+    if not value:
+        _impl.send(chat_id, "الاستخدام: /clinical_ref العرض أو المفهوم — بدون اسم أو رقم ملف أو هاتف")
+        return
+    results = _clinical_knowledge.search(value, max_results=6)
+    if not results:
+        _impl.send(chat_id, "لم أجد تطابقًا مؤكدًا في مرجع ConvCS السريري.")
+        return
+    lines = [
+        "🩺 نتائج المرجع السريري — للمعالج فقط",
+        "تنبيه: الجذور النفسية فرضيات للتأمل وليست سببًا مثبتًا أو تشخيصًا.",
+    ]
+    for item in results:
+        lines.append(
+            f"• {item['tab']} — صف {item['row']} — {item['title']}\n"
+            f"  الاستخدام: {item['use']}"
+        )
+    _send_chunks(chat_id, "\n".join(lines))
+
+
 def _send_chunks(chat_id: int, text: str, chunk_size: int = 3500):
     value = str(text or "")
     if not value:
@@ -230,6 +269,10 @@ def _delegated_handle_message(message: dict):
             _command_bedrock_test(chat_id)
         elif command == "/context_test":
             _command_context_test(chat_id, text[len(command):].strip())
+        elif command == "/clinical_source_status":
+            _impl.send(chat_id, _clinical_knowledge.status_text())
+        elif command == "/clinical_ref":
+            _command_clinical_ref(chat_id, text[len(command):].strip())
         elif command == "/delegate":
             value = text[len(command):].strip()
             result = _team.delegate(chat_id, value, bedrock_fallback=_legacy_ask_bedrock)
@@ -264,6 +307,8 @@ def _configure_commands():
             {"command": "agents", "description": "حالة فريق النماذج ومساراته"},
             {"command": "bedrock_test", "description": "اختبار Claude والـLean specialist على Bedrock"},
             {"command": "context_test", "description": "اختبار سياق Calendar/Sheets بدون AI"},
+            {"command": "clinical_source_status", "description": "فحص مرجع ConvCS السريري"},
+            {"command": "clinical_ref", "description": "بحث آمن في المرجع السريري"},
             {"command": "delegate", "description": "تكليف وكيل أو اختيار تلقائي"},
             {"command": "council", "description": "مراجعة سؤال بواسطة فريق الذكاء"},
             {"command": "mission", "description": "مهمة مشتركة بميزانية tokens"},
