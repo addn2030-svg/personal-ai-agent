@@ -18,6 +18,15 @@ source_classes:
   MARKETING_DRAFT:
     action: "positioning inspiration only; claims require independent verification"
 known_sources:
+  - title: "ConvCS_Clinical_Master_Engine"
+    class: CLINICAL_KNOWLEDGE
+    authority: mixed_reflection_source_specialist_review_required
+    spreadsheet_id: "1vRBGlkjGuO1xPFbQs6HRXRdrhdTuttkijmfFKfR720s"
+    restrictions:
+      - "read-only retrieval"
+      - "psychological-root content is reflection-only, never diagnosis or proven etiology"
+      - "do not imply emotions caused cancer, infection, obesity, or other disease"
+      - "meditation/reframing never replace assessment or indicated care"
   - title: "personal Information CV"
     class: MARKETING_DRAFT
     authority: low_for_facts
