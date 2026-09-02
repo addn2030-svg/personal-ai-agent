@@ -19,6 +19,7 @@ Use Drive as evidence and knowledge, not as an undifferentiated memory dump.
 
 ## Tier E — Clinical knowledge
 - Clinical indexes, assessment guides, course notes and treatment materials belong only in clinical RAG. Do not turn them into personal identity facts. Clinical output remains specialist-review-required.
+- **ConvCS_Clinical_Master_Engine** (`1vRBGlkjGuO1xPFbQs6HRXRdrhdTuttkijmfFKfR720s`) is a separate, read-only governed source. `Symptoms_Psychological_Roots` is reflection-only and must never be presented as diagnosis, medical fact, or proven disease etiology. `Meditation_Protocols`, reframing, and keyword language are optional clinician-reviewed support, never replacements for red-flag screening, conventional assessment, referral, medication, or indicated treatment.
 
 ## Personal assessment gap
 No clearly identified formal DISC/MBTI/CliftonStrengths/360 leadership assessment has been found yet. Do not fabricate a personality profile. Behavioral traits inferred from repeated decisions must stay `INFERRED` until confirmed.
