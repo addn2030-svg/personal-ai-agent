@@ -103,8 +103,16 @@ def handle_chat(handler, bot) -> None:
         handler._send_json(400, {"ok": False, "error": "missing_user_id"})
         return
 
+    # connectors.telegram_bot swaps itself for the legacy module at import time
+    # (sys.modules[__name__] = _impl) after binding _unified_ask onto it as
+    # "ask_bedrock". Resolve whichever name is present on the runtime object.
+    chat_fn = getattr(bot, "_unified_ask", None) or getattr(bot, "ask_bedrock", None)
+    if not callable(chat_fn):
+        handler._send_json(500, {"ok": False, "error": "chat_pipeline_unavailable"})
+        return
+
     try:
-        answer, _usage, latency_ms, _sources = bot._unified_ask(chat_id, text)
+        answer, _usage, latency_ms, _sources = chat_fn(chat_id, text)
         handler._send_json(200, {"ok": True, "reply": str(answer), "latency_ms": latency_ms})
     except Exception as exc:  # noqa: BLE001 - external provider boundary
         print(f"bridge /chat error: {str(exc)[:300]}", flush=True)
