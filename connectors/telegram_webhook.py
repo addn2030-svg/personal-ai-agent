@@ -26,6 +26,7 @@ BASE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BASE))
 sys.path.insert(0, str(BASE / "engine"))
 
+from connectors import bridge_api
 from connectors import telegram_bot as bot
 from connectors import manager_fast_canary
 from connectors.brief_runtime import install as install_brief_runtime
@@ -256,6 +257,10 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json(404, {"ok": False})
 
     def do_POST(self):  # noqa: N802
+        if self.path == "/chat":
+            # First-party bridge API (see connectors/bridge_api.py).
+            bridge_api.handle_chat(self, bot)
+            return
         if self.path != WEBHOOK_PATH:
             self._send_json(404, {"ok": False})
             return
@@ -314,3 +319,4 @@ def run():
 
 if __name__ == "__main__":
     run()
+
