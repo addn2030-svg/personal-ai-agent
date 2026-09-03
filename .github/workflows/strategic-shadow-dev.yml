@@ -22,6 +22,8 @@ jobs:
     timeout-minutes: 20
     env:
       PYTHONPATH: ${{ github.workspace }}
+      SHADOW_BATCH_WORKERS: '4'
+      OPENROUTER_TIMEOUT_SECONDS: '60'
       STRATEGIC_SHADOW_BATCH_ENABLED: '1'
       AI_STRATEGIC_CREATOR_ENABLED: '1'
       SHADOW_CASE_DEV_WRITE_ENABLED: '1'
