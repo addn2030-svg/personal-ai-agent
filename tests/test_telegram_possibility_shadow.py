@@ -28,9 +28,9 @@ class TelegramPossibilityShadowTests(unittest.TestCase):
         ), patch.object(
             bot, "send"
         ) as send, patch.object(
-            bot._strategic_shadow, "generate_preview"
+            "connectors.strategic_shadow_generator.generate_preview"
         ) as generate, patch.object(
-            bot._strategic_shadow.possibility_sheet_shadow, "append_proposal"
+            "connectors.possibility_sheet_shadow.append_proposal"
         ) as append:
             bot.handle_message(message)
 
@@ -57,14 +57,14 @@ class TelegramPossibilityShadowTests(unittest.TestCase):
         ), patch.object(
             bot, "send"
         ) as send, patch.object(
-            bot._super_manager, "build_context", return_value=context
+            "connectors.super_manager.build_context", return_value=context
         ), patch.object(
-            bot._strategic_shadow, "generate_preview", return_value=preview
+            "connectors.strategic_shadow_generator.generate_preview", return_value=preview
         ) as generate, patch.object(
-            bot._strategic_shadow, "preview_text",
+            "connectors.strategic_shadow_generator.preview_text",
             return_value="STRATEGIC SHADOW PREVIEW — NOT WRITTEN",
         ), patch.object(
-            bot._strategic_shadow.possibility_sheet_shadow, "append_proposal"
+            "connectors.possibility_sheet_shadow.append_proposal"
         ) as append:
             bot.handle_message(message)
 
