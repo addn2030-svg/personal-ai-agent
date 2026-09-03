@@ -37,9 +37,10 @@ class StrategicCreatorTests(unittest.TestCase):
         )
         first = item.to_row()
         second = item.to_row()
-        self.assertEqual(first["possibility_id"], second["possibility_id"])
-        self.assertEqual(first["status"], "PROPOSED")
-        self.assertEqual(first["user_approval"], "REQUIRED")
+        self.assertEqual(first["Possibility_ID"], second["Possibility_ID"])
+        self.assertEqual(first["Status"], "PROPOSED")
+        self.assertEqual(first["User_Approval"], "REQUIRED")
+        self.assertEqual(tuple(first), sc.SHEET_COLUMNS)
 
     def test_invalid_or_executable_state_is_rejected(self):
         item = sc.PossibilityProposal(
