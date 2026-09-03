@@ -209,9 +209,6 @@ def _command_start(chat_id: int):
         "/manager الطلب — رئيس الأركان: يربط، يكشف النقص، يوصي\n"
         "/manager_shadow الطلب — مقارنة Legacy مع Super Manager بلا أثر خارجي\n"
         "/manager_status — حالة طبقة المدير\n"
-        "/possibility_shadow القرار — معاينة احتمال تجريبي دون كتابة\n"
-        "/possibility_compare القرار — مقارنة المدير والمعاينة دون حفظ\n"
-        "/shadow_acceptance_status — حالة بوابات قبول Shadow دون حفظ\n"
         "/agents — حالة فريق النماذج ومساراته\n"
         "/bedrock_test — اختبار صغير لـ Claude والـLean specialist على Bedrock\n"
         "/context_test tomorrow — اختبار Calendar/Sheets بدون AI tokens\n"
@@ -221,6 +218,14 @@ def _command_start(chat_id: int):
         "/mission [lean|standard|deep] الهدف — مهمة بميزانية tokens\n"
         "أي أثر خارجي يبقى خلف الاقتراح/المعاينة/الموافقة/التنفيذ.",
     )
+    if _strategic_creator.enabled():
+        _impl.send(
+            chat_id,
+            "\n🧪 Strategic Shadow (test only)\n"
+            "/possibility_shadow القرار — معاينة احتمال دون كتابة\n"
+            "/possibility_compare القرار — مقارنة المدير والمعاينة دون حفظ\n"
+            "/shadow_acceptance_status — حالة بوابات القبول دون حفظ",
+        )
 
 
 def _format_delegate(result: _team.AgentResult) -> str:
@@ -392,9 +397,6 @@ def _configure_commands():
             {"command": "manager", "description": "رئيس الأركان: تحليل وربط وتوصية"},
             {"command": "manager_shadow", "description": "قارن Legacy وSuper Manager بلا تنفيذ"},
             {"command": "manager_status", "description": "حالة Super Manager"},
-            {"command": "possibility_shadow", "description": "معاينة احتمال دون كتابة"},
-            {"command": "possibility_compare", "description": "مقارنة المدير والمعاينة دون حفظ"},
-            {"command": "shadow_acceptance_status", "description": "حالة قبول Shadow دون حفظ"},
             {"command": "agents", "description": "حالة فريق النماذج ومساراته"},
             {"command": "bedrock_test", "description": "اختبار Claude والـLean specialist على Bedrock"},
             {"command": "context_test", "description": "اختبار سياق Calendar/Sheets بدون AI"},
@@ -402,6 +404,12 @@ def _configure_commands():
             {"command": "council", "description": "مراجعة سؤال بواسطة فريق الذكاء"},
             {"command": "mission", "description": "مهمة مشتركة بميزانية tokens"},
         ]
+        if _strategic_creator.enabled():
+            additions.extend([
+                {"command": "possibility_shadow", "description": "معاينة احتمال دون كتابة"},
+                {"command": "possibility_compare", "description": "مقارنة المدير والمعاينة دون حفظ"},
+                {"command": "shadow_acceptance_status", "description": "حالة قبول Shadow دون حفظ"},
+            ])
         commands.extend(item for item in additions if item["command"] not in existing)
         _impl.api("setMyCommands", {"commands": json.dumps(commands, ensure_ascii=False)})
     except Exception as exc:
