@@ -165,7 +165,7 @@ def _command_possibility_compare(chat_id: int, objective: str):
         "===== STRATEGIC PREVIEW =====\n"
         f"{_strategic_shadow.preview_text(preview)}"
     )
-    _send_chunks(chat_id, comparison)
+    _send_chunks(chat_id, output_chunks)
 
 
 def _command_start(chat_id: int):
