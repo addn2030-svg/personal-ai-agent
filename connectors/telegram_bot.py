@@ -17,6 +17,8 @@ from connectors import task_delegation as _team
 from connectors import bedrock_team as _bedrock_team
 from connectors import ops_context as _ops_context
 from connectors import super_manager as _super_manager
+from connectors import strategic_creator as _strategic_creator
+from connectors import strategic_shadow_generator as _strategic_shadow
 
 _legacy_run = _impl.run
 _legacy_ask_bedrock = _impl.ask_bedrock
@@ -25,7 +27,7 @@ _legacy_handle_message = _impl.handle_message
 _legacy_configure_commands = _impl.configure_commands
 _legacy_command_start = _impl.command_start
 
-_MANAGER_COMMANDS = {"/manager", "/manager_shadow", "/manager_status"}
+_MANAGER_COMMANDS = {"/manager", "/manager_shadow", "/manager_status", "/possibility_shadow"}
 _TEAM_COMMANDS = {"/agents", "/bedrock_test", "/context_test", "/delegate", "/council", "/mission"} | _MANAGER_COMMANDS
 
 
@@ -87,6 +89,33 @@ def _command_ai_status(chat_id: int):
     _impl.send(chat_id, "\n".join(lines))
 
 
+def _command_possibility_shadow(chat_id: int, objective: str):
+    """Generate a read-only strategic preview. This command has no write path."""
+    goal = (objective or "").strip()
+    if not _strategic_creator.enabled():
+        _impl.send(
+            chat_id,
+            "🧪 Possibility Shadow غير مفعّل. لم يتم استدعاء أي نموذج أو كتابة أي بيانات.",
+        )
+        return
+    if not goal:
+        raise ValueError("اكتب القرار بعد /possibility_shadow")
+
+    context = _super_manager.build_context(goal)
+
+    def generate(prompt: str) -> str:
+        answer, _provider, _model, _usage = _super_manager.lean._bedrock_manager(
+            prompt,
+            max_tokens=700,
+            chat_id=chat_id,
+            bedrock_fallback=_legacy_ask_bedrock,
+        )
+        return answer
+
+    preview = _strategic_shadow.generate_preview(goal, context.text, generate)
+    _send_chunks(chat_id, _strategic_shadow.preview_text(preview))
+
+
 def _command_start(chat_id: int):
     _legacy_command_start(chat_id)
     _impl.send(
@@ -95,6 +124,7 @@ def _command_start(chat_id: int):
         "/manager الطلب — رئيس الأركان: يربط، يكشف النقص، يوصي\n"
         "/manager_shadow الطلب — مقارنة Legacy مع Super Manager بلا أثر خارجي\n"
         "/manager_status — حالة طبقة المدير\n"
+        "/possibility_shadow القرار — معاينة احتمال تجريبي دون كتابة\n"
         "/agents — حالة فريق النماذج ومساراته\n"
         "/bedrock_test — اختبار صغير لـ Claude والـLean specialist على Bedrock\n"
         "/context_test tomorrow — اختبار Calendar/Sheets بدون AI tokens\n"
@@ -223,6 +253,8 @@ def _delegated_handle_message(message: dict):
             _send_chunks(chat_id, answer)
         elif command == "/manager_status":
             _impl.send(chat_id, _super_manager.status_text())
+        elif command == "/possibility_shadow":
+            _command_possibility_shadow(chat_id, text[len(command):].strip())
         elif command == "/agents":
             answer = _team.agents_status_text()
             _impl.send(chat_id, answer)
@@ -261,6 +293,7 @@ def _configure_commands():
             {"command": "manager", "description": "رئيس الأركان: تحليل وربط وتوصية"},
             {"command": "manager_shadow", "description": "قارن Legacy وSuper Manager بلا تنفيذ"},
             {"command": "manager_status", "description": "حالة Super Manager"},
+            {"command": "possibility_shadow", "description": "معاينة احتمال دون كتابة"},
             {"command": "agents", "description": "حالة فريق النماذج ومساراته"},
             {"command": "bedrock_test", "description": "اختبار Claude والـLean specialist على Bedrock"},
             {"command": "context_test", "description": "اختبار سياق Calendar/Sheets بدون AI"},
