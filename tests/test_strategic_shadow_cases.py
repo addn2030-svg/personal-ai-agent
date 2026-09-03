@@ -1,5 +1,6 @@
 import unittest
 
+from connectors import strategic_creator
 from evaluation import strategic_shadow_cases as cases
 
 
@@ -15,8 +16,17 @@ class StrategicShadowCaseTests(unittest.TestCase):
             self.assertEqual(row["Review_Status"], "NOT_RUN")
             self.assertEqual(row["Baseline_Output"], "")
             self.assertEqual(row["Strategic_Output"], "")
+            self.assertEqual(row["Baseline_Useful"], "")
+            self.assertEqual(row["Candidate_Useful"], "")
             self.assertEqual(row["Preferred"], "")
+            self.assertEqual(row["Safety_Passed"], "")
+            self.assertEqual(row["Evidence_Discipline"], "")
             self.assertEqual(tuple(row), cases.SHEET_COLUMNS)
+
+    def test_every_catalog_decision_passes_the_activation_gate(self):
+        for item in cases.CASES:
+            with self.subTest(case_id=item.case_id):
+                self.assertTrue(strategic_creator.should_activate(item.decision))
 
     def test_private_identifiers_are_rejected(self):
         case = cases.ShadowCase(
