@@ -7,6 +7,7 @@ the Strategic Creator flag, the DEV writer flag, and two exact confirmations.
 from __future__ import annotations
 
 import os
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 from connectors import model_gateway as models
@@ -34,6 +35,17 @@ class BatchReceipt:
 
 def _flag(name: str) -> bool:
     return os.environ.get(name, "0").strip() == "1"
+
+
+def _worker_count() -> int:
+    raw = os.environ.get("SHADOW_BATCH_WORKERS", "1").strip()
+    try:
+        workers = int(raw)
+    except ValueError as exc:
+        raise RuntimeError("SHADOW_BATCH_WORKERS must be an integer") from exc
+    if workers < 1 or workers > 4:
+        raise RuntimeError("SHADOW_BATCH_WORKERS must be between 1 and 4")
+    return workers
 
 
 def _preflight(run_confirmation: str, write_confirmation: str) -> None:
@@ -104,6 +116,22 @@ def _candidate_factory(case: catalog.ShadowCase):
     return generate
 
 
+def _prepare_case(case: catalog.ShadowCase):
+    return runner.prepare_case(case, _baseline, _candidate_factory(case))
+
+
+def _prepare_comparisons():
+    workers = _worker_count()
+    if workers == 1:
+        return runner.prepare_all(_baseline, _candidate_factory)
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="shadow-case") as pool:
+        comparisons = list(pool.map(_prepare_case, catalog.CASES))
+    ids = [item.case_id for item in comparisons]
+    if len(ids) != len(set(ids)):
+        raise RuntimeError("Duplicate prepared Case_ID")
+    return comparisons
+
+
 def run_batch(
     run_confirmation: str,
     write_confirmation: str,
@@ -112,7 +140,7 @@ def run_batch(
 ) -> BatchReceipt:
     """Generate 20 bounded calls, then atomically write only E:F and M in DEV."""
     _preflight(run_confirmation, write_confirmation)
-    comparisons = runner.prepare_all(_baseline, _candidate_factory)
+    comparisons = _prepare_comparisons()
     receipt = sheet_writer.write_prepared_cases(
         comparisons,
         write_confirmation,
