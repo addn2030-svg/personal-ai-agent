@@ -27,7 +27,8 @@ _legacy_handle_message = _impl.handle_message
 _legacy_configure_commands = _impl.configure_commands
 _legacy_command_start = _impl.command_start
 
-_MANAGER_COMMANDS = {"/manager", "/manager_shadow", "/manager_status", "/possibility_shadow"}
+_MANAGER_COMMANDS = {"/manager", "/manager_shadow", "/manager_status", "/possibility_shadow", "/possibility_compare"}
+_NO_PERSIST_COMMANDS = {"/possibility_shadow", "/possibility_compare"}
 _TEAM_COMMANDS = {"/agents", "/bedrock_test", "/context_test", "/delegate", "/council", "/mission"} | _MANAGER_COMMANDS
 
 
@@ -116,6 +117,57 @@ def _command_possibility_shadow(chat_id: int, objective: str):
     _send_chunks(chat_id, _strategic_shadow.preview_text(preview))
 
 
+def _command_possibility_compare(chat_id: int, objective: str):
+    """Compare baseline reasoning with a strategic preview; persist neither."""
+    goal = (objective or "").strip()
+    if not _strategic_creator.enabled():
+        _impl.send(
+            chat_id,
+            "🧪 Possibility Compare غير مفعّل. لم يتم استدعاء أي نموذج أو حفظ بيانات.",
+        )
+        return
+    if not goal:
+        raise ValueError("اكتب القرار بعد /possibility_compare")
+
+    context = _super_manager.build_context(goal)
+    baseline_prompt = _super_manager.build_prompt(
+        goal, context, include_strategic=False
+    )
+
+    baseline, baseline_provider, baseline_model, _usage = (
+        _super_manager.lean._bedrock_manager(
+            baseline_prompt,
+            max_tokens=700,
+            chat_id=chat_id,
+            bedrock_fallback=_legacy_ask_bedrock,
+        )
+    )
+
+    def generate(prompt: str) -> str:
+        answer, _provider, _model, _candidate_usage = (
+            _super_manager.lean._bedrock_manager(
+                prompt,
+                max_tokens=700,
+                chat_id=chat_id,
+                bedrock_fallback=_legacy_ask_bedrock,
+            )
+        )
+        return answer
+
+    preview = _strategic_shadow.generate_preview(goal, context.text, generate)
+    source_text = "+".join(context.sources) if context.sources else "none"
+    output_chunks = (
+        "🧪 POSSIBILITY COMPARE — READ ONLY / NOT SAVED\n"
+        f"Context: {source_text}\n\n"
+        "===== CURRENT MANAGER =====\n"
+        f"Route: {baseline_provider}:{baseline_model}\n"
+        f"{baseline}\n\n"
+        "===== STRATEGIC PREVIEW =====\n"
+        f"{_strategic_shadow.preview_text(preview)}"
+    )
+    _send_chunks(chat_id, comparison)
+
+
 def _command_start(chat_id: int):
     _legacy_command_start(chat_id)
     _impl.send(
@@ -125,6 +177,7 @@ def _command_start(chat_id: int):
         "/manager_shadow الطلب — مقارنة Legacy مع Super Manager بلا أثر خارجي\n"
         "/manager_status — حالة طبقة المدير\n"
         "/possibility_shadow القرار — معاينة احتمال تجريبي دون كتابة\n"
+        "/possibility_compare القرار — مقارنة المدير والمعاينة دون حفظ\n"
         "/agents — حالة فريق النماذج ومساراته\n"
         "/bedrock_test — اختبار صغير لـ Claude والـLean specialist على Bedrock\n"
         "/context_test tomorrow — اختبار Calendar/Sheets بدون AI tokens\n"
@@ -232,7 +285,12 @@ def _delegated_handle_message(message: dict):
         return
 
     text, kind, attachment = _impl._message_payload(message)
-    iid = _impl._local_capture(text, message, kind)
+    no_persist = command in _NO_PERSIST_COMMANDS
+    iid = (
+        f"SHADOW-{chat_id}-{message.get('message_id', '')}"
+        if no_persist
+        else _impl._local_capture(text, message, kind)
+    )
     if kind != "TEXT":
         _impl.send(chat_id, "استخدم أوامر الفريق/المدير كنص. الصوت يبقى في مسار التفريغ الحالي.")
         _impl._save_intake(iid, message, text, kind, attachment, "ERROR", error="TEAM_COMMAND_TEXT_ONLY")
@@ -255,6 +313,8 @@ def _delegated_handle_message(message: dict):
             _impl.send(chat_id, _super_manager.status_text())
         elif command == "/possibility_shadow":
             _command_possibility_shadow(chat_id, text[len(command):].strip())
+        elif command == "/possibility_compare":
+            _command_possibility_compare(chat_id, text[len(command):].strip())
         elif command == "/agents":
             answer = _team.agents_status_text()
             _impl.send(chat_id, answer)
@@ -274,14 +334,17 @@ def _delegated_handle_message(message: dict):
             objective = text[len(command):].strip()
             answer = _team.mission(chat_id, objective, bedrock_fallback=_legacy_ask_bedrock)
             _send_chunks(chat_id, answer)
-        _impl._save_intake(iid, message, text, kind, attachment, "COMPLETED")
+        if not no_persist:
+            _impl._save_intake(iid, message, text, kind, attachment, "COMPLETED")
     except ValueError as exc:
         _impl.send(chat_id, "❌ " + str(exc))
-        _impl._save_intake(iid, message, text, kind, attachment, "ERROR", error=exc)
+        if not no_persist:
+            _impl._save_intake(iid, message, text, kind, attachment, "ERROR", error=exc)
     except Exception as exc:
         safe = _models._safe_error(exc)
         _impl.send(chat_id, "❌ تعذر تنفيذ مهمة الوكيل: " + safe)
-        _impl._save_intake(iid, message, text, kind, attachment, "ERROR", error=safe)
+        if not no_persist:
+            _impl._save_intake(iid, message, text, kind, attachment, "ERROR", error=safe)
 
 
 def _configure_commands():
@@ -294,6 +357,7 @@ def _configure_commands():
             {"command": "manager_shadow", "description": "قارن Legacy وSuper Manager بلا تنفيذ"},
             {"command": "manager_status", "description": "حالة Super Manager"},
             {"command": "possibility_shadow", "description": "معاينة احتمال دون كتابة"},
+            {"command": "possibility_compare", "description": "مقارنة المدير والمعاينة دون حفظ"},
             {"command": "agents", "description": "حالة فريق النماذج ومساراته"},
             {"command": "bedrock_test", "description": "اختبار Claude والـLean specialist على Bedrock"},
             {"command": "context_test", "description": "اختبار سياق Calendar/Sheets بدون AI"},
