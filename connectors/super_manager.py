@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from connectors import lean_missions as lean
 from connectors import model_gateway as models
 from connectors import ops_context
+from connectors import strategic_creator
 from connectors import task_delegation as base
 
 VERSION = "v1.1"
@@ -200,8 +201,15 @@ def build_context(goal: str) -> ManagerContext:
 
 def build_prompt(goal: str, context: ManagerContext) -> str:
     evidence = context.text or "NO_OPERATIONAL_CONTEXT_AVAILABLE"
+    strategic_overlay = strategic_creator.build_overlay(goal)
+    strategic_section = (
+        "\n\n" + strategic_overlay
+        if strategic_overlay
+        else ""
+    )
     return (
         THINKING_CONTRACT
+        + strategic_section
         + "\n\nUSER_REQUEST:\n" + goal.strip()
         + "\n\nSUPPLIED_EVIDENCE:\n" + evidence
         + "\n\n" + OUTPUT_CONTRACT
