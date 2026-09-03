@@ -24,7 +24,8 @@ SHEET_COLUMNS = (
 
 _DECISION_RE = re.compile(
     r"\b(decide|decision|choose|option|alternative|compare|should we|trade.?off)\b|"
-    r"قرار|اختر|اختيار|خيار|بديل|قارن|مفاضلة|هل\s+(?:أفعل|ننفذ|نبدأ|نختار)",
+    r"قرار|اختر|اختيار|خيار|بديل|قارن|مفاضلة|هل\s+(?:أفعل|ننفذ|نبدأ|نختار)|"
+    r"هل\s+[^\n]{1,180}?\s+أم\s+",
     re.I,
 )
 _LOW_STAKES_RE = re.compile(
