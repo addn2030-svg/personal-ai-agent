@@ -15,6 +15,13 @@ from datetime import date
 VERSION = "v1.0-shadow"
 _FLAG = "AI_STRATEGIC_CREATOR_ENABLED"
 
+SHEET_COLUMNS = (
+    "Possibility_ID", "Created_Date", "Domain", "Source", "Trigger",
+    "Hypothesis", "Micro_Experiment", "Cost_SAR", "Time_Hours",
+    "Confidence", "Risk_Level", "Success_Metric", "Review_Date",
+    "Stop_Condition", "Status", "User_Approval",
+)
+
 _DECISION_RE = re.compile(
     r"\b(decide|decision|choose|option|alternative|compare|should we|trade.?off)\b|"
     r"قرار|اختر|اختيار|خيار|بديل|قارن|مفاضلة|هل\s+(?:أفعل|ننفذ|نبدأ|نختار)",
@@ -85,12 +92,29 @@ class PossibilityProposal:
             str(payload[key]).strip().lower()
             for key in ("domain", "trigger", "hypothesis", "micro_experiment")
         )
-        payload["possibility_id"] = "P-" + hashlib.sha256(
-            fingerprint.encode("utf-8")
-        ).hexdigest()[:10].upper()
-        payload["created_date"] = date.today().isoformat()
-        payload["risk_level"] = self.risk_level.upper()
-        return payload
+        canonical = {
+            "Possibility_ID": "P-" + hashlib.sha256(
+                fingerprint.encode("utf-8")
+            ).hexdigest()[:10].upper(),
+            "Created_Date": date.today().isoformat(),
+            "Domain": self.domain,
+            "Source": self.source,
+            "Trigger": self.trigger,
+            "Hypothesis": self.hypothesis,
+            "Micro_Experiment": self.micro_experiment,
+            "Cost_SAR": float(self.cost_sar),
+            "Time_Hours": float(self.time_hours),
+            "Confidence": int(self.confidence),
+            "Risk_Level": self.risk_level.upper(),
+            "Success_Metric": self.success_metric,
+            "Review_Date": self.review_date,
+            "Stop_Condition": self.stop_condition,
+            "Status": self.status,
+            "User_Approval": self.user_approval,
+        }
+        if tuple(canonical) != SHEET_COLUMNS:
+            raise RuntimeError("Possibility Stack schema drift detected")
+        return canonical
 
 
 def enabled() -> bool:
