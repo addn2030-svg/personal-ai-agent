@@ -144,5 +144,19 @@ class SuperManagerTests(unittest.TestCase):
         self.assertEqual(manager.call_args.args[1], "رتب أولوياتي")
 
 
+    def test_strategic_overlay_is_absent_by_default_and_conditional_when_enabled(self):
+        context = sm.ManagerContext(text="STATE decisions | القرار=launch", sources=("state",))
+        with patch.dict("os.environ", {}, clear=True):
+            ordinary = sm.build_prompt("أعطني الحالة", context)
+        self.assertNotIn("STRATEGIC CREATOR — SHADOW RULES", ordinary)
+
+        with patch.dict(
+            "os.environ", {"AI_STRATEGIC_CREATOR_ENABLED": "1"}, clear=True
+        ):
+            decision = sm.build_prompt("قارن بين الإطلاق والتأجيل", context)
+        self.assertIn("STRATEGIC CREATOR — SHADOW RULES", decision)
+        self.assertIn("EXPERIMENT", decision)
+
+
 if __name__ == "__main__":
     unittest.main()
