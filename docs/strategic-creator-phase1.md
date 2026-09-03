@@ -38,3 +38,24 @@ after exact workbook/tab grounding and explicit approval.
 - Draft PR review confirms no import/startup path can activate the layer.
 - Shadow comparison is run with synthetic, non-sensitive examples.
 - No environment variable is added to Railway.
+
+
+## Shadow Generator and DEV adapter
+
+The generator is deliberately disconnected from Telegram and Railway startup.
+It accepts an injected model callback, validates one strict JSON object, and
+returns a `NOT_WRITTEN` preview. It rejects private identifiers and schema drift.
+
+DEV persistence requires all of the following:
+
+- `AI_STRATEGIC_CREATOR_ENABLED=1`
+- `POSSIBILITY_DEV_WRITE_ENABLED=1`
+- `POSSIBILITY_DEV_SHEET_ID` set to a workbook whose title starts with
+  `DEV — Personal AI Agent`
+- target tab exactly `Possibility_Stack_DEV`
+- target ID must differ from `GOOGLE_SHEET_ID`
+- exact confirmation token `WRITE_TO_DEV_SHADOW`
+- proposal state `PROPOSED` and approval state `REQUIRED`
+- canonical header readback and post-append receipt verification
+
+No variables are configured and no runtime integration is added by this PR.
