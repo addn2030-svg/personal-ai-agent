@@ -7,10 +7,6 @@ on:
         description: 'Type RUN_10_DEV_SHADOW_CASES'
         required: true
         type: string
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/strategic-shadow-dev.yml'
 
 permissions:
   contents: read
@@ -21,7 +17,7 @@ concurrency:
 
 jobs:
   run-dev-shadow:
-    if: ${{ github.event_name == 'push' || inputs.confirmation == 'RUN_10_DEV_SHADOW_CASES' }}
+    if: ${{ inputs.confirmation == 'RUN_10_DEV_SHADOW_CASES' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -47,6 +43,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          test "${{ inputs.confirmation }}" = "RUN_10_DEV_SHADOW_CASES"
           test "${POSSIBILITY_DEV_SHEET_ID}" != "${GOOGLE_SHEET_ID}"
           test -n "${OPENROUTER_API_KEY}"
           test -n "${GOOGLE_SERVICE_ACCOUNT_JSON}"
