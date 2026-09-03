@@ -1,0 +1,66 @@
+name: Strategic Shadow DEV Batch
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Type RUN_10_DEV_SHADOW_CASES'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: strategic-shadow-dev-batch
+  cancel-in-progress: false
+
+jobs:
+  run-dev-shadow:
+    if: ${{ inputs.confirmation == 'RUN_10_DEV_SHADOW_CASES' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      STRATEGIC_SHADOW_BATCH_ENABLED: '1'
+      AI_STRATEGIC_CREATOR_ENABLED: '1'
+      SHADOW_CASE_DEV_WRITE_ENABLED: '1'
+      AI_OS_ALLOW_POLLING: '0'
+      POSSIBILITY_DEV_WRITE_ENABLED: '0'
+      SHADOW_ACCEPTANCE_DEV_WRITE_ENABLED: '0'
+      POSSIBILITY_DEV_SHEET_ID: '1Q0CU8mZ_b7P8w3U8PgHo2HeZ32T2FTV1nGqZvHb4pSM'
+      GOOGLE_SHEET_ID: '1ZXmC_3_OTYYtXglNMXRQiSWu2rjDDIzoqaK0SQuWcWc'
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+
+    steps:
+      - name: Checkout isolated development branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/strategic-creator-shadow-v1
+          persist-credentials: false
+
+      - name: Verify isolation and required secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${{ inputs.confirmation }}" = "RUN_10_DEV_SHADOW_CASES"
+          test "${POSSIBILITY_DEV_SHEET_ID}" != "${GOOGLE_SHEET_ID}"
+          test -n "${OPENROUTER_API_KEY}"
+          test -n "${GOOGLE_SERVICE_ACCOUNT_JSON}"
+          test "${AI_OS_ALLOW_POLLING}" = "0"
+          test "${POSSIBILITY_DEV_WRITE_ENABLED}" = "0"
+          test "${SHADOW_ACCEPTANCE_DEV_WRITE_ENABLED}" = "0"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Run fixed ten-case DEV batch
+        run: >-
+          python scripts/run_strategic_shadow_batch.py
+          --confirm-run RUN_10_DEV_SHADOW_CASES
+          --confirm-write WRITE_PREPARED_SHADOW_CASES
