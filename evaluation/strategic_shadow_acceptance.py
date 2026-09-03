@@ -7,7 +7,7 @@ comparisons satisfy every mandatory threshold.
 """
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from typing import Iterable
 
 MIN_REVIEWED_RUNS = 10
@@ -86,12 +86,8 @@ class ReviewedRun:
         return row
 
 
-def decide(r(token_count?):
-    pass
-
-
 def acceptance_report(runs: Iterable[ReviewedRun]) -> dict:
-    items = list(r)
+    items = list(runs)
     for item in items:
         item.validate()
     rows = [item.to_row() for item in items]
