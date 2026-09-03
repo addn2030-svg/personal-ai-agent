@@ -19,6 +19,7 @@ from connectors import ops_context as _ops_context
 from connectors import super_manager as _super_manager
 from connectors import strategic_creator as _strategic_creator
 from connectors import strategic_shadow_generator as _strategic_shadow
+from connectors import shadow_acceptance_sheet as _shadow_acceptance
 
 _legacy_run = _impl.run
 _legacy_ask_bedrock = _impl.ask_bedrock
@@ -27,8 +28,8 @@ _legacy_handle_message = _impl.handle_message
 _legacy_configure_commands = _impl.configure_commands
 _legacy_command_start = _impl.command_start
 
-_MANAGER_COMMANDS = {"/manager", "/manager_shadow", "/manager_status", "/possibility_shadow", "/possibility_compare"}
-_NO_PERSIST_COMMANDS = {"/possibility_shadow", "/possibility_compare"}
+_MANAGER_COMMANDS = {"/manager", "/manager_shadow", "/manager_status", "/possibility_shadow", "/possibility_compare", "/shadow_acceptance_status"}
+_NO_PERSIST_COMMANDS = {"/possibility_shadow", "/possibility_compare", "/shadow_acceptance_status"}
 _TEAM_COMMANDS = {"/agents", "/bedrock_test", "/context_test", "/delegate", "/council", "/mission"} | _MANAGER_COMMANDS
 
 
@@ -117,6 +118,38 @@ def _command_possibility_shadow(chat_id: int, objective: str):
     _send_chunks(chat_id, _strategic_shadow.preview_text(preview))
 
 
+def _command_shadow_acceptance_status(chat_id: int):
+    """Read the DEV-only human review gate. No operational write is possible."""
+    if not _strategic_creator.enabled():
+        _impl.send(
+            chat_id,
+            "🧪 Shadow Acceptance غير مفعّل. لم تتم قراءة أو حفظ أي بيانات.",
+        )
+        return
+    report = _shadow_acceptance.read_acceptance_report()
+    gates = report.get("gates") or {}
+    gate_lines = [
+        f"{'✅' if passed else '❌'} {name}"
+        for name, passed in gates.items()
+    ]
+    domains = ", ".join(report.get("domains") or []) or "none"
+    lines = [
+        "🧪 SHADOW ACCEPTANCE STATUS — READ ONLY / NOT SAVED",
+        f"Decision: {report.get('decision', 'UNKNOWN')}",
+        f"Human-reviewed runs: {report.get('reviewed_runs', 0)}/10",
+        f"Domains: {domains}",
+        f"Unsafe runs: {report.get('unsafe_runs', 0)}",
+        f"Schema failures: {report.get('schema_failures', 0)}",
+        f"Candidate preferred: {100 * float(report.get('candidate_preferred_rate', 0)):.0f}%",
+        f"Candidate not worse: {100 * float(report.get('candidate_not_worse_rate', 0)):.0f}%",
+        "Gates:",
+        *gate_lines,
+        "Automatic activation: NO",
+        "Automatic merge: NO",
+    ]
+    _send_chunks(chat_id, "\n".join(lines))
+
+
 def _command_possibility_compare(chat_id: int, objective: str):
     """Compare baseline reasoning with a strategic preview; persist neither."""
     goal = (objective or "").strip()
@@ -178,6 +211,7 @@ def _command_start(chat_id: int):
         "/manager_status — حالة طبقة المدير\n"
         "/possibility_shadow القرار — معاينة احتمال تجريبي دون كتابة\n"
         "/possibility_compare القرار — مقارنة المدير والمعاينة دون حفظ\n"
+        "/shadow_acceptance_status — حالة بوابات قبول Shadow دون حفظ\n"
         "/agents — حالة فريق النماذج ومساراته\n"
         "/bedrock_test — اختبار صغير لـ Claude والـLean specialist على Bedrock\n"
         "/context_test tomorrow — اختبار Calendar/Sheets بدون AI tokens\n"
@@ -315,6 +349,8 @@ def _delegated_handle_message(message: dict):
             _command_possibility_shadow(chat_id, text[len(command):].strip())
         elif command == "/possibility_compare":
             _command_possibility_compare(chat_id, text[len(command):].strip())
+        elif command == "/shadow_acceptance_status":
+            _command_shadow_acceptance_status(chat_id)
         elif command == "/agents":
             answer = _team.agents_status_text()
             _impl.send(chat_id, answer)
@@ -358,6 +394,7 @@ def _configure_commands():
             {"command": "manager_status", "description": "حالة Super Manager"},
             {"command": "possibility_shadow", "description": "معاينة احتمال دون كتابة"},
             {"command": "possibility_compare", "description": "مقارنة المدير والمعاينة دون حفظ"},
+            {"command": "shadow_acceptance_status", "description": "حالة قبول Shadow دون حفظ"},
             {"command": "agents", "description": "حالة فريق النماذج ومساراته"},
             {"command": "bedrock_test", "description": "اختبار Claude والـLean specialist على Bedrock"},
             {"command": "context_test", "description": "اختبار سياق Calendar/Sheets بدون AI"},
