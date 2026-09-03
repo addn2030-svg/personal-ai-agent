@@ -199,9 +199,18 @@ def build_context(goal: str) -> ManagerContext:
     )
 
 
-def build_prompt(goal: str, context: ManagerContext) -> str:
+def build_prompt(
+    goal: str,
+    context: ManagerContext,
+    *,
+    include_strategic: bool = True,
+) -> str:
     evidence = context.text or "NO_OPERATIONAL_CONTEXT_AVAILABLE"
-    strategic_overlay = strategic_creator.build_overlay(goal)
+    strategic_overlay = (
+        strategic_creator.build_overlay(goal)
+        if include_strategic
+        else ""
+    )
     strategic_section = (
         "\n\n" + strategic_overlay
         if strategic_overlay
