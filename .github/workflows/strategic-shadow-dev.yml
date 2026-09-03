@@ -21,6 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
+      PYTHONPATH: ${{ github.workspace }}
       STRATEGIC_SHADOW_BATCH_ENABLED: '1'
       AI_STRATEGIC_CREATOR_ENABLED: '1'
       SHADOW_CASE_DEV_WRITE_ENABLED: '1'
@@ -42,14 +43,40 @@ jobs:
       - name: Verify isolation and required secrets
         shell: bash
         run: |
-          set -euo pipefail
-          test "${{ inputs.confirmation }}" = "RUN_10_DEV_SHADOW_CASES"
-          test "${POSSIBILITY_DEV_SHEET_ID}" != "${GOOGLE_SHEET_ID}"
-          test -n "${OPENROUTER_API_KEY}"
-          test -n "${GOOGLE_SERVICE_ACCOUNT_JSON}"
-          test "${AI_OS_ALLOW_POLLING}" = "0"
-          test "${POSSIBILITY_DEV_WRITE_ENABLED}" = "0"
-          test "${SHADOW_ACCEPTANCE_DEV_WRITE_ENABLED}" = "0"
+          set -uo pipefail
+          failed=0
+          if [[ "${{ inputs.confirmation }}" != "RUN_10_DEV_SHADOW_CASES" ]]; then
+            echo "::error::Invalid manual confirmation"
+            failed=1
+          fi
+          if [[ "${POSSIBILITY_DEV_SHEET_ID}" == "${GOOGLE_SHEET_ID}" ]]; then
+            echo "::error::DEV sheet matches live sheet"
+            failed=1
+          fi
+          if [[ -z "${OPENROUTER_API_KEY:-}" ]]; then
+            echo "::error::Missing GitHub Secret: OPENROUTER_API_KEY"
+            failed=1
+          fi
+          if [[ -z "${GOOGLE_SERVICE_ACCOUNT_JSON:-}" ]]; then
+            echo "::error::Missing GitHub Secret: GOOGLE_SERVICE_ACCOUNT_JSON"
+            failed=1
+          fi
+          if [[ "${AI_OS_ALLOW_POLLING}" != "0" ]]; then
+            echo "::error::Telegram polling must remain disabled"
+            failed=1
+          fi
+          if [[ "${POSSIBILITY_DEV_WRITE_ENABLED}" != "0" ]]; then
+            echo "::error::Possibility Stack writes must remain disabled"
+            failed=1
+          fi
+          if [[ "${SHADOW_ACCEPTANCE_DEV_WRITE_ENABLED}" != "0" ]]; then
+            echo "::error::Acceptance writes must remain disabled"
+            failed=1
+          fi
+          if [[ "${failed}" -ne 0 ]]; then
+            exit 1
+          fi
+          echo "Isolation checks passed; required secrets are present."
 
       - uses: actions/setup-python@v5
         with:
