@@ -169,5 +169,6 @@ def preview_text(preview: ShadowPreview) -> str:
         f"Stop: {row['Stop_Condition']}",
         "External effects: NONE",
         "Sheet persistence: NOT_WRITTEN",
+        f"Approval: {row['User_Approval']}",
         f"To persist in DEV only: {DEV_CONFIRMATION}",
     ])
