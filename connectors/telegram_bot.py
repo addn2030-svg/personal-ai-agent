@@ -18,6 +18,7 @@ from connectors import task_delegation as _team
 from connectors import bedrock_team as _bedrock_team
 from connectors import ops_context as _ops_context
 from connectors import super_manager as _super_manager
+from connectors import project_memory as _project_memory
 
 _legacy_run = _impl.run
 _legacy_ask_bedrock = _impl.ask_bedrock
@@ -27,7 +28,8 @@ _legacy_configure_commands = _impl.configure_commands
 _legacy_command_start = _impl.command_start
 
 _MANAGER_COMMANDS = {"/manager", "/manager_shadow", "/manager_status"}
-_TEAM_COMMANDS = {"/agents", "/bedrock_test", "/context_test", "/delegate", "/council", "/mission"} | _MANAGER_COMMANDS
+_MEMORY_COMMANDS = {"/memory", "/memory_status", "/update_memory", "/confirm_memory"}
+_TEAM_COMMANDS = {"/agents", "/bedrock_test", "/context_test", "/delegate", "/council", "/mission"} | _MANAGER_COMMANDS | _MEMORY_COMMANDS
 
 
 def _guarded_run():
@@ -99,6 +101,10 @@ def _command_start(chat_id: int):
         "/agents — حالة فريق النماذج ومساراته\n"
         "/bedrock_test — اختبار صغير لـ Claude والـLean specialist على Bedrock\n"
         "/context_test tomorrow — اختبار Calendar/Sheets بدون AI tokens\n"
+        "/memory — قراءة ذاكرة المشروع من Google Drive\n"
+        "/memory_status — فحص اتصال ذاكرة المشروع\n"
+        "/update_memory الإنجاز || الخطوة التالية || القرار — معاينة تحديث\n"
+        "/confirm_memory الرمز — اعتماد الكتابة إلى Drive\n"
         "/delegate auto المهمة — المدير يختار الوكيل\n"
         "/delegate claude|gpt|gemini المهمة — تكليف مباشر\n"
         "/council السؤال — مراجعة من الفريق\n"
@@ -239,7 +245,8 @@ def _delegated_handle_message(message: dict):
     raw = (message.get("text") or message.get("caption") or "").strip()
     if _books_fast_path(raw, message):
         return
-    command = raw.split()[0].split("@")[0].lower() if raw else ""
+    memory_phrase = raw.startswith("حدث ذاكرة المشروع")
+    command = "/update_memory" if memory_phrase else (raw.split()[0].split("@")[0].lower() if raw else "")
     natural_manager, natural_objective = _natural_manager_request(raw)
     if command not in _TEAM_COMMANDS and not natural_manager:
         return _legacy_handle_message(message)
@@ -274,6 +281,17 @@ def _delegated_handle_message(message: dict):
             _send_chunks(chat_id, answer)
         elif command == "/manager_status":
             _impl.send(chat_id, _super_manager.status_text())
+        elif command == "/memory":
+            _send_chunks(chat_id, _project_memory.read_memory())
+        elif command == "/memory_status":
+            _impl.send(chat_id, _project_memory.status_text())
+        elif command == "/update_memory":
+            value = raw[len("حدث ذاكرة المشروع"):].strip() if memory_phrase else text[len(command):].strip()
+            _, preview = _project_memory.prepare(value)
+            _impl.send(chat_id, preview)
+        elif command == "/confirm_memory":
+            value = text[len(command):].strip()
+            _impl.send(chat_id, _project_memory.confirm(value))
         elif command == "/agents":
             answer = _team.agents_status_text()
             _impl.send(chat_id, answer)
@@ -315,6 +333,10 @@ def _configure_commands():
             {"command": "agents", "description": "حالة فريق النماذج ومساراته"},
             {"command": "bedrock_test", "description": "اختبار Claude والـLean specialist على Bedrock"},
             {"command": "context_test", "description": "اختبار سياق Calendar/Sheets بدون AI"},
+            {"command": "memory", "description": "قراءة ذاكرة المشروع من Drive"},
+            {"command": "memory_status", "description": "فحص اتصال ذاكرة المشروع"},
+            {"command": "update_memory", "description": "معاينة تحديث ذاكرة المشروع"},
+            {"command": "confirm_memory", "description": "اعتماد تحديث ذاكرة المشروع"},
             {"command": "delegate", "description": "تكليف وكيل أو اختيار تلقائي"},
             {"command": "council", "description": "مراجعة سؤال بواسطة فريق الذكاء"},
             {"command": "mission", "description": "مهمة مشتركة بميزانية tokens"},
