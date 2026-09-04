@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Any
 
-VERSION = "v2.0"
+VERSION = "v3.0"
 
 # Candidate tab names, in priority order. The live sheet uses
 # «المصادر والتعلم العلمي»; «مكتبة القراءة» and «تعلم» are fallbacks.
@@ -173,7 +173,10 @@ def books_context(books: list[dict]) -> str:
     """Arabic block for the agent's session context."""
     if not books:
         return ""
-    lines = ["[قائمة كتبي — من شيت المصادر والتعلم]"]
+    lines = [
+        "[قائمة كتبي الحقيقية — قُرئت الآن مباشرة من شيت «المصادر والتعلم» وهي متاحة لك؛ "
+        "لا تقل إن الشيت غير متاح]"
+    ]
     for b in books:
         extra = f" — مرتبط بـ: {b['goal']}" if b.get("goal") else ""
         lines.append(f"- {b['title']} [{b['status']}]{extra}")
@@ -193,8 +196,15 @@ def suggest_line(books: list[dict], goal: str = "") -> str:
 
 
 def live_books(max_rows: int = 60):
-    """Read the live sheet through the wired gateway snapshot and return
-    book rows. Returns ([books], error) — never raises."""
+    """Read the live sheet through the wired gateway and return book rows.
+
+    Strategy (belt and suspenders — both routes are proven in production):
+      1. snapshot + column-aware extract_books (fast, structured);
+      2. if that yields nothing, fall back to the gateway `search` action for
+         «كتاب» — the exact mechanism that makes `/find كتاب` work in the bot —
+         so header-name differences can never hide the books again.
+    Returns ([books], error) — never raises.
+    """
     try:
         import sys
         from pathlib import Path
@@ -203,6 +213,68 @@ def live_books(max_rows: int = 60):
         if not si.configured():
             return [], "gateway not configured"
         data = si.snapshot(max_rows=max_rows, max_cols=16)
-        return extract_books(data), ""
+        books = extract_books(data)
+        if not books:
+            books = _books_from_search(si)
+        print(
+            f"[books_context v{VERSION}] live_books -> {len(books)} book(s) "
+            f"via snapshot-first",
+            flush=True,
+        )
+        return books, ""
     except Exception as e:  # pragma: no cover - live path
         return [], str(e)[:200]
+
+
+def _books_from_search(si, tab_names=None, max_results=60) -> list[dict]:
+    """Rebuild the books list from the gateway `search` action (proven path).
+
+    Each result row looks like the `/find كتاب` output, e.g.
+    ["Essentialism — Greg McKeown", "كتاب", "الأولويات", ..., "لم يبدأ", ...].
+    """
+    tab_names = tab_names or LEARNING_TABS
+    try:
+        results = si.search("كتاب", max_results)
+    except Exception:
+        return []
+
+    books: list[dict] = []
+    seen_titles: set[str] = set()
+    for r in results:
+        if r.get("sheet") not in tab_names:
+            continue
+        values = [str(v or "").strip() for v in r.get("values", [])]
+        if "كتاب" not in values:
+            continue
+
+        # title = the cell right before «كتاب», else the first real cell
+        bi = values.index("كتاب")
+        if bi > 0 and values[bi - 1]:
+            title = values[bi - 1]
+        else:
+            title = next((v for v in values if v and v != "كتاب"), "")
+        if not title or title in seen_titles:
+            continue
+
+        # status = first cell that looks like a status value
+        status = "لم يبدأ"
+        for v in values:
+            if _status_priority(v) < 9:
+                status = v
+                break
+
+        # goal = first remaining informative cell
+        goal = next(
+            (v for v in values if v and v not in (title, status, "كتاب")),
+            "",
+        )
+
+        seen_titles.add(title)
+        books.append({
+            "title": title,
+            "goal": goal,
+            "status": status,
+            "notes": "",
+            "tab": r.get("sheet"),
+        })
+    return books
