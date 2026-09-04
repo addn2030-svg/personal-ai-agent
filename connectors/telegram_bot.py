@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -186,8 +187,58 @@ def _natural_manager_request(raw: str) -> tuple[bool, str]:
     return False, ""
 
 
+_BOOK_ASK_RE = re.compile(
+    r"(ماذا|وش|شنو|إيش|ايش|اقترح|رشح|انصحني|نصحني|recommend|suggest|what|which).{0,14}"
+    r"(أقرأ|أقرا|اقرأ|اقرا|قراءة|كتاب|كتب|book|books)",
+    re.I,
+)
+
+
+def _books_fast_path(raw: str, message: dict) -> bool:
+    """Deterministic BUG-001 answer.
+
+    Reading questions are answered straight from the Google Sheet with no model
+    call, so conversation memory can never override the real books list.
+    Returns True only when it actually sent a reply.
+    """
+    if not raw:
+        return False
+    is_books_command = raw.strip().lower().startswith("/books")
+    if not is_books_command and not _BOOK_ASK_RE.search(raw):
+        return False
+    try:
+        from books_context import live_books, suggest_line
+    except ImportError:
+        from engine.books_context import live_books, suggest_line
+    try:
+        books, err = live_books()
+    except Exception as exc:  # noqa: BLE001
+        print(f"Books fast-path read failed: {exc}", flush=True)
+        return False
+    if not books:
+        return False
+    chat = message.get("chat") or {}
+    chat_id = chat.get("id")
+    if chat_id is None:
+        return False
+    if not _impl._authorized(chat_id, chat.get("type", "")):
+        return False
+    lines = ["📚 قائمة كتبك الحقيقية (من شيت «المصادر والتعلم العلمي»):"]
+    for b in books:
+        extra = f" — مرتبط بـ: {b['goal']}" if b.get("goal") else ""
+        lines.append(f"• {b['title']} [{b['status']}]{extra}")
+    answer = "\n".join(lines)
+    suggestion = suggest_line(books, goal=raw)
+    if suggestion:
+        answer += "\n\n" + suggestion
+    _impl.send(chat_id, answer)
+    return True
+
+
 def _delegated_handle_message(message: dict):
     raw = (message.get("text") or message.get("caption") or "").strip()
+    if _books_fast_path(raw, message):
+        return
     command = raw.split()[0].split("@")[0].lower() if raw else ""
     natural_manager, natural_objective = _natural_manager_request(raw)
     if command not in _TEAM_COMMANDS and not natural_manager:
