@@ -1,9 +1,12 @@
 # -*- coding: utf-8 -*-
 """Books / learning shelf reader — fixes BUG-001.
 
-The agent said "I don't know your books list". Root cause: the books live in
-the «تعلم» (Learning) tab of the master sheet, filtered by النوع == "كتاب",
-but nothing injects that tab into the agent's session context.
+The agent said "I don't know your books list". Root cause was twofold:
+1. (FIXED) The bot's gateway URL pointed at an old `/dev` deployment that
+   answered HTTP 401, so the sheet was never reachable at all.
+2. (THIS FILE) The books live in a tab whose real name is
+   «المصادر والتعلم العلمي» (with «مكتبة القراءة» as a second shelf and
+   «تعلم» kept for backward compatibility), filtered by النوع == "كتاب".
 
 This module reuses the ALREADY-WIRED gateway `snapshot` action (via
 connectors.sheet_intelligence.snapshot) — no gateway upgrade needed. It is
@@ -15,86 +18,162 @@ from __future__ import annotations
 
 from typing import Any
 
-VERSION = "v1.0"
+VERSION = "v2.0"
 
-# Tab and column names as they appear in the master sheet (verified from
-# data/master-sheet.xlsx and prompts/*.md).
-LEARNING_TAB = "تعلم"
+# Candidate tab names, in priority order. The live sheet uses
+# «المصادر والتعلم العلمي»; «مكتبة القراءة» and «تعلم» are fallbacks.
+LEARNING_TABS: list[str] = ["المصادر والتعلم العلمي", "مكتبة القراءة", "تعلم"]
+LEARNING_TAB = LEARNING_TABS[0]  # kept for backward compatibility
 BOOK_TYPE = "كتاب"
 
-# Status priority for the suggestion (lower = suggest first).
-STATUS_PRIORITY = {"جاري": 0, "جارية": 0, "لم يبدأ": 1, "متوقف": 2, "منجزة": 3, "منجز": 3}
+# Status → priority (lower = suggest first).
+# Exact-value groups first; substring rules handled in _status_priority.
+_STATUS_IN_PROGRESS = {"جاري", "جارية", "بدأ", "بدأت", "قيد التنفيذ", "قيد القراءة"}
+_STATUS_NOT_STARTED = {"لم يبدأ", "لم يبدا", "لم تبدأ", "لم تبدا"}
+_STATUS_PAUSED = {"متوقف", "متوقفة", "معلق", "معلقة", "مؤجل", "مؤجلة"}
+_STATUS_DONE = {"منجزة", "منجز", "مكتمل", "مكتملة", "تم", "انتهى", "انتهت"}
+
+STATUS_PRIORITY = {
+    **{s: 0 for s in _STATUS_IN_PROGRESS},
+    **{s: 1 for s in _STATUS_NOT_STARTED},
+    **{s: 2 for s in _STATUS_PAUSED},
+    **{s: 3 for s in _STATUS_DONE},
+}
+
+
+def _status_priority(status: Any) -> int:
+    s = str(status or "").strip()
+    if s in STATUS_PRIORITY:
+        return STATUS_PRIORITY[s]
+    # substring fallbacks (only for unambiguous markers)
+    if "جاري" in s or "تنفيذ" in s:
+        return 0
+    if "لم يبد" in s:
+        return 1
+    if "متوقف" in s or "معلق" in s or "مؤجل" in s:
+        return 2
+    if "منجز" in s or "مكتمل" in s or "انته" in s:
+        return 3
+    return 9
 
 
 def _find_column(header: list, *names: str) -> int:
     for i, h in enumerate(header or []):
-        if str(h or "").strip() in names:
+        cell = str(h or "").strip()
+        if cell in names:
             return i
     return -1
 
 
-def extract_books(snapshot_data: dict, tab_name: str = LEARNING_TAB) -> list[dict]:
-    """Return the book rows from the «تعلم» tab of a gateway snapshot.
+_HEADER_MARKERS = ("النوع", "العنوان", "الحالة", "الهدف", "نوع")
+
+
+def _find_header_row(tab: list) -> int:
+    """Locate the column-header row (some tabs start with a merged title row).
+
+    Returns the header row index, or -1 when the tab has no recognizable
+    header (data starts immediately).
+    """
+    for i, row in enumerate(tab[:5]):
+        cells = [str(c or "").strip() for c in row]
+        if any(m in cells for m in _HEADER_MARKERS):
+            return i
+    return -1
+
+
+def _pick_status(row: list, idx_status: int) -> str:
+    if 0 <= idx_status < len(row):
+        s = str(row[idx_status] or "").strip()
+        if s:
+            return s
+    # fallback: first cell that looks like a status value
+    for c in row:
+        s = str(c or "").strip()
+        if s and _status_priority(s) < 9:
+            return s
+    return "لم يبدأ"
+
+
+def extract_books(snapshot_data: dict, tabs: Any = None) -> list[dict]:
+    """Return the book rows (النوع == كتاب) from the learning tabs.
 
     snapshot_data shape: {tab_title: [[row...], ...]} as returned by the
-    gateway `snapshot` action (first row is the header).
+    gateway `snapshot` action (first row is usually the header).
     """
-    tab = snapshot_data.get(tab_name) or []
-    if not tab:
-        return []
-    header = tab[0]
-    idx_type = _find_column(header, "النوع", "النوع ")
-    idx_title = _find_column(header, "العنوان")
-    idx_goal = _find_column(header, "مرتبط بهدف", "الهدف")
-    idx_status = _find_column(header, "الحالة")
-    idx_applied = _find_column(header, "طُبِّق عمليًا", "طبق عمليا", "طُبّق")
+    if tabs is None:
+        tabs = LEARNING_TABS
+    if isinstance(tabs, str):
+        tabs = [tabs]
 
     books: list[dict] = []
-    for row in tab[1:]:
-        row = list(row)
-        def cell(i):
-            if i < 0 or i >= len(row):
-                return ""
-            return str(row[i] or "").strip()
+    for tab_name in tabs:
+        tab = snapshot_data.get(tab_name) or []
+        if not tab:
+            continue
 
-        kind = cell(idx_type)
-        if idx_type < 0 or kind != BOOK_TYPE:
-            continue
-        title = cell(idx_title)
-        if not title:
-            continue
-        books.append({
-            "title": title,
-            "goal": cell(idx_goal),
-            "status": cell(idx_status) or "لم يبدأ",
-            "applied": cell(idx_applied),
-        })
+        header_idx = _find_header_row(tab)
+        header = list(tab[header_idx]) if header_idx >= 0 else []
+        idx_type = _find_column(header, "النوع", "نوع")
+        idx_title = _find_column(header, "العنوان", "عنوان", "الكتاب", "المصدر", "الاسم")
+        idx_goal = _find_column(header, "مرتبط بهدف", "الهدف", "المجال", "مرتبط بـ", "الغاية")
+        idx_status = _find_column(header, "الحالة", "حالة", "الوضع")
+        idx_notes = _find_column(header, "ملاحظات", "الخلاصة", "الفكرة الأساسية", "الاقتباس")
+
+        for row in tab[(header_idx + 1) if header_idx >= 0 else 0:]:
+            row = list(row)
+            if idx_type >= 0:
+                kind = str(row[idx_type] or "").strip() if idx_type < len(row) else ""
+                if kind != BOOK_TYPE:
+                    continue
+            else:
+                # no «النوع» header: accept only rows with an exact «كتاب» cell
+                if BOOK_TYPE not in [str(c or "").strip() for c in row]:
+                    continue
+
+            def cell(i: int) -> str:
+                if i < 0 or i >= len(row):
+                    return ""
+                return str(row[i] or "").strip()
+
+            title = cell(idx_title) if idx_title >= 0 else ""
+            if not title:
+                title = next((c for c in (str(x or "").strip() for x in row) if c), "").strip()
+            if not title or title == BOOK_TYPE:
+                continue
+
+            books.append({
+                "title": title,
+                "goal": cell(idx_goal),
+                "status": _pick_status(row, idx_status),
+                "notes": cell(idx_notes),
+                "tab": tab_name,
+            })
     return books
 
 
 def suggest_book(books: list[dict], goal: str = "") -> dict | None:
-    """Deterministic pick: active first, then goal overlap, then not-started."""
+    """Deterministic pick: status priority, then title; goal overlap wins."""
     if not books:
         return None
-    active = [b for b in books if STATUS_PRIORITY.get(b["status"], 9) <= 1]
-    pool = active or books
+
+    def key(b: dict):
+        return (_status_priority(b["status"]), b["title"])
+
+    ranked = sorted(books, key=key)
     if goal:
-        goal_tokens = {t for t in goal.split() if len(t) >= 3}
-        scored = []
-        for b in pool:
-            hit = any(t in (b["goal"] + " " + b["title"]) for t in goal_tokens)
-            scored.append((hit, STATUS_PRIORITY.get(b["status"], 9), b))
-        scored.sort(key=lambda x: (not x[0], x[1]))
-        return scored[0][2]
-    # no goal: lowest status priority (active first, then not-started, etc.)
-    return min(pool, key=lambda b: (STATUS_PRIORITY.get(b["status"], 9), b["title"]))
+        tokens = {t for t in goal.split() if len(t) >= 3}
+        overlap = [b for b in ranked
+                   if any(t in (b["goal"] + " " + b["title"]) for t in tokens)]
+        if overlap:
+            return min(overlap, key=key)
+    return ranked[0]
 
 
 def books_context(books: list[dict]) -> str:
     """Arabic block for the agent's session context."""
     if not books:
         return ""
-    lines = ["[كتبي — تبويب «تعلم»]"]
+    lines = ["[قائمة كتبي — من شيت المصادر والتعلم]"]
     for b in books:
         extra = f" — مرتبط بـ: {b['goal']}" if b.get("goal") else ""
         lines.append(f"- {b['title']} [{b['status']}]{extra}")
@@ -127,4 +206,3 @@ def live_books(max_rows: int = 60):
         return extract_books(data), ""
     except Exception as e:  # pragma: no cover - live path
         return [], str(e)[:200]
-
