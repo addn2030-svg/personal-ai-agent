@@ -165,6 +165,24 @@ def _state_context() -> tuple[str, int, str | None]:
     return text, len(lines), None
 
 
+
+def _books_context_lines(goal: str) -> tuple[str, str | None, str | None]:
+    """قراءة تبويب «تعلم» من الشيت (إصلاح BUG-001) — فقط عند سؤال عن كتب/قراءة/تعلم."""
+    if not re.search(r"كتاب|أقرأ|اقرأ|قراءة|تعلم|ماذا أقرأ|read|book|تعلمي", goal or "", re.I):
+        return "", None, None
+    try:
+        from engine import books_context
+        books, err = books_context.live_books()
+        if err:
+            return "", "books", "books: " + str(err)[:180]
+        if not books:
+            return "", "books", None
+        block = books_context.books_context(books) + "\n" + books_context.suggest_line(books, goal=goal)
+        return "BOOKS_CONTEXT (read-only evidence):\n" + block, "books", None
+    except Exception as exc:
+        return "", "books", "books: " + models._safe_error(exc)[:180]
+
+
 def build_context(goal: str) -> ManagerContext:
     chunks = []
     sources = []
@@ -176,6 +194,13 @@ def build_context(goal: str) -> ManagerContext:
         sources.append("state")
     if state_error:
         errors.append("state: " + state_error)
+
+    books_text, books_source, books_error = _books_context_lines(goal)
+    if books_text:
+        chunks.append(books_text)
+        sources.append(books_source)
+    if books_error:
+        errors.append(books_error)
 
     try:
         packet = ops_context.build_ops_context(goal, limit_chars=MAX_OPS_CHARS)
