@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🔗 Connection Walkthrough — Abdulrahman AI OS</title>
+<style>
+  :root{
+    --bg:#f6f4ef; --card:#ffffff; --ink:#1c2430; --muted:#5f6b7a;
+    --accent:#0e7c66; --accent-soft:#e3f2ee; --gold:#b8860b; --line:#e6e2d8;
+    --warn:#b91c1c; --code:#f2efe7;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font-family:"Segoe UI",system-ui,-apple-system,Roboto,"Noto Sans Arabic",sans-serif;
+       line-height:1.65}
+  header{background:linear-gradient(135deg,#0e7c66,#0a5c4c);color:#fff;padding:34px 22px 60px}
+  .wrap{max-width:880px;margin:0 auto;padding:0 18px}
+  header h1{margin:0 0 6px;font-size:26px}
+  header p{margin:0;opacity:.92;font-size:15px}
+  .progress{margin-top:16px;background:rgba(255,255,255,.25);border-radius:99px;height:12px;overflow:hidden}
+  .progress>div{height:100%;width:0;background:#ffd166;transition:width .3s;border-radius:99px}
+  .bar{margin-top:10px;font-size:13px;opacity:.95}
+  main{margin-top:-34px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;
+        padding:22px 24px;margin:0 auto 18px;box-shadow:0 2px 8px rgba(20,30,40,.05)}
+  .phase-tag{display:inline-block;background:var(--accent-soft);color:var(--accent);
+             font-weight:700;font-size:12px;letter-spacing:.4px;padding:3px 10px;border-radius:99px;margin-bottom:8px}
+  .phase-tag.hot{background:#fde8e8;color:var(--warn)}
+  h2{margin:2px 0 4px;font-size:21px}
+  .why{color:var(--muted);font-size:14px;margin:0 0 14px}
+  ol.steps{list-style:none;margin:0;padding:0;counter-reset:s}
+  ol.steps>li{counter-increment:s;position:relative;padding:12px 12px 12px 86px;
+              border-top:1px dashed var(--line)}
+  ol.steps>li:first-child{border-top:none}
+  .num{position:absolute;left:44px;top:12px;width:26px;height:26px;border-radius:50%;
+       background:var(--accent);color:#fff;font-weight:700;font-size:13px;
+       display:flex;align-items:center;justify-content:center}
+  .num::before{content:counter(s)}
+  .chk{position:absolute;left:10px;top:14px;width:20px;height:20px;cursor:pointer;accent-color:var(--accent)}
+  li.done .txt{opacity:.45;text-decoration:line-through}
+  .lbl{font-size:12px;font-weight:700;letter-spacing:.3px;text-transform:uppercase;margin-right:6px}
+  .lbl.what{color:var(--gold)} .lbl.where{color:#1d4ed8} .lbl.how{color:var(--accent)}
+  .ar{direction:rtl;unicode-bidi:embed}
+  code,kbd{background:var(--code);border:1px solid var(--line);border-radius:6px;
+           padding:1px 7px;font-size:13px;font-family:ui-monospace,Consolas,monospace}
+  .codeblock{position:relative;background:#12202b;color:#d6e6e2;border-radius:10px;
+             padding:14px 16px;margin:10px 0;font-family:ui-monospace,Consolas,monospace;
+             font-size:13.5px;overflow-x:auto;direction:ltr;text-align:left;white-space:pre}
+  .codeblock b{color:#ffd166}
+  .copybtn{position:absolute;top:8px;right:8px;background:#1e3a47;color:#cde;border:none;
+           border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer}
+  .copybtn:hover{background:#2a5062}
+  .pill{display:inline-block;background:var(--accent-soft);color:var(--accent);border-radius:6px;
+        padding:2px 9px;font-size:12.5px;font-weight:600;margin:2px 3px 2px 0}
+  .warnbox{background:#fff7ed;border:1px solid #fed7aa;border-right:5px solid var(--warn);
+           border-radius:10px;padding:12px 16px;font-size:14px;margin:14px 0}
+  .okbox{background:var(--accent-soft);border:1px solid #bfe3da;border-radius:10px;
+         padding:12px 16px;font-size:14px;margin:14px 0}
+  table.varstab{width:100%;border-collapse:collapse;font-size:13.5px;margin-top:10px}
+  table.varstab th{background:var(--code);text-align:left;padding:8px 10px;border:1px solid var(--line)}
+  table.varstab td{padding:8px 10px;border:1px solid var(--line);vertical-align:top}
+  .toolbar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px}
+  .btn{background:var(--accent);color:#fff;border:none;border-radius:9px;
+       padding:9px 16px;font-size:14px;cursor:pointer}
+  .btn.ghost{background:#fff;color:var(--accent);border:1px solid var(--accent)}
+  a{color:var(--accent)}
+  footer{color:var(--muted);font-size:13px;text-align:center;padding:26px 12px 40px}
+  @media print{ .toolbar,.copybtn,.chk{display:none} header{padding:20px} body{background:#fff} .card{box-shadow:none;break-inside:avoid} }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <h1>🔗 Connection Walkthrough — ربط الخدمات خطوة بخطوة</h1>
+    <p>Abdulrahman AI OS · Telegram (done ✅) → Google Cloud → Sheets · Drive · Docs · Calendar · GitHub → Railway → Verify</p>
+    <div class="progress"><div id="bar"></div></div>
+    <div class="bar" id="barlabel">0% complete — tick each step as you finish it</div>
+  </div>
+</header>
+<main class="wrap">
+
+  <div class="toolbar">
+    <button class="btn" onclick="window.print()">🖨️ Print / PDF</button>
+    <button class="btn ghost" onclick="resetAll()">↺ Reset checkboxes</button>
+  </div>
+
+  <!-- ═══════════ BEFORE YOU START ═══════════ -->
+  <div class="card">
+    <span class="phase-tag">Read first · اقرأ أولًا</span>
+    <h2>⚠️ Two safety rules</h2>
+    <div class="warnbox">
+      <b>1. Never paste any token or JSON key into a chat</b> — not Telegram, not any AI chat.
+      Keys go <b>only</b> into Railway → Variables (steps below).<br>
+      <span class="ar"><b>لا ترسل أي مفتاح في أي محادثة إطلاقًا</b> — المفاتيح توضع فقط في متغيرات Railway كما في الخطوات.</span>
+    </div>
+    <div class="okbox">
+      <b>2. One Google service account covers everything</b> (Sheets, Drive, Docs, Calendar).
+      You create it <b>once</b> in Phase A, then just <i>share</i> each Google asset with its email.
+    </div>
+    <table class="varstab">
+      <tr><th>Where you work</th><th>What it is</th></tr>
+      <tr><td>console.cloud.google.com</td><td>Google Cloud — create project, enable APIs, create the key</td></tr>
+      <tr><td>sheets / drive / docs / calendar .google.com</td><td>Share each asset with the service-account email</td></tr>
+      <tr><td>github.com</td><td>Create the GitHub token</td></tr>
+      <tr><td>railway.app → your service → <b>Variables</b></td><td>Where all values finally go (live bot reads them from here)</td></tr>
+      <tr><td>Terminal</td><td>Final verification — one command at the end</td></tr>
+    </table>
+  </div>
+
+  <!-- ═══════════ PHASE A ═══════════ -->
+  <div class="card">
+    <span class="phase-tag">Phase A · once only · ~10 min</span>
+    <h2>🅰 Google Cloud: project + service account + key</h2>
+    <p class="why">This is the single identity your agent uses for Sheets, Drive, Docs and Calendar.</p>
+    <ol class="steps">
+      <li><input type="checkbox" class="chk"><span class="num"></span><span class="txt">
+        <span class="lbl where">Where</span> Open <a href="https://console.cloud.google.com" target="_blank">console.cloud.google.com</a> and sign in with <b>your</b> Google account.<br>
+        <span class="lbl how">How</span> Top-left bar → click the <b>project dropdown</b> (next to the Google Cloud logo) → <b>New Project</b>.</span></li>
+      <li><input type="checkbox" class="chk"><span class="num"></span><span class="txt">
+        <span class="lbl what">What</span> Project name: <code>Abdulrahman AI OS</code> → <b>Create</b>. Wait ~30 seconds, then make sure the project is <b>selected</b> in the top-left dropdown.</span></li>
+      <li><input type="checkbox" class="chk"><span class="num"></span><span class="txt">
+        <span class="lbl where">Where</span> ☰ menu → <b>APIs &amp; Services → Library</b>.<br>
+        <span class="lbl what">What</span> Search each name below → open it → press <b>Enable</b>, one by one:<br>
+        <span class="pill">Google Sheets API</span><span class="pill">Google Drive API</span><span class="pill">Google Docs API</span><span class="pill">Google Calendar API</span></span></li>
+      <li><input type="checkbox" class="chk"><span class="num"></span><span class="txt">
+        <span class="lbl where">Where</span> ☰ → <b>APIs &amp; Services → Credentials</b> → <b>+ Create Credentials</b> → <b>Service Account</b>.<br>
+        <span class="lbl what">What</span> Name: <code>abdulrahman-agent</code> → <b>Create and Continue</b> → on the "role" step just press <b>Continue</b> (no role needed) → <b>Done</b>.</span></li>
+      <li><input type="checkbox" class="chk"><span class="num"></span><span class="txt">
+        <span class="lbl where">Where</span> Still on <b>Credentials</b>: under <b>Service Accounts</b> click the new email → tab <b>Keys</b> → <b>Add Key → Create new key</b> → <b>JSON</b> → <b>Create</b>.<br>
+        <span class="lbl what">What</span> A <code>.json</code> file downloads to your computer. Keep it private — it <i>is</i> the password.</span></li>
+      <li><input type="checkbox" class="chk"><span class="num"></span><span class="txt">
+        <span class="lbl what">What</span> Open the downloaded JSON and copy two things:<br>
+        • <code>client_email</code> — looks like <code>abdulrahman-agent@abdulrahman-ai-os.iam.gserviceaccount.com</code> (you'll share Google assets with this email)<br>
+        • the <b>whole file content</b> — you'll paste it into Railway in Phase F.</span></li>
+    </ol>
+  </div>
+
+  <!-- ═══════════ PHASE 1 CALENDAR ═══════════ -->
+  <div class="card">
+    <span class="phase-tag hot">Priority 1 · Calendar · meeting Sept 14</span>
+    <h2>📅 Google Calendar</h2>
+    <p class="why">Lets the agent read your schedule and create confirmed events with Telegram reminders.</p>
+    <ol class="steps">
+      <li><input type="checkbox" class="chk"><span class="num"></span><span class="txt">
+        <span class="lbl where">Where</span> <a href="https://calendar.google.com" target="_blank">calendar.google.com</a> → left side <b>My calendars</b> → hover your calendar → <b>⋮ → Settings and sharing</b>.</span></li>
+      <li><input type="checkbox" class="chk"><span class="num"></span><span class="txt">
+        <span class="lbl where">Where</span> Section <b>"Share with specific people"</b> → <b>Add people</b>.<br>
+        <span class="lbl how">How</span> Paste the <code>client_email</code> from Phase A → set permission <b>"Make changes to events"</b> → <b>Send</b>.</span></li>
+      <li><input type="checkbox" class="chk"><span class="num"></span><span class="txt">
+        <span class="lbl where">Where</span> Same settings page → scroll to <b>"Integrate calendar"</b>.<br>
+        <span class="lbl what">What</span> Copy the <b>Calendar ID</b> (often your email, or <code>…@group.calendar.google.com</code>).<br>
+        <span class="warnbox" style="margin:8px 0 0">Do <b>not</b> use the word <code>primary</code> — it does not work with service accounts.</span></span></li>
+      <li><input type="checkbox" class="chk"><span class="num"></span><span class="txt">
+        <span class="lbl where">Where</span> Railway → your service → <b>Variables</b>:<br>
+        <span class="pill">GOOGLE_CALENDAR_ID</span> = the calendar ID you copied
+        <span class="pill">MANAGER_TIMEZONE</span> = <code>Asia/Riyadh</code></span></li>
+    </ol>
+  </div>
+
+  <!-- ═══════════ PHASE 2 DOCS ═══════════ -->
+  <div class="card">
+    <span class="phase-tag">Priority 2 · Docs · formal letters</span>
+    <h2>📝 Google Docs</h2>
+    <p class="why">The new connector drafts letters/reports for you. Documents stay drafts — sending stays behind your approval.</p>
+    <ol class="steps">
+      <li><input type="checkbox" class="chk"><span class="num"></span><span class="txt">
+        <span class="lbl where">Where</span> <a href="https://docs.google.com" target="_blank">docs.google.com</a> → create a blank document, name it e.g. <code>AI OS — Letters</code> (or open an existing one).</span></li>
+      <li><input type="checkbox" class="chk"><span class="num"></span><span class="txt">
+        <span class="lbl how">How</span> Click <b>Share</b> (top right) → paste the <code>client_email</code> → <b>Editor</b> → Done.</span></li>
+      <li><input type="checkbox" class="chk"><span class="num"></span><span class="txt">
+        <span class="lbl what">What</span> Copy the <b>document ID</b> from the URL — the long code between <code>/d/</code> and <code>/edit</code>:<br>
+        <code>https://docs.google.com/document/d/<b>←THIS-PART→</b>/edit</code></span></li>
+      <li><input type="checkbox" class="chk"><span class="num"></span><span class="txt">
+        <span class="lbl where">Where</span> Railway → <b>Variables</b>:<br>
+        <span class="pill">GOOGLE_DOCS_DOCUMENT_ID</span> = the ID you copied</span></li>
+    </ol>
+    <div class="okbox">Later, from a terminal:
+      <div class="codeblock"><button class="copybtn" onclick="copyCode(this)">Copy</button>python3 -m connectors.google_docs_service create "خطاب رسمي" "نص الخطاب…"</div>
+      It creates the draft and, if <code>GOOGLE_DRIVE_FOLDER_ID</code> is set, files it into your shared folder automatically.</div>
+  </div>
+
+  <!-- ═══════════ PHASE 3 SHEETS ═══════════ -->
+  <div class="card">
+    <span class="phase-tag">Priority 3 · Sheets</span>
+    <h2>📊 Google Sheets</h2>
+    <p class="why">Gives the Telegram agent live read/search access to your master workbook (tasks, projects, waiting-for).</p>
+    <ol class="steps">
+      <li><input type="checkbox" class="chk"><span class="num"></span><span class="txt">
+        <span class="lbl where">Where</span> Open your master Google Sheet → <b>Share</b> → paste the <code>client_email</code> → <b>Editor</b> → Done.</span></li>
+      <li><input type="checkbox" class="chk"><span class="num"></span><span class="txt">
+        <span class="lbl what">What</span> Copy the <b>sheet ID</b> from the URL (same rule: between <code>/d/</code> and <code>/edit</code>).</span></li>
+      <li><input type="checkbox" class="chk"><span class="num"></span><span class="txt">
+        <span class="lbl where">Where</span> Railway → <b>Variables</b>:<br>
+        <span class="pill">GOOGLE_SHEET_ID</span> = the ID you copied</span></li>
+    </ol>
+  </div>
+
+  <!-- ═══════════ PHASE 4 DRIVE ═══════════ -->
+  <div class="card">
+    <span class="phase-tag">Priority 4 · Drive</span>
+    <h2>📁 Google Drive</h2>
+    <p class="why">The folder where the agent drops new documents, plus share verification.</p>
+    <ol class="steps">
+      <li><input type="checkbox" class="chk"><span class="num"></span><span class="txt">
+        <span class="lbl where">Where</span> <a href="https://drive.google.com" target="_blank">drive.google.com</a> → right-click the target folder → <b>Share</b> → paste <code>client_email</code> → <b>Editor</b>.</span></li>
+      <li><input type="checkbox" class="chk"><span class="num"></span><span class="txt">
+        <span class="lbl what">What</span> Open the folder; the <b>folder ID</b> is the last part of the URL:<br>
+        <code>https://drive.google.com/drive/folders/<b>←THIS-PART→</b></code></span></li>
+      <li><input type="checkbox" class="chk"><span class="num"></span><span class="txt">
+        <span class="lbl where">Where</span> Railway → <b>Variables</b>:<br>
+        <span class="pill">GOOGLE_DRIVE_FOLDER_ID</span> = the ID you copied</span></li>
+    </ol>
+  </div>
+
+  <!-- ═══════════ PHASE 5 GITHUB ═══════════ -->
+  <div class="card">
+    <span class="phase-tag">Priority 5 · GitHub · code backup</span>
+    <h2>🐙 GitHub</h2>
+    <ol class="steps">
+      <li><input type="checkbox" class="chk"><span class="num"></span><span class="txt">
+        <span class="lbl where">Where</span> <a href="https://github.com" target="_blank">github.com</a> → your avatar (top right) → <b>Settings</b> → bottom-left <b>Developer settings</b> → <b>Personal access tokens → Tokens (classic)</b>.</span></li>
+      <li><input type="checkbox" class="chk"><span class="num"></span><span class="txt">
+        <span class="lbl how">How</span> <b>Generate new token (classic)</b> → Note: <code>aios</code> → Expiration: 90 days → check scopes <b>repo</b> and <b>workflow</b> → <b>Generate token</b>.<br>
+        <span class="what lbl">What</span> <b>Copy it immediately</b> — GitHub shows it only once.</span></li>
+      <li><input type="checkbox" class="chk"><span class="num"></span><span class="txt">
+        <span class="lbl where">Where</span> Railway → <b>Variables</b> (or your local shell):<br>
+        <span class="pill">GITHUB_TOKEN</span> = the token &nbsp;·&nbsp;
+        <span class="pill">AI_OS_GITHUB_REPO</span> = <code>addn2030-svg/personal-ai-agent</code></span></li>
+    </ol>
+  </div>
+
+  <!-- ═══════════ PHASE F RAILWAY ═══════════ -->
+  <div class="card">
+    <span class="phase-tag">Phase F · where everything finally goes</span>
+    <h2>🚂 Railway — set the variables</h2>
+    <ol class="steps">
+      <li><input type="checkbox" class="chk"><span class="num"></span><span class="txt">
+        <span class="lbl where">Where</span> <a href="https://railway.app" target="_blank">railway.app</a> → your project → your <b>service</b> → tab <b>Variables</b> → <b>+ New Variable</b>.</span></li>
+      <li><input type="checkbox" class="chk"><span class="num"></span><span class="txt">
+        <span class="lbl what">What</span> Add these (Names left, Values right):</span>
+        <table class="varstab">
+          <tr><th>Variable</th><th>Value = what you copied</th></tr>
+          <tr><td><code>GOOGLE_SERVICE_ACCOUNT_JSON</code></td><td>entire content of the JSON key file (Phase A)</td></tr>
+          <tr><td><code>GOOGLE_CALENDAR_ID</code></td><td>Calendar ID from "Integrate calendar"</td></tr>
+          <tr><td><code>GOOGLE_DOCS_DOCUMENT_ID</code></td><td>document ID from the Doc URL</td></tr>
+          <tr><td><code>GOOGLE_SHEET_ID</code></td><td>sheet ID from the Sheet URL</td></tr>
+          <tr><td><code>GOOGLE_DRIVE_FOLDER_ID</code></td><td>folder ID from the Drive URL</td></tr>
+          <tr><td><code>GITHUB_TOKEN</code></td><td>the GitHub PAT (shown once!)</td></tr>
+          <tr><td><code>MANAGER_TIMEZONE</code></td><td><code>Asia/Riyadh</code></td></tr>
+        </table></li>
+      <li><input type="checkbox" class="chk"><span class="num"></span><span class="txt">
+        <span class="lbl how">How</span> Railway redeploys automatically when variables change. Wait for the green <b>✓ Deployed</b>.</span></li>
+    </ol>
+  </div>
+
+  <!-- ═══════════ PHASE 6 BUFFER ═══════════ -->
+  <div class="card">
+    <span class="phase-tag">Phase 6 · Advanced · Social posting</span>
+    <h2>📣 Buffer</h2>
+    <p class="why">For publishing to social platforms — <b>drafts and posting always pass your approval</b>, like everything else in this system.</p>
+    <div class="warnbox">
+      <b>First — about that token you pasted in chat:</b> treat it as compromised.<br>
+      <span class="ar"><b>أولًا — التوكن الذي لصقته في المحادثة:</b> اعتبره مكشوفًا.</span><br>
+      <b>How:</b> Buffer → <b>Publish → Settings → Apps</b> (or <a href="https://buffer.com/developers" target="_blank">buffer.com/developers</a> → your app) → <b>delete/revoke it</b> → then create a fresh one below. Put the new one only in Railway Variables — never in chat.
+    </div>
+    <ol class="steps">
+      <li><input type="checkbox" class="chk"><span class="num"></span><span class="txt">
+        <span class="lbl where">Where</span> <a href="https://buffer.com/developers" target="_blank">buffer.com/developers</a> (sign in with your Buffer account) → <b>Create an app</b>.<br>
+        <span class="lbl what">What</span> Name it e.g. <code>abdulrahman-ai-os</code> → after creating, Buffer shows an <b>Access Token</b> — copy it, keep it private.</span></li>
+      <li><input type="checkbox" class="chk"><span class="num"></span><span class="txt">
+        <span class="lbl what">What</span> In Buffer Publish, connect the social channels you want (LinkedIn, X, …). Each connected channel has a <b>profile id</b> the API uses.</span></li>
+      <li><input type="checkbox" class="chk"><span class="num"></span><span class="txt">
+        <span class="lbl where">Where</span> Railway → your service → <b>Variables</b> → add:<br>
+        <span class="pill">BUFFER_ACCESS_TOKEN</span> = the <b>fresh</b> token (not the one pasted in chat)</span></li>
+    </ol>
+    <div class="okbox"><b>Status:</b> the Buffer <i>connector code</i> is the next build step (bot's Priority 3 list).
+      The env var is where it will read from — ask me to build it and posts will go out as
+      <b>drafts → preview → /confirm</b>, never automatically.</div>
+  </div>
+
+  <!-- ═══════════ FINAL CHECK ═══════════ -->
+  <div class="card">
+    <span class="phase-tag hot">Final step · verify everything</span>
+    <h2>✅ The one-command check</h2>
+    <p class="why">Run this once with the same environment variables set. It calls every API and prints live results.</p>
+    <div class="codeblock"><button class="copybtn" onclick="copyCode(this)">Copy</button>python3 -m connectors.connection_setup --live</div>
+    <p>Expected result — all six ✅:</p>
+    <div class="codeblock"><button class="copybtn" onclick="copyCode(this)">Copy</button>✅ Telegram Bot     ok  | live: OK
+✅ Google Sheets    ok  | live: OK {"title": "…", "tabs": 12}
+✅ Google Drive     ok  | live: OK {"folder": "…"}
+✅ Google Docs      ok  | live: OK {"title": "AI OS — Letters"}
+✅ Google Calendar  ok  | live: OK {"summary": "…", "timeZone": "Asia/Riyadh"}
+✅ GitHub           ok  | live: OK {"repo": "addn2030-svg/personal-ai-agent"}
+
+🎉 All integrations configured.</div>
+    <div class="warnbox">If a live check says <b>403 / not found</b> → that asset is not shared with the <code>client_email</code> yet (Phases 1–4). If it says <b>invalid</b> → re-paste the JSON key in Railway (Phase F).</div>
+  </div>
+
+</main>
+<footer>
+  Abdulrahman AI OS · docs/connection-walkthrough.html · works offline · your checkboxes are saved in this browser only<br>
+  Secrets live in Railway Variables — never in chat. <span class="ar">المفاتيح في متغيرات البيئة فقط، وليس في أي محادثة.</span>
+</footer>
+
+<script>
+const KEY='aios-connection-walkthrough-v1';
+const boxes=[...document.querySelectorAll('.chk')];
+function load(){try{const s=JSON.parse(localStorage.getItem(KEY)||'[]');boxes.forEach((b,i)=>{b.checked=!!s[i];paint(b);});}catch(e){}}
+function save(){localStorage.setItem(KEY,JSON.stringify(boxes.map(b=>b.checked)));}
+function paint(b){b.closest('li').classList.toggle('done',b.checked);
+  const n=boxes.filter(x=>x.checked).length,p=Math.round(100*n/boxes.length);
+  document.getElementById('bar').style.width=p+'%';
+  document.getElementById('barlabel').textContent=p+'% complete — '+n+' of '+boxes.length+' steps';}
+boxes.forEach(b=>b.addEventListener('change',()=>{paint(b);save();}));
+function resetAll(){boxes.forEach(b=>{b.checked=false;paint(b);});save();}
+function copyCode(btn){const t=btn.parentElement.innerText.replace(/^Copy\n?/,'').trim();
+  navigator.clipboard.writeText(t).then(()=>{btn.textContent='✓ Copied';setTimeout(()=>btn.textContent='Copy',1500);});}
+load();
+</script>
+</body>
+</html>

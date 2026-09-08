@@ -36,6 +36,8 @@ _PENDING_SHEET_UPDATES = {}
 _PENDING_PREVISIT_MESSAGES = {}
 _PENDING_CALENDAR_EVENTS = {}
 _PENDING_CALENDAR_DELETES = {}
+_PENDING_TABS = {}
+_PENDING_DOCS = {}
 _LAST_CALENDAR_ALERT_CHECK = 0.0
 
 SYSTEM_PROMPT = """You are Abdulrahman AI OS, the private Chief of Staff for
@@ -559,6 +561,90 @@ def command_confirm_event(chat_id: int, token: str):
     )
 
 
+def command_new_tab(chat_id: int, title: str):
+    title = (title or "").strip()
+    if not title:
+        send(chat_id, "الاستخدام: /newtab اسم التبويب\nمثال: /newtab تقارير سبتمبر")
+        return
+    from connectors import sheet_intelligence
+    try:
+        sheet_intelligence._validate_tab_name(title)
+    except ValueError as exc:
+        send(chat_id, "❌ اسم التبويب غير صالح: " + str(exc))
+        return
+    token = secrets.token_hex(3)
+    _PENDING_TABS[token] = {"title": title, "chat_id": str(chat_id), "expires": time.time() + 900}
+    send(
+        chat_id,
+        "📑 معاينة تبويب جديد — لم يُنشأ بعد\n"
+        f"الاسم: {title}\n"
+        f"المكان: Google Sheet الرئيسي\n\n"
+        f"للاعتماد خلال 15 دقيقة:\n/confirm_tab {token}",
+    )
+
+
+def command_confirm_tab(chat_id: int, token: str):
+    item = _PENDING_TABS.pop((token or "").strip(), None)
+    if not item or item["expires"] < time.time() or item["chat_id"] != str(chat_id):
+        send(chat_id, "❌ رمز اعتماد التبويب غير صالح أو انتهت مدته.")
+        return
+    from connectors import sheet_intelligence
+    try:
+        result = sheet_intelligence.add_tab(item["title"])
+    except Exception as exc:
+        send(chat_id, "❌ تعذر إنشاء التبويب: " + str(exc)[:300])
+        return
+    if result.get("existed"):
+        send(chat_id, f"ℹ️ التبويب «{item['title']}» موجود مسبقًا — لم يتغير شيء.")
+    else:
+        send(chat_id, f"✅ تم إنشاء التبويب «{result.get('tab', item['title'])}» في Google Sheet الرئيسي.")
+
+
+def command_new_doc(chat_id: int, raw: str):
+    title, _, body = (raw or "").partition("|")
+    title = title.strip()
+    body = body.strip()
+    if not title:
+        send(
+            chat_id,
+            "الاستخدام: /doc العنوان | النص\n"
+            "مثال:\n/doc خطاب شكر للجهة | السلام عليكم، نتقدم بخالص الشكر...",
+        )
+        return
+    if len(title) > 200:
+        send(chat_id, "❌ العنوان طويل جدًا (الحد 200 حرف).")
+        return
+    token = secrets.token_hex(3)
+    _PENDING_DOCS[token] = {
+        "title": title, "body": body, "chat_id": str(chat_id), "expires": time.time() + 900,
+    }
+    preview = body[:200] + ("…" if len(body) > 200 else "") if body else "(مستند فارغ — يمكن الإلحاق لاحقًا)"
+    send(
+        chat_id,
+        "📝 معاينة مستند جديد — لم يُنشأ بعد\n"
+        f"العنوان: {title}\n"
+        f"المحتوى: {preview}\n\n"
+        f"للاعتماد خلال 15 دقيقة:\n/confirm_doc {token}",
+    )
+
+
+def command_confirm_doc(chat_id: int, token: str):
+    item = _PENDING_DOCS.pop((token or "").strip(), None)
+    if not item or item["expires"] < time.time() or item["chat_id"] != str(chat_id):
+        send(chat_id, "❌ رمز اعتماد المستند غير صالح أو انتهت مدته.")
+        return
+    from connectors import google_docs_service
+    try:
+        result = google_docs_service.create_document(item["title"], item["body"])
+    except Exception as exc:
+        send(chat_id, "❌ تعذر إنشاء المستند: " + str(exc)[:300])
+        return
+    message = f"✅ أُنشئ المستند كمسودة\nالعنوان: {result['title']}\n{result['url']}"
+    if result.get("warning"):
+        message += "\n⚠️ " + result["warning"][:200]
+    send(chat_id, message)
+
+
 def command_cancel_event(chat_id: int, event_id: str):
     event_id = event_id.strip()
     if not event_id:
@@ -889,6 +975,22 @@ def handle_message(message: dict):
         return
     if command == "/confirm":
         command_confirm(chat_id, text[len(command):].strip())
+        _save_intake(iid, message, text, kind, attachment, "COMPLETED")
+        return
+    if command == "/newtab":
+        command_new_tab(chat_id, text[len(command):].strip())
+        _save_intake(iid, message, text, kind, attachment, "REVIEW_REQUIRED")
+        return
+    if command == "/confirm_tab":
+        command_confirm_tab(chat_id, text[len(command):].strip())
+        _save_intake(iid, message, text, kind, attachment, "COMPLETED")
+        return
+    if command == "/doc":
+        command_new_doc(chat_id, text[len(command):].strip())
+        _save_intake(iid, message, text, kind, attachment, "REVIEW_REQUIRED")
+        return
+    if command == "/confirm_doc":
+        command_confirm_doc(chat_id, text[len(command):].strip())
         _save_intake(iid, message, text, kind, attachment, "COMPLETED")
         return
     if command.startswith("/"):

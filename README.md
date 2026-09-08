@@ -60,6 +60,11 @@ python3 engine/chief_of_staff.py
 ```
 يتطلب Python 3 مع `openpyxl` فقط (`pip install openpyxl`). لا يحتاج إنترنت ولا مفاتيح API.
 
+## الربط بالخدمات الخارجية (Sheets · Drive · Docs · Calendar · GitHub)
+- فحص فوري لحالة كل القنوات: `python3 -m connectors.connection_setup` (أضف `--live` للفحص الحي عبر الشبكة، و`--guide calendar` لخطوات قناة محددة).
+- خطوات الربط كاملة مع متغيرات البيئة المطلوبة: `docs/connection-guide.md` — **مفاتيح الربط توضع في متغيرات البيئة فقط، ولا تُرسل في أي محادثة**.
+- خطابات وتقارير رسمية عبر Google Docs: `python3 -m connectors.google_docs_service create "العنوان" "النص"` (تُنشأ كمسودات — الإرسال الخارجي يبقى خلف بوابة الاعتماد).
+
 ## لوحة القيادة (للحفظ على سطح المكتب)
 `reports/dashboard-YYYY-MM-DD.html` — صفحة واحدة تجمع **البريف الصباحي + المراجعة الأسبوعية** بتبويبين:
 - تعمل **دون إنترنت** (كل التنسيق مدمج داخلها) — نزّلها واحفظها على سطح المكتب وافتحها بأي متصفح.

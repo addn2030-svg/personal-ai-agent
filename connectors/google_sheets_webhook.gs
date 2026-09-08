@@ -36,6 +36,18 @@ function doPost(e) {
       return json_({ok:true,sheets:sheets});
     }
 
+    if (action === 'addtab') {
+      const title=String(body.title||'').trim();
+      if (!title || title.length>100) throw new Error('invalid title');
+      if (/[\[\]\*\?:\\/'"]/.test(title)) throw new Error('invalid tab name characters');
+      const existing=book.getSheetByName(title);
+      if (existing) return json_({ok:true,tab:title,existed:true});
+      const rows=Math.max(2,Math.min(Number(body.rows)||1000,20000));
+      const cols=Math.max(1,Math.min(Number(body.cols)||26,100));
+      const sheet=book.insertSheet(title, book.getNumSheets(), {rowCount:rows,columnCount:cols});
+      return json_({ok:true,tab:title,existed:false,sheetId:sheet.getSheetId()});
+    }
+
     if (action === 'snapshot') {
       const maxRows=Math.max(2,Math.min(Number(body.maxRows)||80,150));
       const maxCols=Math.max(2,Math.min(Number(body.maxCols)||16,20));
