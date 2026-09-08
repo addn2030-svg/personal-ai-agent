@@ -254,6 +254,31 @@
     </ol>
   </div>
 
+  <!-- ═══════════ PHASE 6 BUFFER ═══════════ -->
+  <div class="card">
+    <span class="phase-tag">Phase 6 · Advanced · Social posting</span>
+    <h2>📣 Buffer</h2>
+    <p class="why">For publishing to social platforms — <b>drafts and posting always pass your approval</b>, like everything else in this system.</p>
+    <div class="warnbox">
+      <b>First — about that token you pasted in chat:</b> treat it as compromised.<br>
+      <span class="ar"><b>أولًا — التوكن الذي لصقته في المحادثة:</b> اعتبره مكشوفًا.</span><br>
+      <b>How:</b> Buffer → <b>Publish → Settings → Apps</b> (or <a href="https://buffer.com/developers" target="_blank">buffer.com/developers</a> → your app) → <b>delete/revoke it</b> → then create a fresh one below. Put the new one only in Railway Variables — never in chat.
+    </div>
+    <ol class="steps">
+      <li><input type="checkbox" class="chk"><span class="num"></span><span class="txt">
+        <span class="lbl where">Where</span> <a href="https://buffer.com/developers" target="_blank">buffer.com/developers</a> (sign in with your Buffer account) → <b>Create an app</b>.<br>
+        <span class="lbl what">What</span> Name it e.g. <code>abdulrahman-ai-os</code> → after creating, Buffer shows an <b>Access Token</b> — copy it, keep it private.</span></li>
+      <li><input type="checkbox" class="chk"><span class="num"></span><span class="txt">
+        <span class="lbl what">What</span> In Buffer Publish, connect the social channels you want (LinkedIn, X, …). Each connected channel has a <b>profile id</b> the API uses.</span></li>
+      <li><input type="checkbox" class="chk"><span class="num"></span><span class="txt">
+        <span class="lbl where">Where</span> Railway → your service → <b>Variables</b> → add:<br>
+        <span class="pill">BUFFER_ACCESS_TOKEN</span> = the <b>fresh</b> token (not the one pasted in chat)</span></li>
+    </ol>
+    <div class="okbox"><b>Status:</b> the Buffer <i>connector code</i> is the next build step (bot's Priority 3 list).
+      The env var is where it will read from — ask me to build it and posts will go out as
+      <b>drafts → preview → /confirm</b>, never automatically.</div>
+  </div>
+
   <!-- ═══════════ FINAL CHECK ═══════════ -->
   <div class="card">
     <span class="phase-tag hot">Final step · verify everything</span>
