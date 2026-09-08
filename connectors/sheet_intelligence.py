@@ -303,3 +303,55 @@ def compact_context(data=None, limit=12000):
     data = data if data is not None else snapshot()
     text = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
     return text[:limit]
+
+
+_TAB_NAME_RE = re.compile(r"^[^\[\]\*\?:\\/'\"]{1,100}$", re.S)
+
+
+def _validate_tab_name(title):
+    title = (title or "").strip()
+    if not title or not _TAB_NAME_RE.match(title):
+        raise ValueError("Tab name must be 1-100 chars and cannot contain [ ] * ? : \\ / ' \"")
+    return title
+
+
+def _direct_add_tab(title, rows, cols):
+    titles = {s["title"] for s in _direct_metadata()}
+    if title in titles:
+        return {"ok": True, "tab": title, "existed": True}
+    body = {"requests": [{"addSheet": {"properties": {
+        "title": title,
+        "gridProperties": {"rowCount": int(rows), "columnCount": int(cols)},
+    }}}]}
+    result = _service().spreadsheets().batchUpdate(spreadsheetId=SHEET_ID, body=body).execute()
+    props = result.get("replies", [{}])[0].get("addSheet", {}).get("properties", {})
+    return {"ok": True, "tab": props.get("title", title),
+            "sheetId": props.get("sheetId"), "existed": False}
+
+
+def add_tab(title, rows=1000, cols=26):
+    """Create a new tab in the shared workbook (idempotent: existing tabs return existed=True).
+
+    Uses spreadsheets.batchUpdate with an addSheet request (Sheets API v4).
+    Callers decide approval; this layer only validates the name and executes.
+    """
+    title = _validate_tab_name(title)
+
+    direct_error = None
+    if _direct_ready():
+        try:
+            return _direct_add_tab(title, rows, cols)
+        except Exception as exc:
+            direct_error = exc
+    if _webhook_ready():
+        try:
+            return _webhook("addtab", title=title, rows=int(rows), cols=int(cols))
+        except Exception as webhook_exc:
+            if direct_error:
+                raise RuntimeError(
+                    f"Sheets direct add_tab failed: {type(direct_error).__name__}; webhook failed: {webhook_exc}"
+                ) from webhook_exc
+            raise
+    if direct_error:
+        raise direct_error
+    raise RuntimeError("Google Sheets is not configured")

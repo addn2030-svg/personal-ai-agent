@@ -318,6 +318,8 @@ def _configure_commands():
             {"command": "delegate", "description": "تكليف وكيل أو اختيار تلقائي"},
             {"command": "council", "description": "مراجعة سؤال بواسطة فريق الذكاء"},
             {"command": "mission", "description": "مهمة مشتركة بميزانية tokens"},
+            {"command": "newtab", "description": "إنشاء تبويب جديد في الشيت (معاينة ثم اعتماد)"},
+            {"command": "doc", "description": "إنشاء مستند Google Docs كمسودة (معاينة ثم اعتماد)"},
         ]
         commands.extend(item for item in additions if item["command"] not in existing)
         _impl.api("setMyCommands", {"commands": json.dumps(commands, ensure_ascii=False)})
