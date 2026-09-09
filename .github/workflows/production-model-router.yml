@@ -31,6 +31,7 @@ on:
       - 'connectors/calendar_actions.py'
       - 'connectors/calendar_intent.py'
       - 'connectors/mobile_calendar_confirm.py'
+      - 'connectors/morning_briefing.py'
       - 'connectors/sheet_intelligence.py'
       - 'connectors/multi_intent_runtime.py'
       - 'connectors/__init__.py'
@@ -60,6 +61,7 @@ on:
       - 'tests/test_calendar_actions.py'
       - 'tests/test_calendar_webhook_reminders.py'
       - 'tests/test_mobile_calendar_confirm.py'
+      - 'tests/test_morning_briefing.py'
       - 'tests/test_task_delegation.py'
       - 'tests/test_state_safety_manager.py'
       - 'tests/test_multi_intent.py'
@@ -94,6 +96,7 @@ jobs:
           tests.test_calendar_actions
           tests.test_calendar_webhook_reminders
           tests.test_mobile_calendar_confirm
+          tests.test_morning_briefing
           tests.test_task_delegation
           tests.test_state_safety_manager
           tests.test_multi_intent
@@ -128,6 +131,7 @@ jobs:
           connectors/calendar_actions.py
           connectors/calendar_intent.py
           connectors/mobile_calendar_confirm.py
+          connectors/morning_briefing.py
           connectors/sheet_intelligence.py
           connectors/multi_intent_runtime.py
           connectors/task_delegation.py

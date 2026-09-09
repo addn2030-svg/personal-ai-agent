@@ -1105,7 +1105,7 @@ def run():
     while True:
         try:
             updates = api("getUpdates", {"timeout":45, "offset":offset,
-                          "allowed_updates":json.dumps(["message"])}, timeout=55)
+                          "allowed_updates":json.dumps(["message", "callback_query"])}, timeout=55)
             _maybe_send_calendar_alerts()
             for update in updates:
                 offset = max(offset, int(update["update_id"]) + 1)
@@ -1116,6 +1116,16 @@ def run():
                         chat_id = (update["message"].get("chat") or {}).get("id")
                         if chat_id is not None:
                             send(chat_id, f"❌ تعذر تنفيذ الطلب: {str(exc)[:220]}")
+                elif update.get("callback_query"):
+                    # Morning Briefing Mode inline keyboards (connectors/morning_briefing.py).
+                    callback_handler = globals().get("handle_callback_query")
+                    if callback_handler is None:
+                        continue
+                    try:
+                        callback_handler(update["callback_query"])
+                    except Exception as exc:
+                        print(f"Telegram callback error: {exc}", flush=True)
+                        _save_status("TELEGRAM_CALLBACK", "ERROR", exc)
         except KeyboardInterrupt:
             return
         except Exception as exc:
