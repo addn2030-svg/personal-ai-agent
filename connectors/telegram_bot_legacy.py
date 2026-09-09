@@ -84,7 +84,26 @@ def api(method: str, payload: dict | None = None, timeout: int = 60):
 def send(chat_id: int, text: str):
     text = str(text)
     for start in range(0, len(text), 3800):
-        api("sendMessage", {"chat_id": chat_id, "text": text[start:start + 3800]})
+        api("sendMessage", {
+            "chat_id": chat_id,
+            "text": text[start:start + 3800],
+            "disable_web_page_preview": True,
+        })
+
+
+def format_source_note(sources, limit: int = 4) -> str:
+    """Format the knowledge-sources footer without linkifiable text.
+
+    Local paths such as ``prompts/negotiation.md`` look like domains
+    (``.md`` is a real TLD), so Markdown renderers auto-link them into
+    bogus ``http://negotiation.md`` URLs. Wrapping each path in backticks
+    keeps it readable inline code that no renderer will linkify.
+    """
+    items = [str(s).strip().replace("`", "'") for s in (sources or [])]
+    items = [s for s in items if s][: max(0, int(limit))]
+    if not items:
+        return ""
+    return "\n\n📚 ملفات المعرفة: " + "، ".join(f"`{s}`" for s in items)
 
 
 def _owner_id():
@@ -1045,7 +1064,7 @@ def handle_message(message: dict):
         remember(chat_id, "assistant", answer, message.get("message_id", ""), category)
         sheet_ok = _save_conversation(cid, iid, text, answer, usage, latency, "COMPLETED")
         _save_intake(iid, message, text, kind, attachment, "COMPLETED", response_id=cid)
-        source_note = ("\n\n📚 ملفات المعرفة: " + "، ".join(sources[:4])) if sources else ""
+        source_note = format_source_note(sources)
         memory_note = ""
         if memory_lookup:
             memory_note = (
