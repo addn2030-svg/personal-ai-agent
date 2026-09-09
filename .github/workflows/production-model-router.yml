@@ -38,6 +38,7 @@ on:
       - 'connectors/telegram_bot.py'
       - 'connectors/telegram_bot_legacy.py'
       - 'connectors/telegram_webhook.py'
+      - 'connectors/telegram_webhook_runtime.py'
       - 'engine/store.py'
       - 'engine/manager.py'
       - 'engine/telegram_bot.py'
@@ -54,6 +55,8 @@ on:
       - 'tests/test_v09_scheduler.py'
       - 'research_capsules/**'
       - 'tests/test_production_model_gateway.py'
+      - 'tests/test_telegram_bot.py'
+      - 'tests/test_telegram_response_policy.py'
       - 'tests/test_direct_specialists.py'
       - 'tests/test_provider_diagnostics.py'
       - 'tests/test_team_orchestrator.py'
@@ -88,6 +91,8 @@ jobs:
         run: >-
           python -m unittest
           tests.test_production_model_gateway
+          tests.test_telegram_bot
+          tests.test_telegram_response_policy
           tests.test_direct_specialists
           tests.test_provider_diagnostics
           tests.test_team_orchestrator
@@ -148,6 +153,7 @@ jobs:
           connectors/telegram_bot.py
           connectors/telegram_bot_legacy.py
           connectors/telegram_webhook.py
+          connectors/telegram_webhook_runtime.py
           engine/store.py
           engine/manager.py
           engine/telegram_bot.py
