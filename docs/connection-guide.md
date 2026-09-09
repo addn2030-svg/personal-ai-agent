@@ -116,6 +116,7 @@ Code: `connectors/github_live.py` (read-only: recent commits, open PRs).
 | Docs | `GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_DOCS_DOCUMENT_ID` | `GOOGLE_DRIVE_FOLDER_ID` |
 | Calendar | `GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_CALENDAR_ID` | `MANAGER_TIMEZONE` |
 | GitHub | `GITHUB_TOKEN` | `AI_OS_GITHUB_REPO` |
+| Voice (ElevenLabs) | `ELEVENLABS_API_KEY` | `ELEVENLABS_VOICE_ID` (default built in) |
 
 ## 🎯 Setup order
 1. **Calendar** — most urgent (meeting Sept 14).

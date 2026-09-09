@@ -23,9 +23,10 @@ FULL_ENV = {
     "GOOGLE_CALENDAR_ID": "abdulrahman@group.calendar.google.com",
     "GITHUB_TOKEN": "ghp_example",
     "AI_OS_GITHUB_REPO": "addn2030-svg/personal-ai-agent",
+    "ELEVENLABS_API_KEY": "eleven-test",
 }
 
-ALL_KEYS = ["telegram", "sheets", "drive", "docs", "calendar", "github"]
+ALL_KEYS = ["telegram", "sheets", "drive", "docs", "calendar", "github", "voice"]
 
 
 class ConfigCheckTests(unittest.TestCase):
