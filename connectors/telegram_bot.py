@@ -335,6 +335,21 @@ _impl.command_start = _command_start
 _impl.handle_message = _delegated_handle_message
 _impl.configure_commands = _configure_commands
 
+# Morning Briefing Mode (وضع التوجيه الصباحي): interactive dashboard with inline
+# keyboards, callback-query handling, brain dump, supervisors brief, and the
+# tasks sheet. Installed after the patches above so it wraps the outermost
+# handle_message in both webhook and polling modes. Idempotent.
+from connectors.morning_briefing import install as _install_morning_briefing
+
+_install_morning_briefing(_impl)
+
+# Task Ledger (سجل المهام): /tasks_import preview->approval->receipts upserts
+# into «خطة الإنجاز والمهام» plus a /tasks listing grouped by life domain.
+# Installed after Morning Briefing; command sets do not overlap. Idempotent.
+from connectors.task_ledger import install as _install_task_ledger
+
+_install_task_ledger(_impl)
+
 if __name__ == "__main__":
     _guarded_run()
 else:

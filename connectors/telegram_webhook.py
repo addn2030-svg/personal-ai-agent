@@ -164,7 +164,11 @@ def _complete_update(update_id: int):
         _recent_updates.append(update_id)
 
 
-def _process_update(update_id: int, message: dict | None):
+def _process_update(
+    update_id: int,
+    message: dict | None,
+    callback_query: dict | None = None,
+):
     """Run slow bot work after Telegram has already received HTTP 200.
 
     Telegram retries webhooks when a handler takes too long. Commands such as /brief
@@ -175,9 +179,19 @@ def _process_update(update_id: int, message: dict | None):
     try:
         if message:
             bot.handle_message(message)
+        elif callback_query:
+            # Morning Briefing Mode inline keyboards (connectors/morning_briefing.py).
+            callback_handler = getattr(bot, "handle_callback_query", None)
+            if callback_handler is None:
+                print("callback_query received but no handler is installed", flush=True)
+            else:
+                callback_handler(callback_query)
     except Exception as exc:  # noqa: BLE001
         print(f"Telegram background processing error: {str(exc)[:300]}", flush=True)
-        chat_id = ((message or {}).get("chat") or {}).get("id")
+        chat = (message or {}).get("chat") or {}
+        chat_id = chat.get("id")
+        if chat_id is None and callback_query:
+            chat_id = ((callback_query.get("message") or {}).get("chat") or {}).get("id")
         if chat_id is not None:
             try:
                 bot.send(chat_id, f"❌ تعذر تنفيذ الطلب: {str(exc)[:180]}")
@@ -286,9 +300,13 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             message = update.get("message")
+            callback_query = update.get("callback_query")
+            if message is None and callback_query is None:
+                self._send_json(200, {"ok": True, "ignored": True})
+                return
             worker = threading.Thread(
                 target=_process_update,
-                args=(update_id, message),
+                args=(update_id, message, callback_query),
                 name=f"telegram-update-{update_id}",
                 daemon=True,
             )
