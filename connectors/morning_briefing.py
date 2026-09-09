@@ -1,36 +1,36 @@
 # -*- coding: utf-8 -*-
-"""Morning Briefing Mode (وضع التوجيه الصباحي) — interactive Telegram dashboard.
+"""Morning Briefing Mode v2 (وضع التوجيه الصباحي) — proactive executive triage dashboard.
 
-Review findings this module addresses (Google Sheets retrieval for overdue
-tasks and clinics):
-1. brief_discovery.discover() flags overdue rows by the keyword «متأخر» only,
-   and _dated_items() looks exclusively at FUTURE dates. Rows whose deadline
-   already passed without the keyword were invisible to every brief.
-   -> overdue_tasks() adds column-aware, date-based overdue detection
-      (الموعد النهائي / الاستحقاق / Deadline columns) with a keyword fallback.
-2. No connector read the «تقارير المشرفين» tab, although its schema is fixed
-   by rehab_supervisor_form.gs (الجاهزية، المشرف، القسم / العيادة، التعثرات).
-   -> clinic_readiness() extracts the LATEST readiness per clinic by header
-      name (column-order safe) and sorts by severity (🔴 → 🟡 → 🟢).
-3. Clinic appointments lived only inside generic Calendar listings.
-   -> today_clinic_events() reads today's Google Calendar events and marks
-      clinic-related ones.
+Spec compatibility audit (vs connectors/sheet_intelligence.py + task_delegation.py):
+- get_sheet_intelligence() does NOT exist in sheet_intelligence.py. The real API is
+  snapshot()/metadata()/search(). This module therefore implements
+  get_sheet_intelligence() as an adapter that derives the operational morning
+  fields (pending_tasks, staff_coverage, ...) from sheet_intelligence.snapshot().
+- broadcast_to_supervisors() does NOT exist in task_delegation.py, and that module
+  deliberately grants no outbound-message permissions. The honest equivalent is
+  kept: deterministic draft -> explicit /confirm_supervisor_brief approval ->
+  the owner forwards the final text (the bot never messages unauthorized chats).
+- task_delegation IS integrated for deep-work triage: the dashboard surfaces the
+  live delegation surface (/delegate, /mission) for المسار 3.
+- The focus-block button creates a REAL Google Calendar proposal behind the
+  existing /confirm_event approval gate; it never claims a booking without a
+  receipt.
 
-Telegram layer:
-- /morning (or the natural phrases «التوجيه الصباحي» / «صباح الخير») renders
-  the dashboard with three inline buttons:
-    [ 🎙️ إفراغ ذهني سريع ]  [ 📢 إرسال توجيه المشرفين ]  [ 📊 فتح شيت المهام ]
-- handle_callback_query() answers every callback, enforces the same chat
-  authorization as messages, and dispatches to the button actions.
-- Brain dump: a 10-minute capture session; each text/voice message is stored
-  in «مدخلات الوكيل» (category BRAIN_DUMP) with a save receipt. «تم» closes it.
-- Supervisor brief: deterministic draft built from live data, then explicit
-  approval via /confirm_supervisor_brief. The bot never messages unauthorized
-  chats; the owner forwards the approved text (documented in the reply).
-- Open tasks sheet: direct link with gid resolution + compact overdue list.
+v2 additions:
+- build_morning_briefing_dashboard(): spec entry point returning text +
+  reply_markup, fed by live Sheets/Calendar evidence.
+- handle_briefing_callback(chat_id, callback_data): dispatcher returning a
+  status dict (await_input / needs_approval / success / unknown / error).
+- 2x2 keyboard per spec: brain dump, supervisors broadcast (draft+approval),
+  operations sheet (URL button when resolvable, callback fallback otherwise),
+  and a 60-minute deep-focus block.
+- Proactive mode (النظام الاستباقي): _maybe_send_morning_briefing() sends the
+  dashboard once per morning (default 06:30-09:30 Riyadh) using the existing
+  calendar-alert heartbeat in webhook AND polling mode, with a ledger file for
+  de-duplication and MORNING_BRIEFING_AUTO=0 as a kill switch.
+- Legacy v1 callback names (morning:*) remain accepted.
 
-Reads are fail-soft: one failing source is reported without blocking the rest.
-External writes stay behind explicit approval, matching repo policy.
+Reads are fail-soft; external writes stay behind explicit approval.
 """
 from __future__ import annotations
 
@@ -40,18 +40,36 @@ import os
 import re
 import secrets
 import time
+from pathlib import Path
 
 from connectors import sheet_intelligence as sheets
+
+try:  # task_delegation is the live multi-agent surface (never required at import).
+    from connectors import task_delegation as _team
+except Exception:  # noqa: BLE001 - optional integration boundary
+    _team = None
 
 TASKS_TAB = os.environ.get("MORNING_TASKS_SHEET", "خطة الإنجاز والمهام").strip()
 TASKS_TABS = (TASKS_TAB, "Projects")
 SUPERVISOR_REPORTS_TAB = os.environ.get("MORNING_SUPERVISOR_SHEET", "تقارير المشرفين").strip()
 BRAIN_DUMP_WINDOW_SECONDS = 600
 SUPERVISOR_BRIEF_WINDOW_SECONDS = 900
+FOCUS_BLOCK_MINUTES = 60
+FOCUS_BLOCK_REMINDER_MINUTES = 5
 
-CB_BRAIN_DUMP = "morning:brain_dump"
-CB_SUPERVISOR_BRIEF = "morning:supervisor_brief"
-CB_OPEN_TASKS = "morning:open_tasks"
+DATA_DIR = Path(os.environ.get("AI_OS_DATA_DIR", Path(__file__).resolve().parents[1] / "data"))
+MORNING_LEDGER_NAME = "morning-briefing-ledger.json"
+
+# Spec callback names (v2) + v1 legacy aliases for buttons already delivered.
+CB_BRAIN_DUMP = "action_brain_dump"
+CB_SUPERVISOR_BRIEF = "action_broadcast_supervisors"
+CB_OPEN_TASKS = "action_open_tasks"
+CB_FOCUS_BLOCK = "action_focus_block"
+_LEGACY_CALLBACKS = {
+    "morning:brain_dump": CB_BRAIN_DUMP,
+    "morning:supervisor_brief": CB_SUPERVISOR_BRIEF,
+    "morning:open_tasks": CB_OPEN_TASKS,
+}
 
 _AR_DIGITS = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
 _DATE_RX = re.compile(r"\b(20\d{2})[-/](\d{1,2})[-/](\d{1,2})\b")
@@ -71,7 +89,7 @@ _BLOCKER_KEYS = ("التعثرات", "التعثر", "blockers")
 _CLINIC_RE = re.compile(r"عيادة|قسم\s+التأهيل|تأهيل|علاج\s+طبيعي|clinic|rehab", re.I)
 _MORNING_TRIGGER_RE = re.compile(
     r"^\s*(?:التوجيه\s+الصباحي|وضع\s+التوجيه\s+الصباحي|الوضع\s+الصباحي|وضع\s+الصباح|"
-    r"لوحة\s+الصباح|صباح\s+الخير|morning\s+(?:brief|mode))"
+    r"لوحة\s+الصباح|لوحة\s+الفرز|صباح\s+الخير|morning\s+(?:brief|mode))"
     r"(?=\s|$|[.!،,؟?])",
     re.I,
 )
@@ -100,13 +118,17 @@ def _safe_error(exc: Exception) -> str:
         return str(exc).replace("\n", " ")[:240]
 
 
-def _today() -> dt.date:
+def _now_local() -> dt.datetime:
     try:
         from connectors.calendar_actions import now_local
 
-        return now_local().date()
+        return now_local()
     except Exception:
-        return dt.date.today()
+        return dt.datetime.now(dt.timezone(dt.timedelta(hours=3)))
+
+
+def _today() -> dt.date:
+    return _now_local().date()
 
 
 def _now_text() -> str:
@@ -116,7 +138,7 @@ def _now_text() -> str:
             return str(now_fn())
         except Exception:
             pass
-    return dt.datetime.now(dt.timezone(dt.timedelta(hours=3))).isoformat(timespec="seconds")
+    return _now_local().isoformat(timespec="seconds")
 
 
 def _redact_text(text: str) -> str:
@@ -293,6 +315,19 @@ def clinic_readiness(data: dict, limit: int = 6) -> list[dict]:
     return ranked[:limit]
 
 
+def staff_pulse(clinics: list[dict]) -> str:
+    """One-line operational pulse derived from the latest supervisor reports."""
+    if not clinics:
+        return "لا توجد تقارير جاهزية حديثة مؤكدة"
+    red = [c["clinic"] for c in clinics if _readiness_severity(c.get("readiness")) == 0]
+    yellow = [c["clinic"] for c in clinics if _readiness_severity(c.get("readiness")) == 1]
+    if red:
+        return "🔴 تحتاج تدخل الآن: " + "، ".join(red)
+    if yellow:
+        return "🟡 جاهزية جزئية تحتاج إغلاقًا اليوم: " + "، ".join(yellow)
+    return "🟢 الجاهزية مستقرة حسب آخر تقارير المشرفين"
+
+
 def today_clinic_events(limit: int = 8) -> tuple[list[dict], str | None]:
     """Today's Calendar events, flagging clinic-related titles.
 
@@ -319,24 +354,53 @@ def today_clinic_events(limit: int = 8) -> tuple[list[dict], str | None]:
         return [], "Google Calendar: " + _safe_error(exc)
 
 
-def morning_payload(tasks_limit: int = 8, clinics_limit: int = 6, events_limit: int = 8) -> dict:
-    """Collect all morning dashboard sources; each source fails independently."""
+def get_sheet_intelligence() -> dict:
+    """Spec-named data adapter over the REAL sheet_intelligence API.
+
+    sheet_intelligence.py exposes snapshot()/metadata()/search(); it has no
+    get_sheet_intelligence(). This adapter derives the morning operational
+    fields from a live snapshot so callers get one typed payload:
+      pending_tasks  — provenance-annotated overdue task lines
+      staff_coverage — one-line clinics/staff pulse
+      overdue/clinics — the structured evidence behind them
+    Raises on a hard Sheets failure; callers decide fail-soft behavior.
+    """
+    data = _sheets_snapshot()
+    overdue = overdue_tasks(data)
+    clinics = clinic_readiness(data)
+    return {
+        "pending_tasks": [_item_summary(item) for item in overdue[:5]],
+        "pending_count": len(overdue),
+        "staff_coverage": staff_pulse(clinics),
+        "overdue": overdue,
+        "clinics": clinics,
+    }
+
+
+def morning_payload(events_limit: int = 8) -> dict:
+    """Collect all morning dashboard sources; each source fails independently.
+
+    Sheets evidence flows through get_sheet_intelligence() — the spec's data
+    seam — so tests and future callers can inject one typed payload.
+    """
     errors: list[str] = []
-    data: dict = {}
+    overdue: list[dict] = []
+    clinics: list[dict] = []
+    staff = ""
     try:
-        data = _sheets_snapshot()
-        if not data:
-            errors.append("الشيتات: لا توجد بيانات مقروءة")
+        intel = get_sheet_intelligence()
+        overdue = intel["overdue"]
+        clinics = intel["clinics"]
+        staff = intel["staff_coverage"]
     except Exception as exc:  # noqa: BLE001 - external Sheets boundary
         errors.append("Google Sheets: " + _safe_error(exc))
-    overdue = overdue_tasks(data, limit=tasks_limit) if data else []
-    clinics = clinic_readiness(data, limit=clinics_limit) if data else []
     events, calendar_error = today_clinic_events(limit=events_limit)
     if calendar_error:
         errors.append(calendar_error)
     return {
         "overdue": overdue,
         "clinics": clinics,
+        "staff_coverage": staff or staff_pulse(clinics),
         "today_events": events,
         "errors": errors,
         "generated_at": _now_text(),
@@ -344,7 +408,7 @@ def morning_payload(tasks_limit: int = 8, clinics_limit: int = 6, events_limit: 
 
 
 def tasks_sheet_link() -> str:
-    """Direct edit link to the tasks tab; falls back to the workbook URL."""
+    """Direct edit link to the operations/tasks tab; falls back to the workbook URL."""
     sheet_id = (sheets.SHEET_ID or "").strip()
     if not sheet_id and bot is not None:
         sheet_id = str(getattr(bot, "GOOGLE_SHEET_ID", "") or "").strip()
@@ -360,16 +424,41 @@ def tasks_sheet_link() -> str:
     return base + "/edit"
 
 
+def _safe_tasks_link() -> str:
+    """URL for the sheet button; empty string when no valid http(s) link exists."""
+    try:
+        link = tasks_sheet_link()
+    except Exception as exc:  # noqa: BLE001 - external Sheets boundary
+        print(f"Tasks sheet link warning: {_safe_error(exc)}", flush=True)
+        return ""
+    return link if str(link).startswith(("https://", "http://")) else ""
+
+
 # ---------------------------------------------------------------------------
-# 2) Rendering — dashboard, supervisor brief, keyboard
+# 2) Rendering — dashboard, keyboard, supervisor brief
 # ---------------------------------------------------------------------------
 
 def morning_keyboard() -> dict:
+    """2x2 inline keyboard (spec layout).
+
+    The sheet button is a native URL button when a valid link resolves
+    (Telegram requires a raw URL — never a Markdown-wrapped string), and a
+    callback button fallback otherwise.
+    """
+    tasks_button: dict = {"text": "📊 فتح شيت العمليات", "callback_data": CB_OPEN_TASKS}
+    link = _safe_tasks_link()
+    if link:
+        tasks_button = {"text": "📊 فتح شيت العمليات", "url": link}
     return {
         "inline_keyboard": [
-            [{"text": "🎙️ إفراغ ذهني سريع", "callback_data": CB_BRAIN_DUMP}],
-            [{"text": "📢 إرسال توجيه المشرفين", "callback_data": CB_SUPERVISOR_BRIEF}],
-            [{"text": "📊 فتح شيت المهام", "callback_data": CB_OPEN_TASKS}],
+            [
+                {"text": "🎙️ إفراغ ذهني سريع", "callback_data": CB_BRAIN_DUMP},
+                {"text": "📢 بث توجيه المشرفين", "callback_data": CB_SUPERVISOR_BRIEF},
+            ],
+            [
+                tasks_button,
+                {"text": "⏱️ حجز وقت التركيز العميق", "callback_data": CB_FOCUS_BLOCK},
+            ],
         ]
     }
 
@@ -381,34 +470,65 @@ def render_morning_dashboard(payload: dict) -> str:
     errors = payload.get("errors") or []
     stamp = str(payload.get("generated_at") or "")[:16].replace("T", " ")
 
-    lines = ["🌤️ وضع التوجيه الصباحي", f"⏱️ {stamp} (توقيت الرياض)", "", f"⏰ مهام متأخرة: {len(overdue)}"]
+    lines = [
+        "📋 لوحة الفرز والتوجيه التنفيذي الصباحي — التأهيل",
+        f"⏱️ {stamp} (توقيت الرياض)",
+        "",
+        f"🏥 نبض الكوادر والعيادات: {payload.get('staff_coverage') or staff_pulse(clinics)}",
+        "",
+        f"⚠️ أبرز المهام المتأخرة المعلقة ({len(overdue)}):",
+    ]
     if overdue:
-        lines.extend("• " + _item_summary(item) for item in overdue[:5])
+        lines.extend("• " + _item_summary(item) for item in overdue[:3])
     else:
-        lines.append("• لا توجد مهام متأخرة مؤكدة.")
-
-    lines += ["", f"🏥 جاهزية العيادات (آخر تقارير المشرفين): {len(clinics)}"]
-    if clinics:
-        for clinic in clinics:
-            note = f" — {clinic['note']}" if clinic.get("note") else ""
-            lines.append(f"• {clinic['clinic']}: {clinic.get('readiness') or 'غير محددة'}{note}")
-    else:
-        lines.append("• لا توجد تقارير مشرفين مؤكدة.")
+        lines.append("• لا توجد مهام متأخرة حرجة.")
 
     clinic_events = [event for event in events if event.get("is_clinic")]
     lines += ["", f"📅 مواعيد اليوم: {len(events)}" + (f" (منها {len(clinic_events)} للعيادات)" if events else "")]
     if events:
-        for event in events[:5]:
+        for event in events[:3]:
             time_part = str(event.get("start") or "")[11:16]
             flag = " 🏥" if event.get("is_clinic") else ""
             lines.append(f"• {time_part or '—'} — {_redact_text(str(event.get('title') or '(بدون عنوان)'))[:80]}{flag}")
     else:
         lines.append("• لا توجد مواعيد مؤكدة لبقية اليوم.")
 
+    lines += [
+        "",
+        "━━━━━━━━━━━━━━━━━━━━",
+        "▫️ المسار 1: النبض السريري وتغطية العيادات (PT / OT / ST)",
+        "▫️ المسار 2: القرارات الإدارية السريعة (قاعدة الدقيقتين)",
+        "▫️ المسار 3: العمل الاستراتيجي العميق (الرعاية المنزلية / MyoMentor)",
+        "▫️ المسار 4: التنسيق وبث التوجيهات للمشرفين",
+    ]
+    if _team is not None:
+        lines.append("🤖 لتفويض عمل عميق للفريق: /delegate auto الهدف أو /mission deep الهدف")
     if errors:
         lines += ["", "⚠️ مصادر متعذرة (استُكملت البقية): " + "؛ ".join(str(x)[:120] for x in errors[:2])]
     lines += ["", "اختر من الأزرار بالأسفل 👇"]
     return "\n".join(lines)[:3500]
+
+
+def build_morning_briefing_dashboard() -> dict:
+    """Spec entry point: live triage text + interactive keyboard.
+
+    Returns {"text", "reply_markup"}; plain text is intentional (no parse_mode)
+    because the repo's Telegram style avoids Markdown parsing failures with
+    Arabic content. Never raises: a data failure returns a safe dashboard.
+    """
+    try:
+        payload = morning_payload()
+        return {
+            "text": render_morning_dashboard(payload),
+            "reply_markup": morning_keyboard(),
+        }
+    except Exception as exc:  # noqa: BLE001 - keep the morning flow non-raising
+        safe = _safe_error(exc)
+        print(f"Morning dashboard build error: {safe}", flush=True)
+        return {
+            "text": "⚠️ تعذر تجهيز التوجيه الصباحي بسبب خطأ في قراءة البيانات: " + safe,
+            "reply_markup": {"inline_keyboard": []},
+        }
 
 
 def build_supervisor_brief(payload: dict) -> str:
@@ -442,7 +562,7 @@ def build_supervisor_brief(payload: dict) -> str:
     if yellow:
         lines.append("• إغلاق ملاحظات الجاهزية الجزئية في: " + "، ".join(c["clinic"] for c in yellow) + ".")
     if overdue:
-        lines.append("• تحديث حالة المهام المتأخرة المذكورة أعلاه في شيت المهام اليوم مع ذكر السبب.")
+        lines.append("• تحديث حالة المهام المتأخرة المذكورة أعلاه في شيت العمليات اليوم مع ذكر السبب.")
     lines.append("• رفع أي بلاغ طارئ فورًا عبر نموذج البلاغ الطارئ (بدون أي بيانات مرضى).")
 
     if errors:
@@ -496,7 +616,8 @@ def _cb_brain_dump(chat_id: int):
     )
 
 
-def _cb_supervisor_brief(chat_id: int):
+def _cb_supervisor_brief(chat_id: int) -> str:
+    """Build the deterministic draft and register its approval token."""
     _typing(chat_id)
     payload = morning_payload()
     draft = build_supervisor_brief(payload)
@@ -515,11 +636,12 @@ def _cb_supervisor_brief(chat_id: int):
         + "\nبعد الاعتماد يظهر النص النهائي لتحويله إلى مجموعة المشرفين بنفسك "
         "(البوت لا يراسل محادثات غير مصرح لها).",
     )
+    return token
 
 
 def _cb_open_tasks(chat_id: int):
     _typing(chat_id)
-    lines = ["📊 شيت المهام", tasks_sheet_link(), ""]
+    lines = ["📊 شيت العمليات", tasks_sheet_link(), ""]
     try:
         overdue = overdue_tasks(_sheets_snapshot())
         lines.append(f"⏰ المهام المتأخرة الآن: {len(overdue)}")
@@ -532,11 +654,82 @@ def _cb_open_tasks(chat_id: int):
     bot.send(chat_id, "\n".join(lines))
 
 
-_CALLBACK_ACTIONS = {
-    CB_BRAIN_DUMP: _cb_brain_dump,
-    CB_SUPERVISOR_BRIEF: _cb_supervisor_brief,
-    CB_OPEN_TASKS: _cb_open_tasks,
-}
+def _next_focus_start(now: dt.datetime) -> dt.datetime:
+    """Round up to the next 5-minute boundary so the block never starts in the past."""
+    base = now.replace(second=0, microsecond=0)
+    base += dt.timedelta(minutes=5 - (base.minute % 5))
+    if base <= now:
+        base += dt.timedelta(minutes=5)
+    return base
+
+
+def _cb_focus_block(chat_id: int) -> dict:
+    """Propose a REAL 60-minute deep-focus Calendar event behind approval.
+
+    The event is only created after the owner approves via the existing
+    /confirm_event gate (mobile-runtime also allows a bare /confirm_event when
+    exactly one proposal is pending). No booking is claimed before a receipt.
+    """
+    try:
+        now = _now_local()
+        start = _next_focus_start(now)
+        end = start + dt.timedelta(minutes=FOCUS_BLOCK_MINUTES)
+        proposal = {
+            "title": "⏱️ تركيز عميق — التوجيه الصباحي",
+            "start": start,
+            "end": end,
+            "reminder_minutes": FOCUS_BLOCK_REMINDER_MINUTES,
+        }
+        token = secrets.token_hex(3)
+        pending = getattr(bot, "_PENDING_CALENDAR_EVENTS", None)
+        if pending is None:
+            raise RuntimeError("Calendar approval queue غير متاح في هذه البيئة")
+        pending[token] = {
+            "proposal": proposal,
+            "chat_id": str(chat_id),
+            "expires": time.time() + 900,
+        }
+        message = (
+            "⏱️ معاينة حجز وقت التركيز العميق — لم يُضف بعد\n"
+            f"البداية: {start.strftime('%Y-%m-%d %H:%M')}\n"
+            f"النهاية: {end.strftime('%Y-%m-%d %H:%M')}\n"
+            f"المدة: {FOCUS_BLOCK_MINUTES} دقيقة | التنبيه: قبل {FOCUS_BLOCK_REMINDER_MINUTES} دقائق\n\n"
+            f"للاعتماد خلال 15 دقيقة:\n/confirm_event {token}"
+        )
+        bot.send(chat_id, message)
+        return {"status": "needs_approval", "message": f"معاينة الحجز جاهزة؛ الاعتماد: /confirm_event {token}"}
+    except Exception as exc:  # noqa: BLE001 - Calendar/proposal boundary
+        safe = _safe_error(exc)
+        print(f"Focus block proposal error: {safe}", flush=True)
+        bot.send(chat_id, "❌ تعذر تجهيز حجز وقت التركيز: " + safe[:220])
+        return {"status": "error", "message": "تعذر تجهيز حجز وقت التركيز: " + safe[:150]}
+
+
+def handle_briefing_callback(chat_id: int, callback_data: str) -> dict:
+    """Dispatch a morning-dashboard button press and return its outcome.
+
+    Statuses: await_input (brain dump), needs_approval (broadcast draft /
+    focus block), success (sheet link), unknown, error. Side-effect messages
+    are sent to the chat by the action implementations themselves.
+    """
+    data = _LEGACY_CALLBACKS.get(str(callback_data or ""), str(callback_data or ""))
+    try:
+        if data == CB_BRAIN_DUMP:
+            _cb_brain_dump(int(chat_id))
+            return {"status": "await_input", "message": "🎙️ وضع الإفراغ الذهني مفتوح (10 دقائق). أرسل المهام نصًا أو صوتًا."}
+        if data == CB_SUPERVISOR_BRIEF:
+            token = _cb_supervisor_brief(int(chat_id))
+            return {"status": "needs_approval", "message": f"📢 المسودة جاهزة؛ للاعتماد: /confirm_supervisor_brief {token}"}
+        if data == CB_FOCUS_BLOCK:
+            return _cb_focus_block(int(chat_id))
+        if data == CB_OPEN_TASKS:
+            _cb_open_tasks(int(chat_id))
+            return {"status": "success", "message": "📊 تم إرسال رابط شيت العمليات مع المهام المتأخرة."}
+        return {"status": "unknown", "message": "أمر غير معروف؛ افتح اللوحة من جديد عبر /morning."}
+    except Exception as exc:  # noqa: BLE001 - action boundary
+        safe = _safe_error(exc)
+        print(f"Briefing callback error [{data}]: {safe}", flush=True)
+        return {"status": "error", "message": "❌ تعذر التنفيذ: " + safe[:150]}
 
 
 def handle_callback_query(callback_query: dict):
@@ -563,12 +756,12 @@ def handle_callback_query(callback_query: dict):
         if not bot._authorized(chat_id, chat.get("type", "")):
             answer("⛔ هذه المحادثة غير مصرح لها باستخدام الوكيل.", show_alert=True)
             return
-        action = _CALLBACK_ACTIONS.get(str(callback_query.get("data") or ""))
-        if action is None:
+        data = _LEGACY_CALLBACKS.get(str(callback_query.get("data") or ""), str(callback_query.get("data") or ""))
+        if data not in {CB_BRAIN_DUMP, CB_SUPERVISOR_BRIEF, CB_FOCUS_BLOCK, CB_OPEN_TASKS}:
             answer("⚠️ زر غير معروف؛ افتح اللوحة من جديد عبر /morning.")
             return
         answer("⏳ جارٍ التنفيذ...")
-        action(int(chat_id))
+        handle_briefing_callback(int(chat_id), data)
     except Exception as exc:  # noqa: BLE001 - Telegram action boundary
         safe = _safe_error(exc)
         print(f"Morning callback error [{callback_query.get('data')}]: {safe}", flush=True)
@@ -582,15 +775,10 @@ def handle_callback_query(callback_query: dict):
 
 
 def command_morning(chat_id: int):
-    """Render the interactive morning dashboard with the three buttons."""
+    """Render the interactive morning dashboard with the spec buttons."""
     _typing(chat_id)
-    try:
-        payload = morning_payload()
-        send_with_keyboard(chat_id, render_morning_dashboard(payload))
-    except Exception as exc:  # noqa: BLE001 - keep webhook mode non-raising
-        safe = _safe_error(exc)
-        print(f"Morning dashboard error: {safe}", flush=True)
-        bot.send(chat_id, "❌ تعذر بناء لوحة التوجيه الصباحي: " + safe[:220])
+    dashboard = build_morning_briefing_dashboard()
+    send_with_keyboard(chat_id, dashboard["text"], dashboard["reply_markup"])
 
 
 def command_confirm_supervisor_brief(chat_id: int, token: str):
@@ -694,7 +882,88 @@ def _capture_brain_dump(message: dict, session: dict):
 
 
 # ---------------------------------------------------------------------------
-# 5) Installation — wraps the live bot module (webhook + polling modes)
+# 5) Proactive mode — automatic daily morning send
+# ---------------------------------------------------------------------------
+
+def _parse_clock(value: str, default: dt.time) -> dt.time:
+    match = re.fullmatch(r"(\d{1,2}):(\d{2})", str(value or "").strip())
+    if not match:
+        return default
+    hour, minute = int(match.group(1)), int(match.group(2))
+    if 0 <= hour <= 23 and 0 <= minute <= 59:
+        return dt.time(hour, minute)
+    return default
+
+
+def _send_window() -> tuple[dt.time, dt.time]:
+    start = _parse_clock(os.environ.get("MORNING_BRIEFING_SEND_AFTER", "06:30"), dt.time(6, 30))
+    end = _parse_clock(os.environ.get("MORNING_BRIEFING_SEND_BEFORE", "09:30"), dt.time(9, 30))
+    if end <= start:
+        end = dt.time(start.hour + 1, start.minute) if start.hour < 23 else dt.time(23, 59)
+    return start, end
+
+
+def _proactive_enabled() -> bool:
+    return os.environ.get("MORNING_BRIEFING_AUTO", "1").strip().lower() not in {"0", "false", "off", "no"}
+
+
+def _ledger_file() -> Path:
+    return Path(DATA_DIR) / MORNING_LEDGER_NAME
+
+
+def _already_sent_today(day: dt.date) -> bool:
+    try:
+        payload = json.loads(_ledger_file().read_text(encoding="utf-8"))
+        return str(payload.get("last_sent", "")) == day.isoformat()
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def _mark_sent(day: dt.date):
+    try:
+        path = _ledger_file()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"last_sent": day.isoformat()}), encoding="utf-8")
+        tmp.replace(path)
+    except OSError as exc:
+        print(f"Morning ledger write warning: {exc}", flush=True)
+
+
+def _maybe_send_morning_briefing(now: dt.datetime | None = None, force: bool = False):
+    """Send the dashboard to the owner once per morning (proactive mode).
+
+    Rides the existing calendar-alert heartbeat (webhook worker + polling
+    loop). `force` bypasses the time window only; the once-per-day ledger
+    de-duplication always applies. A build/send failure is still marked as
+    sent for the day: the owner gets one honest failure notice instead of a
+    retry every heartbeat.
+    """
+    if bot is None or not _proactive_enabled():
+        return False
+    now = now or _now_local()
+    if not force:
+        start, end = _send_window()
+        if not (start <= now.time() <= end):
+            return False
+    owner = getattr(bot, "_owner_id", lambda: "")()
+    if not owner:
+        return False
+    if _already_sent_today(now.date()):
+        return False
+    try:
+        dashboard = build_morning_briefing_dashboard()
+        send_with_keyboard(int(owner), dashboard["text"], dashboard["reply_markup"])
+        return True
+    except Exception as exc:  # noqa: BLE001 - Telegram boundary
+        print(f"Proactive morning briefing warning: {_safe_error(exc)}", flush=True)
+        return False
+    finally:
+        _mark_sent(now.date())
+
+
+# ---------------------------------------------------------------------------
+# 6) Installation — wraps the live bot module (webhook + polling modes)
 # ---------------------------------------------------------------------------
 
 def _run_chat_command(chat: dict, message: dict, action, status: str = "COMPLETED"):
@@ -717,11 +986,13 @@ def _run_chat_command(chat: dict, message: dict, action, status: str = "COMPLETE
 
 
 def install(bot_module):
-    """Attach Morning Briefing Mode to the live bot module.
+    """Attach Morning Briefing Mode v2 to the live bot module.
 
     Idempotent (guarded by _morning_briefing_installed). Installs cleanly in
     webhook mode (called at the bottom of connectors/telegram_bot.py, wrapping
-    the outermost handle_message) and in polling mode.
+    the outermost handle_message) and in polling mode. The proactive daily
+    send is chained onto the calendar-alert heartbeat so both modes get it
+    without new infrastructure.
     """
     global bot
     bot = bot_module
@@ -731,6 +1002,7 @@ def install(bot_module):
     original_handle = bot_module.handle_message
     original_configure = bot_module.configure_commands
     original_start = bot_module.command_start
+    original_alerts = getattr(bot_module, "_maybe_send_calendar_alerts", None)
 
     def handle_message(message: dict):
         chat = message.get("chat") or {}
@@ -750,7 +1022,11 @@ def install(bot_module):
                 bot.send(
                     chat_id,
                     f"✅ أُغلقت جلسة الإفراغ الذهني. عدد ما التُقط: {session.get('count', 0)}.\n"
-                    "افتح لوحة جديدة في أي وقت عبر /morning.",
+                    + (
+                        "🤖 لتحويل أي ملاحظة إلى مهمة مفوضة: /delegate auto <الملاحظة>\n"
+                        if _team is not None else ""
+                    )
+                    + "افتح لوحة جديدة في أي وقت عبر /morning.",
                 )
                 return
             return _capture_brain_dump(message, session)
@@ -783,14 +1059,27 @@ def install(bot_module):
         bot_module.send(
             chat_id,
             "\n🌤️ وضع التوجيه الصباحي\n/morning — لوحة تفاعلية: إفراغ ذهني سريع، "
-            "توجيه المشرفين، فتح شيت المهام",
+            "بث توجيه المشرفين، شيت العمليات، وحجز وقت التركيز العميق",
         )
+
+    def _maybe_send_calendar_alerts():
+        # Chain the proactive morning send onto the existing heartbeat so both
+        # webhook and polling modes trigger it without new infrastructure.
+        if callable(original_alerts):
+            original_alerts()
+        try:
+            _maybe_send_morning_briefing()
+        except Exception as exc:  # noqa: BLE001 - heartbeat must never die
+            print(f"Morning heartbeat warning: {_safe_error(exc)}", flush=True)
 
     bot_module.handle_message = handle_message
     bot_module.handle_callback_query = handle_callback_query
+    bot_module.handle_briefing_callback = handle_briefing_callback
     bot_module.command_morning = command_morning
     bot_module.command_confirm_supervisor_brief = command_confirm_supervisor_brief
     bot_module.configure_commands = configure_commands
     bot_module.command_start = command_start
+    if callable(original_alerts):
+        bot_module._maybe_send_calendar_alerts = _maybe_send_calendar_alerts
     bot_module._morning_briefing_installed = True
     return bot_module

@@ -101,7 +101,7 @@ python3 engine/chief_of_staff.py
 - `/profile`: الملف المهني المختصر.
 - `/sources`: عدّ مصادر المعرفة والمهارات والمواد.
 - `/selftest`: فحص Telegram ومكونات النظام الأساسية.
-- `/morning`: لوحة التوجيه الصباحي التفاعلية (مهام متأخرة + جاهزية العيادات + مواعيد اليوم) مع أزرار Inline Keyboard: إفراغ ذهني سريع، إرسال توجيه المشرفين (مسودة ثم `/confirm_supervisor_brief`)، وفتح شيت المهام. التفاصيل في `connectors/morning_briefing.py`.
+- `/morning`: لوحة التوجيه الصباحي التفاعلية (مهام متأخرة + جاهزية العيادات + مواعيد اليوم + المسارات الأربعة) مع أزرار Inline Keyboard 2×2: إفراغ ذهني سريع، بث توجيه المشرفين (مسودة ثم `/confirm_supervisor_brief`)، فتح شيت العمليات (زر URL مباشر)، وحجز وقت التركيز العميق (حجز Google Calendar حقيقي خلف `/confirm_event`). النظام استباقي: تُرسل اللوحة تلقائيًا مرة واحدة صباحًا (06:30–09:30 بتوقيت الرياض، عطّلها بـ `MORNING_BRIEFING_AUTO=0`، واضبط النافذة بـ `MORNING_BRIEFING_SEND_AFTER/BEFORE`). التفاصيل في `connectors/morning_briefing.py`.
 
 التشغيل:
 
