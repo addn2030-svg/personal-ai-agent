@@ -81,10 +81,19 @@ def api(method: str, payload: dict | None = None, timeout: int = 60):
     return data.get("result")
 
 
-def send(chat_id: int, text: str):
+def send(chat_id: int, text: str, reply_markup: dict | None = None):
     text = str(text)
+    if not text:
+        return
     for start in range(0, len(text), 3800):
-        api("sendMessage", {"chat_id": chat_id, "text": text[start:start + 3800]})
+        chunk = text[start:start + 3800]
+        payload = {"chat_id": chat_id, "text": chunk}
+        if start + 3800 >= len(text) and reply_markup:
+            if isinstance(reply_markup, (dict, list)):
+                payload["reply_markup"] = json.dumps(reply_markup, ensure_ascii=False)
+            else:
+                payload["reply_markup"] = reply_markup
+        api("sendMessage", payload)
 
 
 def _owner_id():
@@ -993,6 +1002,68 @@ def handle_message(message: dict):
         command_confirm_doc(chat_id, text[len(command):].strip())
         _save_intake(iid, message, text, kind, attachment, "COMPLETED")
         return
+    _masteros_cmds = {
+        "/masteros", "/schedule", "/today-actions", "/today_actions",
+        "/mindmaps", "/mind_maps", "/digests", "/audio_digests",
+        "/run", "/diag", "/tasks", "/decisions", "/approve",
+        "/reviews", "/door", "/mastery", "/answer", "/okr",
+    }
+    if command in _masteros_cmds:
+        try:
+            import engine.telegram_bot as etb
+            if command == "/masteros":
+                send(chat_id, etb.masteros_text())
+            elif command == "/schedule":
+                send(chat_id, etb.schedule_text())
+            elif command in ("/today-actions", "/today_actions"):
+                send(chat_id, etb.today_actions_text())
+            elif command in ("/mindmaps", "/mind_maps"):
+                send(chat_id, etb.maps_text())
+            elif command in ("/digests", "/audio_digests"):
+                send(chat_id, etb.digests_text())
+            elif command == "/run":
+                send(chat_id, etb.run_text())
+            elif command == "/diag":
+                send(chat_id, etb.diag_text())
+            elif command == "/tasks":
+                send(chat_id, etb.tasks_text())
+            elif command == "/decisions":
+                t, kb = etb.decisions_keyboard()
+                send(chat_id, t, reply_markup=kb)
+            elif command == "/approve":
+                t, kb = etb.approvals_keyboard()
+                send(chat_id, t, reply_markup=kb)
+            elif command == "/reviews":
+                send(chat_id, etb.reviews_text())
+            elif command == "/door":
+                send(chat_id, etb.door_text())
+            elif command == "/mastery":
+                import subprocess
+                r = subprocess.run([sys.executable, str(BASE / "engine" / "learning_engine.py"), "mastery"],
+                                   capture_output=True, text=True)
+                send(chat_id, "🗺️ خريطة الإتقان:\n" + (r.stdout or "—")[:3000])
+            elif command == "/answer":
+                parts = text.split()
+                try:
+                    rid, score = parts[1], int(parts[2])
+                    from engine.learning_engine import cmd_answer
+                    cmd_answer(rid, score)
+                    send(chat_id, f"✅ سُجلت {rid} = {score}%")
+                except Exception as e:
+                    send(chat_id, f"صيغة: /answer LR-001 85\n{e}")
+            elif command == "/okr":
+                import subprocess
+                args = text.split()[1:]
+                r = subprocess.run([sys.executable, str(BASE / "engine" / "okr.py")] + args,
+                                   capture_output=True, text=True)
+                send(chat_id, (r.stdout or r.stderr or "—")[:1500])
+            _save_intake(iid, message, text, kind, attachment, "COMPLETED")
+            return
+        except Exception as exc:
+            safe = str(exc)[:200]
+            send(chat_id, "❌ تعذر تنفيذ الأمر: " + safe)
+            _save_intake(iid, message, text, kind, attachment, "ERROR", error=safe)
+            return
     if command.startswith("/"):
         send(chat_id, "أمر غير معروف. استخدم /help")
         _save_intake(iid, message, text, kind, attachment, "ERROR", error="UNKNOWN_COMMAND")

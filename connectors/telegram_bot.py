@@ -28,6 +28,12 @@ _legacy_command_start = _impl.command_start
 
 _MANAGER_COMMANDS = {"/manager", "/manager_shadow", "/manager_status"}
 _TEAM_COMMANDS = {"/agents", "/bedrock_test", "/context_test", "/delegate", "/council", "/mission"} | _MANAGER_COMMANDS
+_MASTEROS_COMMANDS = {
+    "/masteros", "/schedule", "/today-actions", "/today_actions",
+    "/mindmaps", "/mind_maps", "/digests", "/audio_digests",
+    "/run", "/diag", "/tasks", "/decisions", "/approve",
+    "/reviews", "/door", "/mastery", "/answer", "/okr",
+}
 
 
 def _guarded_run():
@@ -92,7 +98,7 @@ def _command_start(chat_id: int):
     _legacy_command_start(chat_id)
     _impl.send(
         chat_id,
-        "\n🧠 فريق الوكلاء + Super Manager\n"
+        "🧠 فريق الوكلاء + Super Manager:\n"
         "/manager الطلب — رئيس الأركان: يربط، يكشف النقص، يوصي\n"
         "/manager_shadow الطلب — مقارنة Legacy مع Super Manager بلا أثر خارجي\n"
         "/manager_status — حالة طبقة المدير\n"
@@ -102,7 +108,21 @@ def _command_start(chat_id: int):
         "/delegate auto المهمة — المدير يختار الوكيل\n"
         "/delegate claude|gpt|gemini المهمة — تكليف مباشر\n"
         "/council السؤال — مراجعة من الفريق\n"
-        "/mission [lean|standard|deep] الهدف — مهمة بميزانية tokens\n"
+        "/mission [lean|standard|deep] الهدف — مهمة بميزانية tokens\n\n"
+        "🧭 لوحة Master OS (v0.9):\n"
+        "/masteros — ملخص البنية المعمارية والحالة\n"
+        "/schedule — جدول الأتمتة المجدول (بتوقيت الرياض)\n"
+        "/today-actions — إدراج إجراءات اليوم في طابور الاعتماد\n"
+        "/mindmaps — مكتبة الخرائط الذهنية\n"
+        "/digests — خط إنتاج الملخصات الصوتية\n"
+        "/run — تنفيذ الوظائف المستحقة الآن كمسودات\n"
+        "/diag — فحص حالة قنوات الربط الـ 7\n"
+        "/approve — لوحة الاعتمادات المعلقة بأزرار تفاعلية\n"
+        "/decisions — طلبات القرارات المفتوحة بأزرار\n"
+        "/tasks — أهم المهام المفتوحة\n"
+        "/door — باب اليوم الأسبوعي\n"
+        "/reviews — مراجعات اليوم من محرك التعلم\n"
+        "/okr — متابعة الأهداف والنتائج الرئيسية\n\n"
         "أي أثر خارجي يبقى خلف الاقتراح/المعاينة/الموافقة/التنفيذ.",
     )
 
@@ -241,8 +261,6 @@ def _delegated_handle_message(message: dict):
         return
     command = raw.split()[0].split("@")[0].lower() if raw else ""
     natural_manager, natural_objective = _natural_manager_request(raw)
-    if command not in _TEAM_COMMANDS and not natural_manager:
-        return _legacy_handle_message(message)
 
     chat = message.get("chat") or {}
     chat_id = chat.get("id")
@@ -254,6 +272,82 @@ def _delegated_handle_message(message: dict):
 
     text, kind, attachment = _impl._message_payload(message)
     iid = _impl._local_capture(text, message, kind)
+
+    # Energy logging: طاقة 7 إرهاق 3
+    if text and re.match(r"^طاق[هة]?\s*(\d{1,2}).*ارهاق", text.replace("إرهاق", "ارهاق")):
+        m = re.match(r"^طاق[هة]?\s*(\d{1,2}).*ارهاق\s*(\d{1,2})", text.replace("إرهاق", "ارهاق"))
+        if m and 1 <= int(m.group(1)) <= 10 and 1 <= int(m.group(2)) <= 10:
+            try:
+                from engine.energy_log import log as elog
+                elog(int(m.group(1)), int(m.group(2)), "من تيليجرام")
+                _impl.send(chat_id, "🔋 سُجل — تعافيك يُقاس الآن")
+            except Exception as e:
+                _impl.send(chat_id, f"تعذر التسجيل: {e}")
+        else:
+            _impl.send(chat_id, "صيغة: طاقة 7 إرهاق 3 (من 1 إلى 10)")
+        _impl._save_intake(iid, message, text, kind, attachment, "COMPLETED")
+        return
+
+    if command in _MASTEROS_COMMANDS:
+        try:
+            import engine.telegram_bot as etb
+            if command == "/masteros":
+                _impl.send(chat_id, etb.masteros_text())
+            elif command == "/schedule":
+                _impl.send(chat_id, etb.schedule_text())
+            elif command in ("/today-actions", "/today_actions"):
+                _impl.send(chat_id, etb.today_actions_text())
+            elif command in ("/mindmaps", "/mind_maps"):
+                _impl.send(chat_id, etb.maps_text())
+            elif command in ("/digests", "/audio_digests"):
+                _impl.send(chat_id, etb.digests_text())
+            elif command == "/run":
+                _impl.send(chat_id, etb.run_text())
+            elif command == "/diag":
+                _impl.send(chat_id, etb.diag_text())
+            elif command == "/tasks":
+                _impl.send(chat_id, etb.tasks_text())
+            elif command == "/decisions":
+                t, kb = etb.decisions_keyboard()
+                _impl.send(chat_id, t, reply_markup=kb)
+            elif command == "/approve":
+                t, kb = etb.approvals_keyboard()
+                _impl.send(chat_id, t, reply_markup=kb)
+            elif command == "/reviews":
+                _impl.send(chat_id, etb.reviews_text())
+            elif command == "/door":
+                _impl.send(chat_id, etb.door_text())
+            elif command == "/mastery":
+                import subprocess
+                r = subprocess.run([sys.executable, str(BASE / "engine" / "learning_engine.py"), "mastery"],
+                                   capture_output=True, text=True)
+                _impl.send(chat_id, "🗺️ خريطة الإتقان:\n" + (r.stdout or "—")[:3000])
+            elif command == "/answer":
+                parts = text.split()
+                try:
+                    rid, score = parts[1], int(parts[2])
+                    from engine.learning_engine import cmd_answer
+                    cmd_answer(rid, score)
+                    _impl.send(chat_id, f"✅ سُجلت {rid} = {score}%")
+                except Exception as e:
+                    _impl.send(chat_id, f"صيغة: /answer LR-001 85\n{e}")
+            elif command == "/okr":
+                import subprocess
+                args = text.split()[1:]
+                r = subprocess.run([sys.executable, str(BASE / "engine" / "okr.py")] + args,
+                                   capture_output=True, text=True)
+                _impl.send(chat_id, (r.stdout or r.stderr or "—")[:1500])
+            _impl._save_intake(iid, message, text, kind, attachment, "COMPLETED")
+            return
+        except Exception as exc:
+            safe = str(exc)[:200]
+            _impl.send(chat_id, "❌ تعذر تنفيذ الأمر: " + safe)
+            _impl._save_intake(iid, message, text, kind, attachment, "ERROR", error=safe)
+            return
+
+    if command not in _TEAM_COMMANDS and not natural_manager:
+        return _legacy_handle_message(message)
+
     if kind != "TEXT":
         _impl.send(chat_id, "استخدم أوامر الفريق/المدير كنص. الصوت يبقى في مسار التفريغ الحالي.")
         _impl._save_intake(iid, message, text, kind, attachment, "ERROR", error="TEAM_COMMAND_TEXT_ONLY")
@@ -303,12 +397,96 @@ def _delegated_handle_message(message: dict):
         _impl._save_intake(iid, message, text, kind, attachment, "ERROR", error=safe)
 
 
+def _handle_callback(cb: dict):
+    message = cb.get("message") or {}
+    chat = message.get("chat") or {}
+    chat_id = chat.get("id")
+    if chat_id is None:
+        return
+    if not _impl._authorized(chat_id, chat.get("type", "")):
+        try:
+            _impl.api("answerCallbackQuery", {"callback_query_id": str(cb.get("id", "")), "text": "⛔ غير مصرح"})
+        except Exception:
+            pass
+        return
+
+    data = str(cb.get("data") or "")
+    cb_id = str(cb.get("id") or "")
+    import datetime as _dt
+    if data.startswith("ap:"):
+        _, aid, h8 = data.split(":")
+        from store import Store, log_event
+        st = Store()
+        S = st.rows_all()
+        act = next((a for a in S.get("action_queue", []) if a["action_id"] == aid), None)
+        if not act or act.get("status") != "PENDING_APPROVAL":
+            try:
+                _impl.api("answerCallbackQuery", {"callback_query_id": cb_id, "text": "غير متاح"})
+            except Exception:
+                pass
+            return
+        if act.get("content_hash", "")[:8] != h8:
+            act["status"] = "REJECTED"
+            st.commit(S, "telegram_hash_mismatch", action=aid)
+            log_event("approval_denied", action_id=aid, reason="telegram_hash_mismatch")
+            try:
+                _impl.api("answerCallbackQuery", {"callback_query_id": cb_id, "text": "❌ بصمة غير مطابقة — رُفض"})
+            except Exception:
+                pass
+            return
+        act["status"] = "APPROVED"
+        act["approved_at"] = _dt.date.today().isoformat()
+        st.commit(S, "telegram_approved", action=aid)
+        log_event("action_approved", action_id=aid, via="telegram")
+        try:
+            _impl.api("answerCallbackQuery", {"callback_query_id": cb_id, "text": f"✅ {aid} اعتُمد"})
+        except Exception:
+            pass
+        _impl.send(chat_id, f"✅ {aid} معتمد — نفّذ المحتوى من صفحة الاعتماد ثم: python3 engine/approve.py executed {aid}")
+    elif data.startswith("rj:"):
+        _, aid = data.split(":", 1)
+        from store import Store, log_event
+        st = Store()
+        S = st.rows_all()
+        act = next((a for a in S.get("action_queue", []) if a["action_id"] == aid), None)
+        if act and act.get("status") == "PENDING_APPROVAL":
+            act["status"] = "REJECTED"
+            st.commit(S, "telegram_rejected", action=aid)
+            log_event("action_rejected", action_id=aid, via="telegram")
+        try:
+            _impl.api("answerCallbackQuery", {"callback_query_id": cb_id, "text": f"🚫 {aid} رُفض"})
+        except Exception:
+            pass
+    elif data.startswith("dr:"):
+        _, did, opt = data.split(":")
+        from manager import resolve_dr
+        try:
+            resolve_dr(did, int(opt), note="من تيليجرام")
+            _impl.api("answerCallbackQuery", {"callback_query_id": cb_id, "text": f"✅ {did} حُسم"})
+        except Exception as e:
+            try:
+                _impl.api("answerCallbackQuery", {"callback_query_id": cb_id, "text": str(e)[:120]})
+            except Exception:
+                pass
+
+
 def _configure_commands():
     _legacy_configure_commands()
     try:
         commands = _impl.api("getMyCommands") or []
         existing = {str(item.get("command", "")) for item in commands}
         additions = [
+            {"command": "masteros", "description": "ملخص بنية وحالة Master OS"},
+            {"command": "schedule", "description": "جدول الأتمتة المجدول (الرياض)"},
+            {"command": "today_actions", "description": "إجراءات اليوم كمسودات اعتماد"},
+            {"command": "mindmaps", "description": "مكتبة الخرائط الذهنية"},
+            {"command": "digests", "description": "خط الملخصات الصوتية"},
+            {"command": "run", "description": "تنفيذ الوظائف المستحقة الآن"},
+            {"command": "diag", "description": "فحص حالة قنوات الربط"},
+            {"command": "approve", "description": "طابور الاعتماد بأزرار"},
+            {"command": "decisions", "description": "طلبات القرارات المفتوحة"},
+            {"command": "tasks", "description": "أهم المهام المفتوحة"},
+            {"command": "door", "description": "باب اليوم الأسبوعي"},
             {"command": "manager", "description": "رئيس الأركان: تحليل وربط وتوصية"},
             {"command": "manager_shadow", "description": "قارن Legacy وSuper Manager بلا تنفيذ"},
             {"command": "manager_status", "description": "حالة Super Manager"},
@@ -333,6 +511,7 @@ _impl._save_conversation = _save_conversation
 _impl.command_ai_status = _command_ai_status
 _impl.command_start = _command_start
 _impl.handle_message = _delegated_handle_message
+_impl.handle_callback = _handle_callback
 _impl.configure_commands = _configure_commands
 
 if __name__ == "__main__":
