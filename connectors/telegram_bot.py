@@ -343,6 +343,13 @@ from connectors.morning_briefing import install as _install_morning_briefing
 
 _install_morning_briefing(_impl)
 
+# Task Ledger (سجل المهام): /tasks_import preview->approval->receipts upserts
+# into «خطة الإنجاز والمهام» plus a /tasks listing grouped by life domain.
+# Installed after Morning Briefing; command sets do not overlap. Idempotent.
+from connectors.task_ledger import install as _install_task_ledger
+
+_install_task_ledger(_impl)
+
 if __name__ == "__main__":
     _guarded_run()
 else:

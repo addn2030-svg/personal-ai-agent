@@ -43,6 +43,7 @@ import time
 from pathlib import Path
 
 from connectors import sheet_intelligence as sheets
+from connectors import life_domains
 
 try:  # task_delegation is the live multi-agent surface (never required at import).
     from connectors import task_delegation as _team
@@ -482,6 +483,20 @@ def render_morning_dashboard(payload: dict) -> str:
         lines.extend("• " + _item_summary(item) for item in overdue[:3])
     else:
         lines.append("• لا توجد مهام متأخرة حرجة.")
+
+    if overdue:
+        domain_counts: dict[str, int] = {}
+        for item in overdue:
+            key = life_domains.classify_text(" | ".join(str(x) for x in (item.get("values") or [])))
+            if key:
+                domain_counts[key] = domain_counts.get(key, 0) + 1
+        if domain_counts:
+            ranked = sorted(
+                domain_counts.items(),
+                key=lambda kv: (-kv[1], life_domains.domain_order(kv[0])),
+            )
+            badges = " | ".join(f"{life_domains.badge(key)} {count}" for key, count in ranked[:3])
+            lines.append(f"🧭 حسب الدائرة: {badges}")
 
     clinic_events = [event for event in events if event.get("is_clinic")]
     lines += ["", f"📅 مواعيد اليوم: {len(events)}" + (f" (منها {len(clinic_events)} للعيادات)" if events else "")]

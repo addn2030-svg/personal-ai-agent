@@ -251,6 +251,53 @@ def update_cell(sheet, a1, value):
     raise RuntimeError("Google Sheets update route is not configured")
 
 
+def _direct_append_row(sheet, row):
+    safe_sheet = sheet.replace("'", "''")
+    result = _service().spreadsheets().values().append(
+        spreadsheetId=SHEET_ID,
+        range=f"'{safe_sheet}'!A:Z",
+        valueInputOption="USER_ENTERED",
+        insertDataOption="INSERT_ROWS",
+        body={"values": [list(row)]},
+    ).execute()
+    return {"ok": True, "sheet": sheet, "range": result.get("updates", {}).get("updatedRange", "")}
+
+
+def append_row(sheet, row):
+    """Append one full-width row to an existing tab (direct-first, webhook fallback).
+
+    Note: the legacy Apps Script gateway accepts an allowlist of tabs for
+    appends only, so webhook-only deployments may reject non-allowlisted tabs;
+    the direct Service Account route (production default) has no such limit.
+    """
+    if not isinstance(row, list) or not row:
+        raise ValueError("row must be a non-empty list")
+    if not all(isinstance(x, (str, int, float, bool)) or x is None for x in row):
+        raise ValueError("row values must be scalars")
+    titles = {s["title"] for s in metadata()}
+    if sheet not in titles:
+        raise ValueError("Unknown sheet: " + sheet)
+
+    direct_error = None
+    if _direct_ready():
+        try:
+            return _direct_append_row(sheet, row)
+        except Exception as exc:
+            direct_error = exc
+    if _webhook_ready():
+        try:
+            return _webhook("append", tab=sheet, row=row)
+        except Exception as webhook_exc:
+            if direct_error:
+                raise RuntimeError(
+                    f"Sheets direct append failed: {direct_error}; webhook failed: {webhook_exc}"
+                ) from webhook_exc
+            raise
+    if direct_error:
+        raise direct_error
+    raise RuntimeError("Google Sheets append route is not configured")
+
+
 def _direct_upsert_metrics(clean, sheet):
     titles = {s["title"] for s in _direct_metadata()}
     if sheet not in titles:

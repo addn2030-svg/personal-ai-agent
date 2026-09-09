@@ -320,6 +320,21 @@ class RenderAndKeyboardTests(unittest.TestCase):
         else:
             self.assertNotIn("/delegate auto", text)
 
+    def test_dashboard_groups_overdue_by_life_domain(self):
+        payload = dict(EMPTY_PAYLOAD)
+        payload["overdue"] = [
+            {"sheet": "خطة الإنجاز والمهام", "row": 3,
+             "values": ["تدريب منصة DHS", "مشرف التدريب", "2026-09-10", "DELEGATED"],
+             "reason": "تجاوز الموعد"},
+            {"sheet": "خطة الإنجاز والمهام", "row": 4,
+             "values": ["استكمال الملفات المالية والادخار", "عبدالرحمن", "2026-09-05", "PENDING"],
+             "reason": "تجاوز الموعد"},
+        ]
+        text = mb.render_morning_dashboard(payload)
+        self.assertIn("حسب الدائرة", text)
+        self.assertIn("🏥 قسم التأهيل 1", text)
+        self.assertIn("💰 المالية 1", text)
+
     def test_supervisor_brief_is_deterministic(self):
         payload = {
             "overdue": mb.overdue_tasks(tasks_sheet_data(), today=TODAY),
