@@ -124,6 +124,121 @@ def door_text():
     return f"🚪 باب اليوم ({t.isoformat()}): {d[0]}\n{d[1]}"
 
 
+# ---------------------------------------------------------------- v0.9 — لوحة Master OS
+def _mo_store():
+    from store import Store
+    return Store().rows_all()
+
+
+def masteros_text():
+    """🧭 ملخص بنية Master OS من الحالة الفعلية (أوامر تيليجرام v0.9)."""
+    try:
+        import scheduler
+        canonical = len(scheduler.JOB_SPECS)
+    except Exception:  # noqa: BLE001
+        canonical = None
+    S = _mo_store()
+    tree = (S.get("drive_tree") or [{}])[0]
+    pend = len([a for a in S.get("action_queue", [])
+                if a.get("status") == "PENDING_APPROVAL"])
+    folders = len(tree.get("folders", [])) if tree else 0
+    sched = len(S.get("automation_schedule", [])) or canonical or 0
+    return "\n".join([
+        "🧭 Master OS — v0.9 (لوحة سريعة)",
+        f"📁 شجرة Drive: {tree.get('root', 'Abdulrahman_Master_OS')} · {folders} مجلدات نطاق",
+        f"🤖 وكلاء فرعيون: {len(S.get('sub_agents', []))} · 🎬 قنوات: {len(S.get('content_sources', []))}",
+        f"🗺️ خرائط ذهنية: {len(S.get('mind_maps', []))} · 🎧 ملخصات: {len(S.get('audio_digests', []))}",
+        f"⏰ وظائف مجدولة: {sched} · 🏃 تشغيلات: {len(S.get('automation_runs', []))}",
+        f"⏳ بانتظار اعتمادك: {pend}",
+        "",
+        "الأوامر: /schedule · /mindmaps · /digests · /run · /today-actions · /masteros",
+    ])
+
+
+def schedule_text():
+    """⏰ الجدول المعياري مع تمييز المستحق اليوم (بتوقيت الرياض)."""
+    try:
+        import datetime as _dt
+        import scheduler
+    except Exception as exc:  # noqa: BLE001
+        return f"تعذر قراءة الجدول: {exc}"
+    today = _dt.datetime.now(scheduler.TZ).date()
+    end = _dt.datetime.combine(today, _dt.time(23, 59), tzinfo=scheduler.TZ)
+    lines = ["⏰ محرك الأتمتة — Master OS (الرياض):"]
+    for r in scheduler.JOB_SPECS:
+        due = scheduler.is_due(r, end)
+        tag = "✅ اليوم" if due else "   "
+        when = r["time"]
+        if r["cadence"] == "weekly":
+            when += f" — {scheduler.AR_DAYS[r['weekday']]}"
+        elif r["cadence"] == "monthly":
+            when += (" — آخر يوم" if r.get("month_rule") == "last"
+                     else f" — يوم {r.get('day_of_month')}")
+        if r["cadence"] == "daily" and r.get("weekdays") == [6, 0, 1, 2, 3]:
+            when += " (أحد–خميس)"
+        lines.append(f"{tag} {r['emoji']} {when} — {r['name']}")
+    if not any(scheduler.is_due(r, end) for r in scheduler.JOB_SPECS):
+        lines.append("\n(لا وظائف اليوم — عطلة أو خارج النوافذ)")
+    return "\n".join(lines)
+
+
+def maps_text():
+    """🗺️ أحدث الخرائط الذهنية من المكتبة."""
+    S = _mo_store()
+    rows = sorted(S.get("mind_maps", []), key=lambda m: m.get("created_at", ""), reverse=True)
+    if not rows:
+        return "لا خرائط بعد — شغّل: python3 engine/mindmap.py demo"
+    lines = ["🗺️ مكتبة الخرائط الذهنية:"]
+    kinds = {"audio-digest:lecture": "محاضرة", "audio-digest:youtube": "فيديو",
+             "audio-digest:book": "كتاب", "audio-digest:article": "مقال",
+             "audio-digest:podcast": "بودكاست", "system-reference": "مرجع النظام",
+             "training-material": "مادة تدريبية", "book": "كتاب", "lecture": "محاضرة",
+             "notes": "ملاحظات", "learning": "مصدر تعلم"}
+    for m in rows[:8]:
+        wk = " (أسبوعية)" if m.get("weekly") else ""
+        kind = kinds.get(m.get("source_kind", ""), m.get("source_kind", ""))
+        lines.append(f"• {m['map_id']} {m['title'][:60]}{wk} — {kind} — {m.get('status')}")
+    return "\n".join(lines)
+
+
+def digests_text():
+    """🎧 حالة خط الملخصات الصوتية."""
+    S = _mo_store()
+    rows = S.get("audio_digests", [])
+    if not rows:
+        return "لا ملخصات بعد — queue ثم process (راجع docs/v0.9-master-os.md)"
+    ar = {"QUEUED": "في الطابور", "DIGESTED": "جاهز (سكربت+خريطة)", "NARRATED": "بصوت"}
+    lines = ["🎧 الملخصات الصوتية:"]
+    for d in reversed(rows[-8:]):
+        lines.append(f"• {d['digest_id']} [{ar.get(d.get('status'), d.get('status'))}] "
+                     f"{d['title'][:55]} — خريطة {d.get('map_id') or '—'}")
+    return "\n".join(lines)
+
+
+def run_text():
+    """تنفيذ الوظائف المجدولة المستحقة الآن — يولّد مسودات اعتماد فقط (لا إرسال)."""
+    try:
+        import scheduler
+        n, s = scheduler.dispatch_due()
+    except Exception as exc:  # noqa: BLE001
+        return f"❌ فشل التنفيذ: {str(exc)[:200]}"
+    if n == 0 and s == 0:
+        return "⏰ لا وظائف مستحقة الآن — الجدول: /schedule"
+    return f"⚙️ نُفّذ الآن: {n} مسودة جديدة في طابور الاعتماد · {s} بلا جديد.\nراجعها: /approve"
+
+
+def today_actions_text():
+    """إدراج «إجراءات اليوم» الثلاثة الفورية كمسودات (idempotent)."""
+    try:
+        import scheduler
+        n = scheduler.today_actions()
+    except Exception as exc:  # noqa: BLE001
+        return f"❌ {str(exc)[:200]}"
+    return ("✅ أُدرجت إجراءات اليوم (تكليف DHS 17 سبتمبر · إغلاق NEEDS_INPUT · "
+            "تفعيل الصوت/الخرائط) — راجعها: /approve" if n else
+            "🔁 إجراءات اليوم موجودة أصلًا — راجعها: /approve")
+
+
 # ---------------------------------------------------------------- معالجات
 def handle(msg):
     chat = str(msg["chat"]["id"])
@@ -151,6 +266,18 @@ def handle(msg):
         api("sendMessage", chat_id=chat, text=reviews_text())
     elif text.startswith("/door"):
         api("sendMessage", chat_id=chat, text=door_text())
+    elif text.startswith("/masteros"):
+        api("sendMessage", chat_id=chat, text=masteros_text())
+    elif text.startswith("/schedule"):
+        api("sendMessage", chat_id=chat, text=schedule_text())
+    elif text.startswith("/mindmaps"):
+        api("sendMessage", chat_id=chat, text=maps_text())
+    elif text.startswith("/digests"):
+        api("sendMessage", chat_id=chat, text=digests_text())
+    elif text.startswith("/run"):
+        api("sendMessage", chat_id=chat, text=run_text())
+    elif text.startswith("/today-actions"):
+        api("sendMessage", chat_id=chat, text=today_actions_text())
     elif text.startswith("/mastery"):
         import subprocess
         r = subprocess.run([sys.executable, os.path.join(BASE, "engine", "learning_engine.py"), "mastery"],
@@ -170,7 +297,10 @@ def handle(msg):
     elif text.startswith("/help") or text.startswith("/start"):
         api("sendMessage", chat_id=chat, text=("الأوامر:\n/brief البريف • /tasks المهام • /decisions القرارات بأزرار\n"
                                                "/approve الاعتمادات بأزرار • /reviews مراجعات اليوم • /answer LR-001 85\n"
-                                               "/door باب اليوم • /mastery خريطة الإتقان\n"
+                                               "/door باب اليوم • /mastery خريطة الإتقان • /okr الأهداف\n"
+                                               "🧭 Master OS (v0.9):\n"
+                                               "/masteros ملخص البنية • /schedule الجدول • /mindmaps الخرائط\n"
+                                               "/digests الملخصات الصوتية • /run تنفيذ المستحق الآن • /today-actions إجراءات اليوم\n"
                                                "وأي نص ترسله = يُلتقط في صندوق يومك تلقائيًا 📥"))
     elif text and re.match(r"^طاق[هة]?\s*(\d{1,2}).*ارهاق", text.replace("إرهاق", "ارهاق")):
         m = re.match(r"^طاق[هة]?\s*(\d{1,2}).*ارهاق\s*(\d{1,2})", text.replace("إرهاق", "ارهاق"))
