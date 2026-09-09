@@ -40,6 +40,7 @@ on:
       - 'connectors/telegram_webhook.py'
       - 'engine/store.py'
       - 'engine/manager.py'
+      - 'engine/telegram_bot.py'
       - 'engine/master_os.py'
       - 'engine/drive_tree.py'
       - 'engine/mindmap.py'
@@ -149,6 +150,7 @@ jobs:
           connectors/telegram_webhook.py
           engine/store.py
           engine/manager.py
+          engine/telegram_bot.py
           engine/master_os.py
           engine/drive_tree.py
           engine/mindmap.py
