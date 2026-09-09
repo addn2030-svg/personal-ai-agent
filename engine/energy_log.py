@@ -17,9 +17,11 @@ from store import Store
 def log(energy, fatigue, note=""):
     st = Store(); S = st.rows_all()
     today = dt.date.today().isoformat()
-    S["energy_log"] = [e for e in S["energy_log"] if e["date"] != today]  # آخر قيد اليوم فقط
+    def _dstr(d):
+        return d.isoformat() if hasattr(d, "isoformat") else str(d)
+    S["energy_log"] = [e for e in S["energy_log"] if _dstr(e.get("date", "")) != today]  # آخر قيد اليوم فقط
     S["energy_log"].append({"date": today, "energy": energy, "fatigue": fatigue, "note": note})
-    S["energy_log"].sort(key=lambda e: e["date"])
+    S["energy_log"].sort(key=lambda e: _dstr(e.get("date", "")))
     st.commit(S, "energy_logged", energy=energy, fatigue=fatigue)
     print(f"🔋 اليوم: طاقة {energy}/10 · إرهاق {fatigue}/10" + (f" — {note}" if note else ""))
     if fatigue >= 7:
