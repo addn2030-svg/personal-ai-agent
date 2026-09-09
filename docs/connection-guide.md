@@ -106,6 +106,23 @@ Code: `connectors/github_live.py` (read-only: recent commits, open PRs).
 
 ---
 
+## 7️⃣ YouTube Search — ✅ works with zero config
+Code: `connectors/web_search.py` (read-only: verified `watch?v=` URLs only,
+phones/e-mails/ID runs stripped from queries before any external call).
+
+- No key needed: DuckDuckGo provider, automatic when the user asks for video links.
+- Optional, more reliable: enable **YouTube Data API v3** in Google Cloud →
+  create an API key restricted to that API → set `YOUTUBE_API_KEY`.
+- Bot usage: `/youtube كلمات البحث` — or just ask for video links in any message.
+- Verify where the bot runs (needs internet):
+  `python3 -m connectors.web_search --check` or `--guide videosearch`.
+
+| Variable | Value |
+|---|---|
+| `YOUTUBE_API_KEY` | optional; any API error falls back to the no-key provider |
+
+---
+
 ## 📋 Environment variable summary
 
 | Integration | Required | Optional |
@@ -116,6 +133,7 @@ Code: `connectors/github_live.py` (read-only: recent commits, open PRs).
 | Docs | `GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_DOCS_DOCUMENT_ID` | `GOOGLE_DRIVE_FOLDER_ID` |
 | Calendar | `GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_CALENDAR_ID` | `MANAGER_TIMEZONE` |
 | GitHub | `GITHUB_TOKEN` | `AI_OS_GITHUB_REPO` |
+| YouTube search | — | `YOUTUBE_API_KEY` |
 
 ## 🎯 Setup order
 1. **Calendar** — most urgent (meeting Sept 14).

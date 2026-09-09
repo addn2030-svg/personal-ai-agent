@@ -62,6 +62,9 @@ again until operational state, durable knowledge, recent conversation memory, an
 expanded Google Sheets evidence have been checked. If an original draft is missing,
 offer a useful replacement clearly labelled «مسودة مُعاد بناؤها». Never claim a
 write succeeded unless a concrete receipt (identifier and destination) is available.
+When VERIFIED VIDEO LINKS evidence is present in context, those links are real
+and already checked: present them exactly as given, never invent other video
+URLs, and never claim you cannot browse the web.
 """
 
 
@@ -325,6 +328,51 @@ def ask_bedrock(chat_id: int, text: str, sheet_context: str = ""):
     if not answer:
         raise RuntimeError("Claude returned an empty response")
     return answer, response.get("usage", {}), int((time.monotonic() - started) * 1000), sources
+
+
+def _verified_video_lookup(text: str):
+    """Search verified YouTube links when the user asks for videos.
+
+    Returns (context_block, results). Fail-soft: any error yields ("", []).
+    """
+    try:
+        from connectors.web_search import (
+            answer_has_video_links, is_video_link_request, sanitize_query,
+            search_videos, verified_context_block,
+        )
+        if answer_has_video_links(text) or not is_video_link_request(text):
+            return "", []
+        query = sanitize_query(text)
+        if not query:
+            return "", []
+        out = search_videos(query)
+        results = out.get("results", [])
+        if not results:
+            print(f"Video search: no verified results ({out.get('error', '')[:120]})",
+                  flush=True)
+            return "", []
+        return verified_context_block(results, query), results
+    except Exception as exc:  # noqa: video search must never break replies
+        print(f"Video search error: {exc}", flush=True)
+        return "", []
+
+
+def command_youtube(chat_id: int, query: str):
+    from connectors.web_search import format_links_section, sanitize_query, search_videos
+    clean = sanitize_query(query)
+    if not clean:
+        send(chat_id, "استخدم: /youtube كلمات البحث — مثال: /youtube ملخص العادات الذرية")
+        return
+    send(chat_id, "🔍 أبحث في يوتيوب عن روابط موثقة...")
+    out = search_videos(clean)
+    if out.get("results"):
+        send(chat_id, format_links_section(out["results"], clean))
+    else:
+        send(chat_id, "لم أجد روابط موثقة الآن — جرّب صياغة أخرى.")
+
+
+def command_search(chat_id: int, query: str):
+    command_youtube(chat_id, query)
 
 
 
@@ -797,7 +845,8 @@ def command_start(chat_id: int):
         "المدخلات والإجابات تُحفظ في Google Sheets بعد فحص الخصوصية.\n\n"
         "/profile — الملف المهني\n/sources — المصادر\n/selftest — فحص كامل\n"
         "/ai_status — فحص Claude\n/storage_status — فحص الحفظ\n"
-        "/sheet — الشيتات المتصلة\n/find كلمة — البحث\n/pending — القادم والناقص والحل\n"
+        "/sheet — الشيتات المتصلة\n/find كلمة — البحث\n/youtube كلمات — بحث يوتيوب بروابط موثقة\n"
+        "/pending — القادم والناقص والحل\n"
         "/today — مواعيد اليوم\n/calendar — المواعيد القادمة\n"
         "/remind — اقتراح موعد أو تذكير\n/cancel_event — اقتراح حذف موعد\n"
         "/previsit — مسودة أسئلة سريرية للمعالج\n"
@@ -968,6 +1017,10 @@ def handle_message(message: dict):
         command_find(chat_id, text[len(command):].strip())
         _save_intake(iid, message, text, kind, attachment, "COMPLETED")
         return
+    if command in ("/youtube", "/search"):
+        command_youtube(chat_id, text[len(command):].strip())
+        _save_intake(iid, message, text, kind, attachment, "COMPLETED")
+        return
     if command == "/pending":
         command_pending(chat_id)
         _save_intake(iid, message, text, kind, attachment, "COMPLETED")
@@ -1058,12 +1111,20 @@ def handle_message(message: dict):
                 sheet_context = _sheet_context()
             except Exception as exc:
                 print(f"Sheet context error: {exc}", flush=True)
+        video_block, video_results = _verified_video_lookup(text)
+        if video_block:
+            sheet_context = (sheet_context + "\n\n" if sheet_context else "") + video_block
         answer, usage, latency, sources = ask_bedrock(
             chat_id, text, sheet_context=sheet_context
         )
         remember(chat_id, "assistant", answer, message.get("message_id", ""), category)
         sheet_ok = _save_conversation(cid, iid, text, answer, usage, latency, "COMPLETED")
         _save_intake(iid, message, text, kind, attachment, "COMPLETED", response_id=cid)
+        video_note = ""
+        if video_results:
+            from connectors.web_search import answer_has_video_links, format_links_section
+            if not answer_has_video_links(answer):
+                video_note = format_links_section(video_results)
         source_note = format_source_note(sources)
         memory_note = ""
         if memory_lookup:
@@ -1077,7 +1138,7 @@ def handle_message(message: dict):
             if sheet_ok else
             "\n\n⚠️ تم الرد، لكن لم يصدر إيصال حفظ من Google Sheets."
         )
-        send(chat_id, answer + source_note + memory_note + receipt)
+        send(chat_id, answer + video_note + source_note + memory_note + receipt)
     except Exception as exc:
         _save_conversation(cid, iid, text, "", {}, 0, "ERROR", error=exc)
         _save_intake(iid, message, text, kind, attachment, "ERROR", response_id=cid, error=exc)
@@ -1144,4 +1205,6 @@ def run():
 
 
 if __name__ == "__main__":
+    run()
+
     run()
