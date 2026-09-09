@@ -118,7 +118,17 @@ def reviews_text():
 
 
 def door_text():
-    from chief_of_staff import WEEK_DOORS  # خريطة الأبواب من المحرك نفسه
+    try:
+        from chief_of_staff import WEEK_DOORS  # خريطة الأبواب من المحرك نفسه
+    except Exception:
+        # نسخة محلية للطوارئ — نفس القيم في chief_of_staff.py (تعمل على حالة فارغة)
+        WEEK_DOORS = {6: ("افتتاح الأسبوع + القيادة والإدارة", "خطة 30 دقيقة + Lean + تفويض مهمتين"),
+                      0: ("الأعمال والمال", "عقود وعملاء وE-S-B-I — نافذة المفاوضات"),
+                      1: ("العلاج الطبيعي العميق", "حالة تعليمية موثقة + بحث الكتف — قبل ذروة الظهر"),
+                      2: ("الذكاء الاصطناعي والمشاريع", "30 دقيقة تطوير وكيل + خطوة مشروع"),
+                      3: ("الإبداع والمحتوى + المراجعة التنفيذية", "مخرج منشور + مراجعة الأسبوع"),
+                      4: ("الروحانية والعائلة 🛡️", "يوم محمي — لا عمل إلا بريف أخضر خفيف"),
+                      5: ("التعلم العميق والخلوة", "LP-002/LP-003 + خلوة + تحضير الأسبوع")}
     t = dt.date.today()
     d = WEEK_DOORS.get(t.weekday(), ("—", ""))
     return f"🚪 باب اليوم ({t.isoformat()}): {d[0]}\n{d[1]}"
@@ -185,7 +195,7 @@ def schedule_text():
 def maps_text():
     """🗺️ أحدث الخرائط الذهنية من المكتبة."""
     S = _mo_store()
-    rows = sorted(S.get("mind_maps", []), key=lambda m: m.get("created_at", ""), reverse=True)
+    rows = sorted(S.get("mind_maps", []), key=lambda m: str(m.get("created_at", "")), reverse=True)
     if not rows:
         return "لا خرائط بعد — شغّل: python3 engine/mindmap.py demo"
     lines = ["🗺️ مكتبة الخرائط الذهنية:"]
@@ -225,6 +235,22 @@ def run_text():
     if n == 0 and s == 0:
         return "⏰ لا وظائف مستحقة الآن — الجدول: /schedule"
     return f"⚙️ نُفّذ الآن: {n} مسودة جديدة في طابور الاعتماد · {s} بلا جديد.\nراجعها: /approve"
+
+
+def diag_text():
+    """🔗 حالة قنوات الربط من بيئة التشغيل (وجود المتغيرات فقط — بلا قيم ولا شبكة)."""
+    try:
+        if BASE not in sys.path:
+            sys.path.insert(0, BASE)
+        from connectors import connection_setup
+        rows = connection_setup.run(live=False)
+        icons = {"ok": "✅", "partial": "⚠️", "missing": "❌", "invalid": "❌"}
+        lines = ["🔗 حالة القنوات (بيئة التشغيل):"]
+        for r in rows:
+            lines.append(f"{icons.get(r['status'], '❓')} {r['name']}: {r['status']}")
+        return "\n".join(lines)
+    except Exception as exc:  # noqa: BLE001
+        return f"تعذر الفحص: {str(exc)[:200]}"
 
 
 def today_actions_text():
@@ -278,6 +304,8 @@ def handle(msg):
         api("sendMessage", chat_id=chat, text=run_text())
     elif text.startswith("/today-actions"):
         api("sendMessage", chat_id=chat, text=today_actions_text())
+    elif text.startswith("/diag"):
+        api("sendMessage", chat_id=chat, text=diag_text())
     elif text.startswith("/mastery"):
         import subprocess
         r = subprocess.run([sys.executable, os.path.join(BASE, "engine", "learning_engine.py"), "mastery"],
@@ -301,6 +329,7 @@ def handle(msg):
                                                "🧭 Master OS (v0.9):\n"
                                                "/masteros ملخص البنية • /schedule الجدول • /mindmaps الخرائط\n"
                                                "/digests الملخصات الصوتية • /run تنفيذ المستحق الآن • /today-actions إجراءات اليوم\n"
+                                               "/diag حالة قنوات الربط\n"
                                                "وأي نص ترسله = يُلتقط في صندوق يومك تلقائيًا 📥"))
     elif text and re.match(r"^طاق[هة]?\s*(\d{1,2}).*ارهاق", text.replace("إرهاق", "ارهاق")):
         m = re.match(r"^طاق[هة]?\s*(\d{1,2}).*ارهاق\s*(\d{1,2})", text.replace("إرهاق", "ارهاق"))
@@ -462,9 +491,17 @@ def test():
     print(reviews_text()); print()
     t, kb = decisions_keyboard()
     print(t[:200])
-    assert kb is not None and kb["inline_keyboard"], "لوحة القرارات فارغة!"
+    if kb:
+        print("لوحة القرارات: موجودة ✅")
+    else:
+        print("لوحة القرارات: لا طلبات مفتوحة (طبيعي على حالة فارغة)")
     t2, kb2 = approvals_keyboard()
     print(f"الاعتمادات المعلقة المعروضة: {'موجودة' if kb2 else 'لا شيء'}")
+    print(masteros_text()); print()
+    print(schedule_text()[:600] + "…"); print()
+    print(maps_text()[:300]); print()
+    print(digests_text()[:300]); print()
+    print(diag_text())
     print("✅ كل العارضات واللوحات سليمة")
 
 

@@ -64,6 +64,12 @@ GUIDES = {
         "Set GITHUB_TOKEN locally / in the deployment variables — never in chat or git.",
         "Set AI_OS_GITHUB_REPO (default: addn2030-svg/personal-ai-agent).",
     ],
+    "voice": [
+        "elevenlabs.io → profile → API keys → create a key.",
+        "Set ELEVENLABS_API_KEY in the deployment variables — never in chat or git.",
+        "Optional: ELEVENLABS_VOICE_ID for a custom narrator voice (a default is built in).",
+        "Verify: python3 -m connectors.connection_setup --live (voices count, read-only).",
+    ],
 }
 
 PRIORITY_ORDER = ["calendar", "docs", "github"]  # per the guide: meeting Sept 14 → letters → backup
@@ -176,7 +182,23 @@ def check_github(env=None) -> dict:
     }
 
 
-CHECKS = [check_telegram, check_sheets, check_drive, check_docs, check_calendar, check_github]
+def check_voice(env=None) -> dict:
+    env = env if env is not None else _env
+    key = env("ELEVENLABS_API_KEY")
+    voice_id = env("ELEVENLABS_VOICE_ID")
+    if not key:
+        status, detail = "missing", "ELEVENLABS_API_KEY is not set (audio stops at the narrative script)"
+    elif not voice_id:
+        status, detail = "ok", "API key set — default narrator voice (ELEVENLABS_VOICE_ID optional)"
+    else:
+        status, detail = "ok", "API key + custom voice id set"
+    return {"key": "voice", "name": "ElevenLabs Voice",
+            "env": ["ELEVENLABS_API_KEY", "ELEVENLABS_VOICE_ID"],
+            "status": status, "detail": detail}
+
+
+CHECKS = [check_telegram, check_sheets, check_drive, check_docs, check_calendar, check_github,
+          check_voice]
 
 
 # ---------------------------------------------------------------- live probes
@@ -229,6 +251,18 @@ def _probe_calendar():
     return {"summary": cal.get("summary", ""), "timeZone": cal.get("timeZone", "")}
 
 
+def _probe_voice():
+    """Read-only: list account voices (does not consume synthesis characters)."""
+    import urllib.request
+    req = urllib.request.Request(
+        "https://api.elevenlabs.io/v1/voices",
+        headers={"xi-api-key": _env("ELEVENLABS_API_KEY")},
+    )
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        payload = json.loads(resp.read())
+    return {"voices": len(payload.get("voices", []))}
+
+
 PROBES = {
     "telegram": _probe_telegram,
     "sheets": _probe_sheets,
@@ -236,6 +270,7 @@ PROBES = {
     "docs": _probe_docs,
     "calendar": _probe_calendar,
     "github": _probe_github,
+    "voice": _probe_voice,
 }
 
 STATUS_ICON = {"ok": "✅", "partial": "⚠️", "missing": "❌", "invalid": "❌"}
@@ -271,7 +306,7 @@ def render(results, live: bool = False) -> str:
     if pending:
         lines.append("")
         lines.append("Next steps (priority: " + " → ".join(PRIORITY_ORDER) + "):")
-        for key in PRIORITY_ORDER + ["sheets", "drive", "telegram"]:
+        for key in PRIORITY_ORDER + ["sheets", "drive", "telegram", "voice"]:
             row = next((r for r in results if r["key"] == key and r["status"] != "ok"), None)
             if row:
                 lines.append(f"  • {row['name']}: python3 -m connectors.connection_setup --guide {key}")

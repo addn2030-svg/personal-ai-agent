@@ -300,7 +300,7 @@ def status(store=None):
     S = store.rows_all()
 
     lines = ["", "🧭 Master OS — ملخص البنية المعمارية (v0.9)", "=" * 46]
-    tree = S.get("drive_tree", [{}])[0]
+    tree = (S.get("drive_tree") or [{}])[0]
     folders = tree.get("folders", MASTER_TREE) if tree else MASTER_TREE
     lines.append(f"{FOLDER_EMOJI} شجرة Drive: {tree.get('root', 'Abdulrahman_Master_OS')} "
                  f"(digest {tree.get('digest', '—')})")
