@@ -289,6 +289,14 @@ def loop():
             markers = _update_markers(hb_day=t.date().isoformat())
             log_event("manager_loop_alive", tz=str(TZ))
 
+        # v0.9 — محرك الأتمتة المجدول (يومي/أسبوعي/شهري): يستحق الآن؟
+        # المحرك لا يرسل خارجيًا أبدًا: يولّد مسودات في طابور الاعتماد فقط.
+        try:
+            import scheduler
+            scheduler.dispatch_due(verbose=False)
+        except Exception as exc:  # noqa: BLE001
+            log_event("scheduler_error", error=str(exc)[:160])
+
         due_full = t.replace(hour=MORNING_HOUR, minute=MORNING_MINUTE, second=0, microsecond=0)
         if t >= due_full and markers.get("last_full") != t.date().isoformat():
             try:

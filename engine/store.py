@@ -34,7 +34,12 @@ SECTIONS = ["tasks", "projects", "leads", "kpis", "meetings", "decisions",
             "learning_plans", "learning_concepts", "learning_reviews", "knowledge_sources",
             "weakness_protocols", "asset_registry", "okrs", "energy_log", "finance_ebsi",
             "unified_inbox", "fact_registry", "contradictions", "decision_reviews",
-            "connector_health", "telemetry", "trust_snapshots", "conversation_memory"]
+            "connector_health", "telemetry", "trust_snapshots", "conversation_memory",
+            # v0.9 — Master OS (audio-first & mind-map architecture): drive tree mirror,
+            # sub-agent allocation matrix, automation schedule/runs ledger, mind-map
+            # library, audio digest queue and curated YouTube source list.
+            "drive_tree", "sub_agents", "automation_schedule", "automation_runs",
+            "mind_maps", "audio_digests", "content_sources"]
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _DATETIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?([+-]\d{2}:\d{2})?$")

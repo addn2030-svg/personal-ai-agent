@@ -40,8 +40,18 @@ on:
       - 'connectors/telegram_webhook.py'
       - 'engine/store.py'
       - 'engine/manager.py'
+      - 'engine/telegram_bot.py'
+      - 'engine/master_os.py'
+      - 'engine/drive_tree.py'
+      - 'engine/mindmap.py'
+      - 'engine/audio_digest.py'
+      - 'engine/scheduler.py'
       - 'engine/unified_inbox.py'
       - 'engine/multi_intent.py'
+      - 'tests/test_v09_master_os.py'
+      - 'tests/test_v09_mindmap.py'
+      - 'tests/test_v09_audio_digest.py'
+      - 'tests/test_v09_scheduler.py'
       - 'research_capsules/**'
       - 'tests/test_production_model_gateway.py'
       - 'tests/test_direct_specialists.py'
@@ -98,6 +108,10 @@ jobs:
           tests.test_state_safety_manager
           tests.test_multi_intent
           tests.test_manager_wo8_compat
+          tests.test_v09_master_os
+          tests.test_v09_mindmap
+          tests.test_v09_audio_digest
+          tests.test_v09_scheduler
       - name: Compile production entrypoints
         run: >-
           python -m py_compile
@@ -136,5 +150,11 @@ jobs:
           connectors/telegram_webhook.py
           engine/store.py
           engine/manager.py
+          engine/telegram_bot.py
+          engine/master_os.py
+          engine/drive_tree.py
+          engine/mindmap.py
+          engine/audio_digest.py
+          engine/scheduler.py
           engine/unified_inbox.py
           engine/multi_intent.py
