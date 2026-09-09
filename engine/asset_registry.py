@@ -76,6 +76,24 @@ def collect(S):
                        "status": p["status"], "location": p.get("material_file") or "learning_engine",
                        "door": "التعلم والقراءة", "detail": f"{p['plan_id']} — منهجية ILPC",
                        "link": "", "sensitive": False})
+
+    # 6) خرائط ذهنية (v0.9)
+    for m in S.get("mind_maps", []):
+        assets.append({"title": f"🗺️ {m['title']}", "type": "خريطة ذهنية",
+                       "status": "مرجع" if m.get("status") == "READY" else m.get("status", "—"),
+                       "location": f"reports/mindmaps/{m.get('file_md') or ''}",
+                       "door": "المعرفة المسموعة والخرائط الذهنية",
+                       "detail": f"{m.get('map_id')} — {m.get('source_ref', '')}",
+                       "link": "", "sensitive": False})
+
+    # 7) الملخصات الصوتية (v0.9)
+    for d in S.get("audio_digests", []):
+        assets.append({"title": f"🎧 {d['title']}", "type": "ملخص صوتي",
+                       "status": d.get("status", "QUEUED"),
+                       "location": f"reports/audio_digests/{d.get('digest_id', '').lower()}-report.md",
+                       "door": "المعرفة المسموعة والخرائط الذهنية",
+                       "detail": d.get("source_url") or d.get("source_kind", ""),
+                       "link": d.get("source_url") or "", "sensitive": False})
     return assets
 
 

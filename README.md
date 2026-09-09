@@ -2,6 +2,24 @@
 
 نظام تشغيل شخصي بالذكاء الاصطناعي: وكيل رئيسي (Chief of Staff) + 6 مهارات، يقرأ من **مخزن حالة موحد** ويخرج بريفًا يوميًا ومراجعة أسبوعية وكشف أنماط، وكل إجراء خارجي يمر بـ**طابور اعتماد** مرتبط ببصمة المحتوى.
 
+## الجديد في v0.9 (Master OS — المعرفة المسموعة والخرائط الذهنية ومحرك الأتمتة)
+- **شجرة Google Drive المعيارية** (`Abdulrahman_Master_OS` بجذور 01–05) في
+  `engine/master_os.py` + أداة `engine/drive_tree.py render/checklist` تولّد تقرير
+  الشجرة وقائمة إنشاء المجلدات.
+- **مصفوفة الوكلاء الأربعة** (Morning Briefing / Clinical & Ops / Knowledge & Audio /
+  Finance & Life) مسجلة في قسم `sub_agents` + حزمة أوامر `prompts/master-os-agents.md`.
+- **محرك الأتمتة المجدول** `engine/scheduler.py`: 11 وظيفة (يومي 06:45/07:30/16:00/20:30 ·
+  أسبوعي أحد/ثلاثاء/خميس/جمعة · شهري 28/1/آخر يوم) بتوقيت الرياض، تتكامل مع
+  `engine/manager.py --loop`، وكل تشغيل يولّد **مسودة في طابور الاعتماد فقط**.
+- **مولّد الخرائط الذهنية** `engine/mindmap.py`: أي Markdown ← خريطة Mermaid
+  (`mindmap`) + شجرة نصية + مكتبة `mind_maps`، وخريطة الجمعة الأسبوعية.
+- **خط الملخصات المسموعة** `engine/audio_digest.py`: `QUEUED → DIGESTED → NARRATED`
+  مع سكربت سردي 5–7 دقائق، وتوليد mp3 عبر `ELEVENLABS_API_KEY` في البيئة فقط.
+- **إجراءات اليوم الفورية**: `python3 engine/scheduler.py today-actions` (تكليف DHS
+  17 سبتمبر + إغلاق NEEDS_INPUT + تفعيل التحويل الصوتي) ثم اعتمادها عبر
+  `engine/approve.py`.
+- المرجع: `docs/v0.9-master-os.md` · التقييم: `evaluation/master-os-adoption-v0.9.md`.
+
 ## الجديد في v0.4.1 (منهجية ILPC — Bob Pike Group)
 - **منهجية تصميم مواد إلزامية** مدمجة في `prompts/personal-training.md`: EAT (تجربة←وعي←نظرية) · CPR (≤20 دقيقة/مشاركة كل 8 دقائق/مراجعة يقودها المتعلم) · 90/20/8 · أهداف قابلة للقياس وإستراتيجية تقييم قبل أي محتوى.
 - **أمر الهيكل**: `python3 engine/learning_engine.py outline LP-001` يولّد هيكل ILPC لأي خطة.

@@ -2,6 +2,7 @@
 data/state.json
 data/audit.jsonl
 data/backups/
+data/.state.lock
 data/inbox.csv
 data/inbox-imported-*.csv
 data/.manager-markers.json
