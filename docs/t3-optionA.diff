@@ -1,0 +1,56 @@
+diff --git a/connectors/telegram_bot_legacy.py b/connectors/telegram_bot_legacy.py
+index b5df3b7..4a35a71 100644
+--- a/connectors/telegram_bot_legacy.py
++++ b/connectors/telegram_bot_legacy.py
+@@ -111,6 +111,18 @@ def send(chat_id: int, text: str, reply_markup: dict | None = None):
+         api("sendMessage", payload)
+ 
+ 
++def _production_runtime() -> bool:
++    """True when running on a managed production host (Railway).
++
++    T3-OptionA: production identity must be pinned by TELEGRAM_ALLOWED_CHAT_ID;
++    the local dev flow (file capture) is kept for non-production runs only.
++    """
++    return any(os.environ.get(key, "").strip() for key in (
++        "RAILWAY_ENVIRONMENT", "RAILWAY_ENVIRONMENT_NAME",
++        "RAILWAY_PROJECT_ID", "RAILWAY_PUBLIC_DOMAIN",
++    ))
++
++
+ def _owner_id():
+     if ALLOWED_CHAT_ID:
+         return ALLOWED_CHAT_ID
+@@ -126,6 +138,12 @@ def _authorized(chat_id: int, chat_type: str):
+         return str(chat_id) == owner
+     if chat_type != "private":
+         return False
++    if _production_runtime():
++        # T3-OptionA fail-closed: never hand ownership to whoever messages first.
++        print("SECURITY: TELEGRAM_ALLOWED_CHAT_ID is unset in production and no owner "
++              "file exists; refusing to auto-bind the first private chat as owner.",
++              flush=True)
++        return False
+     OWNER_FILE.parent.mkdir(parents=True, exist_ok=True)
+     OWNER_FILE.write_text(str(chat_id), encoding="utf-8")
+     return True
+diff --git a/connectors/telegram_webhook_runtime.py b/connectors/telegram_webhook_runtime.py
+index f44ad8f..ac55e57 100644
+--- a/connectors/telegram_webhook_runtime.py
++++ b/connectors/telegram_webhook_runtime.py
+@@ -482,6 +482,15 @@ bot.command_brief = _command_brief_v21
+ 
+ 
+ def run():
++    # T3-OptionA fail-closed boot: Railway must never serve the bot with an
++    # unpinned owner identity. Losing the volume (or a fresh container) would
++    # otherwise hand /confirm rights to the first private chat that messages.
++    # (bot here is the telegram_bot_legacy module, via telegram_webhook.bot.)
++    if bot._production_runtime() and not bot.ALLOWED_CHAT_ID:
++        raise RuntimeError(
++            "Refusing to start: TELEGRAM_ALLOWED_CHAT_ID must be set in Railway so the "
++            "owner identity is pinned. (T3-OptionA fail-closed)"
++        )
+     state = google_credentials.status()
+     print(
+         "Sheets production route: "

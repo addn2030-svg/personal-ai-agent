@@ -275,27 +275,24 @@ def _direct_upsert_metrics(clean, sheet):
 
 
 def upsert_metrics(metrics, sheet="Executive_Brief"):
+    """Persist Executive_Brief metric rows (governed write path).
+
+    Sheets Gateway v1.0 governance (T2): while the webhook gateway is configured it
+    is the ONLY write route, so every metrics write lands in Gateway_Audit. A failing
+    webhook must surface as a failure, not silently fall back to an unaudited direct
+    write. The Service Account route runs only when no webhook is configured.
+    """
     if not isinstance(metrics, dict) or not metrics:
         return {"ok": True, "updated": 0}
     clean = {str(k)[:160]: str(v)[:5000] for k, v in metrics.items()}
 
-    direct_error = None
-    if _direct_ready():
-        try:
-            return _direct_upsert_metrics(clean, sheet)
-        except Exception as exc:
-            direct_error = exc
     if _webhook_ready():
-        try:
-            return _webhook("upsert_metrics", sheet=sheet, metrics=clean)
-        except Exception as webhook_exc:
-            if direct_error:
-                raise RuntimeError(
-                    f"Sheets direct metrics update failed: {direct_error}; webhook failed: {webhook_exc}"
-                ) from webhook_exc
-            raise
-    if direct_error:
-        raise direct_error
+        return _webhook("upsert_metrics", sheet=sheet, metrics=clean)
+    if _direct_ready():
+        return _direct_upsert_metrics(clean, sheet)
+    state = google_credentials.status()
+    if state["present"] and not state["valid"]:
+        raise RuntimeError("GOOGLE_SERVICE_ACCOUNT_JSON is present but invalid")
     raise RuntimeError("Google Sheets metrics route is not configured")
 
 
@@ -332,26 +329,20 @@ def _direct_add_tab(title, rows, cols):
 def add_tab(title, rows=1000, cols=26):
     """Create a new tab in the shared workbook (idempotent: existing tabs return existed=True).
 
-    Uses spreadsheets.batchUpdate with an addSheet request (Sheets API v4).
-    Callers decide approval; this layer only validates the name and executes.
+    Sheets Gateway v1.0 governance (T2): while the webhook gateway is configured it
+    is the ONLY route, so tab creation lands in Gateway_Audit; a failing webhook does
+    not silently fall back to an unaudited direct write. The direct Service Account
+    path (spreadsheets.batchUpdate with an addSheet request, Sheets API v4) runs only
+    when no webhook is configured. Callers decide approval; this layer only validates
+    the name and executes.
     """
     title = _validate_tab_name(title)
 
-    direct_error = None
-    if _direct_ready():
-        try:
-            return _direct_add_tab(title, rows, cols)
-        except Exception as exc:
-            direct_error = exc
     if _webhook_ready():
-        try:
-            return _webhook("addtab", title=title, rows=int(rows), cols=int(cols))
-        except Exception as webhook_exc:
-            if direct_error:
-                raise RuntimeError(
-                    f"Sheets direct add_tab failed: {type(direct_error).__name__}; webhook failed: {webhook_exc}"
-                ) from webhook_exc
-            raise
-    if direct_error:
-        raise direct_error
+        return _webhook("addtab", title=title, rows=int(rows), cols=int(cols))
+    if _direct_ready():
+        return _direct_add_tab(title, rows, cols)
+    state = google_credentials.status()
+    if state["present"] and not state["valid"]:
+        raise RuntimeError("GOOGLE_SERVICE_ACCOUNT_JSON is present but invalid")
     raise RuntimeError("Google Sheets is not configured")

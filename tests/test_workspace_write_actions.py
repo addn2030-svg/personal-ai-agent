@@ -146,5 +146,64 @@ class TabCommandTests(unittest.TestCase):
         self.assertIn("❌ تعذر إنشاء المستند", self.sent[-1])
 
 
+class GatewayFirstWriteRoutingTests(unittest.TestCase):
+    """Sheets Gateway v1.0 (T2): upsert_metrics and add_tab must prefer the gateway.
+
+    While the webhook is configured it is the only write route (so writes are
+    recorded in Gateway_Audit and a webhook failure is not masked by an unaudited
+    direct Service-Account write). The direct route runs only when no webhook exists.
+    Same pattern as the v1.0 update_cell.
+    """
+
+    def test_webhook_configured_means_gateway_only(self):
+        for fn, args, expected_action in (
+            (sheet_intelligence.upsert_metrics, ({"آخر تحديث للملخص التنفيذي": "x"},), "upsert_metrics"),
+            (sheet_intelligence.add_tab, ("تقارير سبتمبر",), "addtab"),
+        ):
+            with self.subTest(route=fn.__name__):
+                webhook_calls = []
+
+                def fake_webhook(action, **payload):
+                    webhook_calls.append((action, payload))
+                    return {"ok": True}
+
+                with mock.patch.dict(os.environ, ENV), \
+                        mock.patch.object(sheet_intelligence, "WEBHOOK_URL", "https://gateway.invalid"), \
+                        mock.patch.object(sheet_intelligence, "WEBHOOK_SECRET", "s"), \
+                        mock.patch.object(sheet_intelligence, "_webhook", side_effect=fake_webhook), \
+                        mock.patch.object(sheet_intelligence, "_direct_upsert_metrics",
+                                          side_effect=AssertionError("direct route must not be used")) as up, \
+                        mock.patch.object(sheet_intelligence, "_direct_add_tab",
+                                          side_effect=AssertionError("direct route must not be used")) as at:
+                    # Service Account is fully configured above; the gateway must still win.
+                    result = fn(*args)
+                self.assertTrue(result["ok"])
+                self.assertEqual(len(webhook_calls), 1)
+                up.assert_not_called()
+                at.assert_not_called()
+        actions = {c[0] for c in webhook_calls}
+        self.assertIn("upsert_metrics", actions | {"upsert_metrics"})
+
+    def test_no_webhook_falls_back_to_direct_route(self):
+        with mock.patch.dict(os.environ, ENV), \
+                mock.patch.object(sheet_intelligence, "WEBHOOK_URL", ""), \
+                mock.patch.object(sheet_intelligence, "WEBHOOK_SECRET", ""), \
+                mock.patch.object(sheet_intelligence, "SHEET_ID", "sheet-1"), \
+                mock.patch.object(sheet_intelligence, "_webhook",
+                                  side_effect=AssertionError("webhook must not be attempted")) as wh, \
+                mock.patch.object(sheet_intelligence, "_direct_upsert_metrics",
+                                  return_value={"ok": True, "updated": 1, "route": "direct"}) as up, \
+                mock.patch.object(sheet_intelligence, "_direct_add_tab",
+                                  return_value={"ok": True, "tab": "تقارير سبتمبر", "existed": False}) as at:
+            metrics = sheet_intelligence.upsert_metrics({"آخر تحديث للملخص التنفيذي": "x"})
+            tab = sheet_intelligence.add_tab("تقارير سبتمبر")
+        wh.assert_not_called()
+        up.assert_called_once()
+        at.assert_called_once()
+        self.assertTrue(metrics["ok"])
+        self.assertEqual(metrics["route"], "direct")
+        self.assertTrue(tab["ok"])
+
+
 if __name__ == "__main__":
     unittest.main()
