@@ -29,7 +29,7 @@ BACKUP_DIR = os.path.join(DATA_DIR, "backups")
 LOCK_PATH = os.path.join(DATA_DIR, ".state.lock")
 
 SECTIONS = ["tasks", "projects", "leads", "kpis", "meetings", "decisions",
-            "followups", "voice", "learning", "finance", "waiting_for", "action_queue",
+            "followups", "voice", "learning", "finance", "waiting_for", "blockers", "action_queue",
             "voice_calls", "contacts", "handoff_requests", "decision_requests",
             "learning_plans", "learning_concepts", "learning_reviews", "knowledge_sources",
             "weakness_protocols", "asset_registry", "okrs", "energy_log", "finance_ebsi",
@@ -39,7 +39,9 @@ SECTIONS = ["tasks", "projects", "leads", "kpis", "meetings", "decisions",
             # sub-agent allocation matrix, automation schedule/runs ledger, mind-map
             # library, audio digest queue and curated YouTube source list.
             "drive_tree", "sub_agents", "automation_schedule", "automation_runs",
-            "mind_maps", "audio_digests", "content_sources"]
+            "mind_maps", "audio_digests", "content_sources",
+            # Pilot v1 — proactive Chief of Staff event and alert ledgers.
+            "proactive_events", "proactive_alerts"]
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _DATETIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?([+-]\d{2}:\d{2})?$")
@@ -85,6 +87,7 @@ def _empty_state():
         "meta": {"version": 0, "updated_at": None, "schema": "state/1", "note": ""},
         **{s: [] for s in SECTIONS},
         "manager_markers": {},
+        "proactive_config": {},
     }
 
 
@@ -137,6 +140,7 @@ class Store:
         for s in SECTIONS:
             data.setdefault(s, [])
         data.setdefault("manager_markers", {})
+        data.setdefault("proactive_config", {})
         data.setdefault("meta", {})
         self._base_version = int(data["meta"].get("version", 0) or 0)
         return data
@@ -163,6 +167,8 @@ class Store:
                 errors.append(f"section {section} must be a list")
         if not isinstance(self.data.get("manager_markers"), dict):
             errors.append("manager_markers must be an object")
+        if not isinstance(self.data.get("proactive_config"), dict):
+            errors.append("proactive_config must be an object")
         if require_nonempty and self.record_count() == 0:
             errors.append("state store is empty")
         if errors:
@@ -202,6 +208,7 @@ class Store:
         for section in SECTIONS:
             new_data.setdefault(section, [])
         new_data.setdefault("manager_markers", {})
+        new_data.setdefault("proactive_config", {})
         version = self._base_version + 1
         new_data["meta"] = {
             "version": version,

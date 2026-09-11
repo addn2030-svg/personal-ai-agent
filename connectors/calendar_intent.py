@@ -12,11 +12,17 @@ import re
 
 from . import calendar_actions
 
+# Calendar routing is intentionally anchored to an explicit scheduling lead.
+# A long configuration/instruction message may mention "موعد" or "سجّل" as
+# ordinary words; it must not become a calendar event because of those words.
 _CALENDAR_ACTION_RE = re.compile(
-    r"(?:\bremind\s+me\b|\badd\b.*\bcalendar\b|\bput\b.*\bcalendar\b|"
-    r"\brecord\b.*\bcalendar\b|\bsave\b.*\bcalendar\b|^\s*schedule\b|"
-    r"ذكرني|ذكّرني|أضف.*(?:التقويم|تقويم|موعد)|اضف.*(?:التقويم|تقويم|موعد)|"
-    r"سجل.*(?:التقويم|تقويم|موعد)|سجّل.*(?:التقويم|تقويم|موعد))",
+    r"^\s*(?:"
+    r"\bremind\s+me\b|\bschedule\b|"
+    r"\b(?:add|put|record|save)\b.*\bcalendar\b|"
+    r"ذكرني|ذكّرني|"
+    r"(?:أضف|اضف)\s+(?:لي\s+)?(?:موعد|تذكير|اجتماع|مكالمة|إلى\s+(?:التقويم|تقويم))|"
+    r"(?:سجل|سجّل)\s+(?:لي\s+)?(?:موعد|تذكير|اجتماع|مكالمة|في\s+(?:التقويم|تقويم))"
+    r")",
     re.I | re.S,
 )
 _RELATIVE_EN_RE = re.compile(
@@ -138,6 +144,10 @@ def install() -> None:
 
     def wrapped_handle_message(message: dict):
         text = (message.get("text") or message.get("caption") or "").strip()
+        # The proactive control plane is always handled before any natural-
+        # language Calendar routing, even if its payload mentions a due date.
+        if text.lower().startswith("/proactive"):
+            return _ORIGINAL_HANDLE(message)
         if text and is_calendar_action(text):
             routed = dict(message)
             routed["text"] = routed_text(text)

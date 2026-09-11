@@ -1,17 +1,23 @@
 # -*- coding: utf-8 -*-
 """Safe Google Sheets read/search/update layer for Telegram intelligence."""
+
 from __future__ import annotations
 
 import json
 import os
 import re
 import urllib.request
+import uuid
 
 from . import google_credentials
 
 SHEET_ID = os.environ.get("GOOGLE_SHEET_ID", "").strip()
 WEBHOOK_URL = os.environ.get("GOOGLE_SHEETS_WEBHOOK_URL", "").strip()
 WEBHOOK_SECRET = os.environ.get("GOOGLE_SHEETS_WEBHOOK_SECRET", "").strip()
+# Gateway v1.0: separate secret used only to record a human approval before a cell update.
+APPROVAL_SECRET = os.environ.get("GOOGLE_SHEETS_APPROVAL_SECRET", "").strip()
+_FORMULA_PREFIX = re.compile(r"^[=+\-@\t\r]")
+_PLAIN_NUMBER = re.compile(r"^[+-]?\d+(\.\d+)?$")
 _SERVICE = None
 PRIORITY_TABS = [
     "Projects", "خطة الإنجاز والمهام", "Smart_Inbox", "Waiting_For", "Blockers",
@@ -34,8 +40,16 @@ def configured():
     return _direct_ready() or _webhook_ready()
 
 
+def _safe_cell(value):
+    """Block formula injection (=, +, -, @) in text written with USER_ENTERED; keep plain numbers."""
+    if isinstance(value, str) and _FORMULA_PREFIX.match(value) and not _PLAIN_NUMBER.match(value):
+        return "'" + value
+    return value
+
+
 def _webhook(action, **kwargs):
     payload = {"secret": WEBHOOK_SECRET, "action": action, **kwargs}
+    payload.setdefault("request_id", uuid.uuid4().hex)
     req = urllib.request.Request(
         WEBHOOK_URL,
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
@@ -125,13 +139,7 @@ def _column_letter(number: int) -> str:
 
 
 def _direct_snapshot(max_rows=80, max_cols=16):
-    """Read the live workbook directly, tolerating an isolated bad tab.
-
-    The Service Account has already been validated by /storage_status. One malformed,
-    protected, or transiently failing tab should not force the whole brief onto the
-    legacy Apps Script webhook. We therefore read each tab independently, log safe
-    diagnostics, and only fail when every attempted tab failed.
-    """
+    """Read the live workbook directly, tolerating an isolated bad tab."""
     out = {}
     errors = []
     sheets = _direct_metadata()
@@ -171,8 +179,6 @@ def _direct_snapshot(max_rows=80, max_cols=16):
             )
         return out
 
-    # An entirely empty workbook is a valid (though unusual) result. Only raise when
-    # actual read errors occurred for all attempted tabs.
     if errors and attempted:
         raise RuntimeError(
             "Direct Sheets snapshot failed for all attempted tabs: " + " | ".join(errors[:3])
@@ -184,9 +190,6 @@ def snapshot(max_rows=80, max_cols=16):
     max_rows = max(2, min(int(max_rows), 150))
     max_cols = max(2, min(int(max_cols), 20))
 
-    # Production preference is explicit: once a valid Service Account exists, use it
-    # as the authoritative route. Do not mask a direct error behind the legacy webhook,
-    # because that webhook may return an HTML login/deployment page with HTTP 200.
     if _direct_ready():
         return _direct_snapshot(max_rows=max_rows, max_cols=max_cols)
 
@@ -219,35 +222,53 @@ def _direct_update_cell(sheet, a1, value):
         spreadsheetId=SHEET_ID,
         range=f"'{safe_sheet}'!{a1}",
         valueInputOption="USER_ENTERED",
-        body={"values": [[value]]},
+        body={"values": [[_safe_cell(value)]]},
     ).execute()
-    return {"ok": True, "sheet": sheet, "range": a1}
+    return {"ok": True, "sheet": sheet, "range": a1, "route": "direct"}
 
 
-def update_cell(sheet, a1, value):
+def _approval_id(approval_ref=None):
+    ref = re.sub(r"[^A-Za-z0-9_\-:.]", "", str(approval_ref or ""))[:40]
+    suffix = uuid.uuid4().hex[:12]
+    return f"AP-{ref}-{suffix}" if ref else f"AP-{suffix}"
+
+
+def _webhook_update_cell(sheet, a1, value, approved_by, approval_ref):
+    if not APPROVAL_SECRET:
+        raise RuntimeError("GOOGLE_SHEETS_APPROVAL_SECRET is not configured (required by Sheets gateway v1.0)")
+    approval_id = _approval_id(approval_ref)
+    _webhook(
+        "record_approval",
+        approval_secret=APPROVAL_SECRET,
+        approval_id=approval_id,
+        sheet=sheet,
+        range=a1,
+        value=value,
+        approved_by=str(approved_by or "telegram_owner")[:100],
+        ttl_minutes=15,
+    )
+    result = _webhook("update", sheet=sheet, range=a1, value=value, approval_id=approval_id)
+    result["route"] = "webhook"
+    return result
+
+
+def update_cell(sheet, a1, value, approved_by="telegram_owner", approval_ref=None):
+    """Execute an ALREADY human-approved single-cell change.
+
+    Callers own PROPOSE/REVIEW/APPROVE. When the gateway is configured it is the only
+    route (approval binding + Gateway_Audit). Direct Sheets API is a fallback only when
+    the gateway is not configured.
+    """
     if not re.fullmatch(r"[A-Z]{1,3}[1-9][0-9]{0,5}", a1 or ""):
         raise ValueError("Use one cell such as B12")
     titles = {s["title"] for s in metadata()}
     if sheet not in titles:
         raise ValueError("Unknown sheet: " + sheet)
 
-    direct_error = None
-    if _direct_ready():
-        try:
-            return _direct_update_cell(sheet, a1, value)
-        except Exception as exc:
-            direct_error = exc
     if _webhook_ready():
-        try:
-            return _webhook("update", sheet=sheet, range=a1, value=value, approved=True)
-        except Exception as webhook_exc:
-            if direct_error:
-                raise RuntimeError(
-                    f"Sheets direct update failed: {direct_error}; webhook failed: {webhook_exc}"
-                ) from webhook_exc
-            raise
-    if direct_error:
-        raise direct_error
+        return _webhook_update_cell(sheet, a1, value, approved_by, approval_ref)
+    if _direct_ready():
+        return _direct_update_cell(sheet, a1, value)
     raise RuntimeError("Google Sheets update route is not configured")
 
 
@@ -266,7 +287,7 @@ def _direct_upsert_metrics(clean, sheet):
         row = labels.get(label)
         if row is None:
             row, next_row = next_row, next_row + 1
-        updates.append({"range": f"'{safe_sheet}'!A{row}:B{row}", "values": [[label, value]]})
+        updates.append({"range": f"'{safe_sheet}'!A{row}:B{row}", "values": [[label, _safe_cell(value)]]})
     _service().spreadsheets().values().batchUpdate(
         spreadsheetId=SHEET_ID,
         body={"valueInputOption": "USER_ENTERED", "data": updates},
@@ -279,23 +300,12 @@ def upsert_metrics(metrics, sheet="Executive_Brief"):
         return {"ok": True, "updated": 0}
     clean = {str(k)[:160]: str(v)[:5000] for k, v in metrics.items()}
 
-    direct_error = None
-    if _direct_ready():
-        try:
-            return _direct_upsert_metrics(clean, sheet)
-        except Exception as exc:
-            direct_error = exc
+    # A configured gateway is authoritative for every write so that metrics are
+    # audited. Direct Sheets API remains a fallback only when the gateway is absent.
     if _webhook_ready():
-        try:
-            return _webhook("upsert_metrics", sheet=sheet, metrics=clean)
-        except Exception as webhook_exc:
-            if direct_error:
-                raise RuntimeError(
-                    f"Sheets direct metrics update failed: {direct_error}; webhook failed: {webhook_exc}"
-                ) from webhook_exc
-            raise
-    if direct_error:
-        raise direct_error
+        return _webhook("upsert_metrics", sheet=sheet, metrics=clean)
+    if _direct_ready():
+        return _direct_upsert_metrics(clean, sheet)
     raise RuntimeError("Google Sheets metrics route is not configured")
 
 
@@ -330,28 +340,13 @@ def _direct_add_tab(title, rows, cols):
 
 
 def add_tab(title, rows=1000, cols=26):
-    """Create a new tab in the shared workbook (idempotent: existing tabs return existed=True).
-
-    Uses spreadsheets.batchUpdate with an addSheet request (Sheets API v4).
-    Callers decide approval; this layer only validates the name and executes.
-    """
+    """Create a new tab (idempotent). Callers decide approval; this layer validates and executes."""
     title = _validate_tab_name(title)
 
-    direct_error = None
-    if _direct_ready():
-        try:
-            return _direct_add_tab(title, rows, cols)
-        except Exception as exc:
-            direct_error = exc
+    # A configured gateway is authoritative for every write so that add-tab events
+    # are audited. Direct Sheets API remains a fallback only when the gateway is absent.
     if _webhook_ready():
-        try:
-            return _webhook("addtab", title=title, rows=int(rows), cols=int(cols))
-        except Exception as webhook_exc:
-            if direct_error:
-                raise RuntimeError(
-                    f"Sheets direct add_tab failed: {type(direct_error).__name__}; webhook failed: {webhook_exc}"
-                ) from webhook_exc
-            raise
-    if direct_error:
-        raise direct_error
+        return _webhook("addtab", title=title, rows=int(rows), cols=int(cols))
+    if _direct_ready():
+        return _direct_add_tab(title, int(rows), int(cols))
     raise RuntimeError("Google Sheets is not configured")
