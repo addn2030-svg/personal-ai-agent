@@ -265,6 +265,68 @@ def today_actions_text():
             "🔁 إجراءات اليوم موجودة أصلًا — راجعها: /approve")
 
 
+# ---------------------------------------------------------------- محرك الاستباقية v1.0
+def proactive_text():
+    """🛰️ ملخص محرك الاستباقية: الحالة، القناة، الحواجز، الحلقات المفتوحة."""
+    try:
+        import proactive
+        st = proactive.status()
+    except Exception as exc:  # noqa: BLE001
+        return f"❌ تعذر جمع حالة الاستباقية: {str(exc)[:200]}"
+    push_icons = {"ready": "✅ جاهزة", "no_token": "❌ بلا توكن",
+                  "no_chat_id": "⚠️ بلا معرف محادثة", "disabled_env": "⏸️ موقوفة بالبيئة"}
+    if not st["enabled"]:
+        state = "⛔ معطّل (PROACTIVE_ENABLED=0)"
+    elif st["paused_until"]:
+        state = "⏸️ موقوف حتى " + str(st["paused_until"])
+    else:
+        state = "▶️ فعّال"
+    orders_on = sum(1 for v in st["orders"].values() if v)
+    return "\n".join([
+        "🛰️ محرك الاستباقية",
+        f"الحالة: {state} · هدوء الآن: {'نعم' if st['quiet_now'] else 'لا'}",
+        f"قناة التنبيه المستعجل: {push_icons.get(st['telegram_push'], st['telegram_push'])}",
+        f"تنبيهات اليوم: {st['alerts_today']}/{st['max_alerts']} · "
+        f"حلقات مفتوحة: {st['open_loops']} · تحت الاستدراك: {st['recovering']}",
+        f"أوامر دائمة فعّالة: {orders_on}/{len(st['orders'])} · "
+        f"دفتر الإجراءات: {st['ledger_rows']} · تغذية مسجلة: {st['feedback']}",
+        "الأوامر: /sweep دورة فورية · /proactive_test تجربة القناة · /approve الاعتمادات"])
+
+
+def sweep_text():
+    """يشغّل دورة استباقية فورية (write-on-change) ويعيد ملخصها."""
+    try:
+        import proactive
+        summary = proactive.sweep(verbose=False)
+    except Exception as exc:  # noqa: BLE001
+        return f"❌ تعذرت الدورة: {str(exc)[:200]}"
+    if summary.get("paused"):
+        return "⏸️ الاستباقية موقوفة مؤقتًا — استئنفها من الطرفية: resume"
+    tail = f"\n📨 دُفع لتيليجرام: {summary['pushed']}" if summary.get("pushed") else ""
+    return ("🛰️ دورة استباقية اكتملت:\n"
+            f"حلقات مفتوحة {summary['loops_open']} · نُفّذ {summary['act']} · "
+            f"جهّز {summary['prepare']} · تنبيه {summary['alert']} · "
+            f"أُرجئ {summary['batched']} · اقتراح {summary['suggest']} · "
+            f"فائت تحت الاستدراك {summary['missed']}" + tail +
+            "\nالمسودات: /approve · الحالة: /proactive")
+
+
+def proactive_test_text():
+    """يرسل رسالة تجريبية عبر قناة التنبيه المستعجل نفسها ويعيد الحكم."""
+    try:
+        import proactive
+        code, why = proactive.push_test()
+    except Exception as exc:  # noqa: BLE001
+        return f"❌ تعذر الاختبار: {str(exc)[:200]}"
+    if code == 0:
+        return ("✅ نجح اختبار قناة التنبيه — رسالة «🛰️ تجربة» تصلك الآن من المسار "
+                "نفسه الذي تسلكه التنبيهات الحمراء. إن وصلتك فهذه المحادثة جاهزة 100%.")
+    reasons = {"no_token": "TELEGRAM_BOT_TOKEN غير مضبوط في بيئة التشغيل",
+               "no_chat_id": "لا معرف محادثة — اضبط TELEGRAM_ALLOWED_CHAT_ID أو أرسل /start هنا أولًا",
+               "disabled_env": "القناة موقوفة يدويًا (PROACTIVE_TELEGRAM_PUSH=0)"}
+    return "❌ القناة غير جاهزة: " + reasons.get(why, why)
+
+
 # ---------------------------------------------------------------- معالجات
 def handle(msg):
     chat = str(msg["chat"]["id"])
@@ -306,6 +368,12 @@ def handle(msg):
         api("sendMessage", chat_id=chat, text=today_actions_text())
     elif text.startswith("/diag"):
         api("sendMessage", chat_id=chat, text=diag_text())
+    elif text.startswith("/proactive_test"):
+        api("sendMessage", chat_id=chat, text=proactive_test_text())
+    elif text.startswith("/proactive"):
+        api("sendMessage", chat_id=chat, text=proactive_text())
+    elif text.startswith("/sweep"):
+        api("sendMessage", chat_id=chat, text=sweep_text())
     elif text.startswith("/mastery"):
         import subprocess
         r = subprocess.run([sys.executable, os.path.join(BASE, "engine", "learning_engine.py"), "mastery"],

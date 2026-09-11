@@ -33,6 +33,7 @@ _MASTEROS_COMMANDS = {
     "/mindmaps", "/mind_maps", "/digests", "/audio_digests",
     "/run", "/diag", "/tasks", "/decisions", "/approve",
     "/reviews", "/door", "/mastery", "/answer", "/okr",
+    "/proactive", "/proactive_test", "/sweep",
 }
 
 
@@ -305,6 +306,12 @@ def _delegated_handle_message(message: dict):
                 _impl.send(chat_id, etb.run_text())
             elif command == "/diag":
                 _impl.send(chat_id, etb.diag_text())
+            elif command == "/proactive":
+                _impl.send(chat_id, etb.proactive_text())
+            elif command == "/sweep":
+                _impl.send(chat_id, etb.sweep_text())
+            elif command == "/proactive_test":
+                _impl.send(chat_id, etb.proactive_test_text())
             elif command == "/tasks":
                 _impl.send(chat_id, etb.tasks_text())
             elif command == "/decisions":
@@ -483,6 +490,9 @@ def _configure_commands():
             {"command": "digests", "description": "خط الملخصات الصوتية"},
             {"command": "run", "description": "تنفيذ الوظائف المستحقة الآن"},
             {"command": "diag", "description": "فحص حالة قنوات الربط"},
+            {"command": "proactive", "description": "حالة محرك الاستباقية"},
+            {"command": "sweep", "description": "تشغيل دورة استباقية فورية"},
+            {"command": "proactive_test", "description": "تجربة قناة التنبيه المستعجل"},
             {"command": "approve", "description": "طابور الاعتماد بأزرار"},
             {"command": "decisions", "description": "طلبات القرارات المفتوحة"},
             {"command": "tasks", "description": "أهم المهام المفتوحة"},
