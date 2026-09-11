@@ -101,7 +101,7 @@ jobs:
     runs-on: ubuntu-latest
     # يركض على كل push إلى main وعلى أي PR لا يجرّي حزمة الاختبار الكاملة
     # (وظيفة privacy-guard رخيصة: 14 اختبارًا في <1 ثانية).
-    if: github.event_name == 'push' || !contains(fromJSON('"[main, state-safety-manager-foundation, wo8-linked-multi-intent, feature/super-manager-v1-after-wo8, manager-fast-canary-after-super-manager, capability-truth-action-sync, natural-action-executor-v1]"'), github.base_ref)
+    if: github.event_name == 'push' || !contains('[main, state-safety-manager-foundation, wo8-linked-multi-intent, feature/super-manager-v1-after-wo8, manager-fast-canary-after-super-manager, capability-truth-action-sync, natural-action-executor-v1]', github.base_ref)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
