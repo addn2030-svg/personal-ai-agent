@@ -122,12 +122,11 @@ jobs:
       - name: DIAGNOSTIC-TEMP remove-after-triage
         shell: bash
         run: |
-          out="py=$(python -V 2>&1)|py3=$(python3 -V 2>&1)|which=$(command -v python || echo NONE)"
-          for m in tests.test_research_goals tests.test_knowledge_privacy tests.test_timing; do
-            o=$(python -m unittest $m 2>&1 | grep -E "^(FAIL|ERROR):|^(ModuleNotFound|Import|Syntax|Name|Type|Value)Error|^[0-9]+ tests|^(OK|FAILED)" | head -4 | tr '\n' ';')
-            out="$out <<$m:$o"
-          done
-          echo "::error title=CI diag::$out"
+          set +e
+          one() { python -m unittest "$1" 2>&1 | tr '\n' ';' | sed -e 's/%/%25/g' -e 's/:/%3A/g' -e "s/'//g" | cut -c1-240; }
+          echo "::error title=py::$(python -V 2>&1) / $(python3 -V 2>&1)"
+          echo "::error title=research::$(one tests.test_research_goals)"
+          echo "::error title=timing::$(one tests.test_timing)"
           exit 0
 
       - name: Test production model routing
