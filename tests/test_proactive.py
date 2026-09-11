@@ -456,6 +456,162 @@ class ProactiveTests(unittest.TestCase):
         code, why = proactive.push_test()
         self.assertEqual((code, why), (1, "no_token"))
 
+    # ---------------------------------------------------------- مراجعة الأسبوع والعتبات
+    def _pa_row(self, pa_id, kind, decision, day, action_id=None, status="DONE"):
+        row = {"pa_id": pa_id, "ts": dt.datetime(day.year, day.month, day.day, 9,
+                                                 tzinfo=TZ).isoformat(timespec="seconds"),
+               "key": f"{kind}|x|{day}", "kind": kind, "title": "x",
+               "category": "money", "impact": 4, "urgency": 4, "confidence": 0.9,
+               "reversibility": "irreversible", "risk": "high", "score": 10.0,
+               "lane": "RED", "decision": decision, "note": "",
+               "standing_order": None, "result": {}, "undo": None, "status": status}
+        if action_id:
+            row["result"] = {"action_id": action_id}
+        return row
+
+    def _aq_row(self, aq_id, qstatus):
+        return {"action_id": aq_id, "type": "payment_instruction", "channel": "wa/email",
+                "content": "x", "content_hash": "h" + aq_id, "status": qstatus,
+                "created_at": DAY.isoformat(),
+                "expires_at": (DAY + dt.timedelta(days=2)).isoformat(),
+                "approved_at": None, "executed_at": None}
+
+    def _seed_ledger(self, pa_rows, q_rows, feedback=None):
+        S = self.store.rows_all()
+        S["proactive_actions"] = pa_rows
+        S["action_queue"] = q_rows
+        S["proactive_feedback"] = feedback or []
+        self.store.commit(S, "seed_ledger")
+
+    def test_acceptance_report_math_and_window(self):
+        d = lambda n: DAY - dt.timedelta(days=n)
+        pa = [self._pa_row("PA-1", "bill_due", "ALERT_DRAFT", d(1), "A-001"),
+              self._pa_row("PA-2", "bill_due", "ALERT_DRAFT", d(2), "A-002"),
+              self._pa_row("PA-3", "renewal_watch", "PREPARE", d(3), "A-003"),
+              self._pa_row("PA-4", "renewal_watch", "PREPARE", d(4), "A-004"),
+              self._pa_row("PA-5", "missed_recovery", "ACT", d(2)),
+              self._pa_row("PA-6", "missed_recovery", "ACT", d(1), None, "UNDONE"),
+              self._pa_row("PA-OLD", "bill_due", "ALERT_DRAFT", d(30), "A-OLD")]
+        aq = [self._aq_row("A-001", "EXECUTED"), self._aq_row("A-002", "REJECTED"),
+              self._aq_row("A-003", "EXPIRED"), self._aq_row("A-004", "PENDING_APPROVAL"),
+              self._aq_row("A-OLD", "EXECUTED")]
+        fb = [{"target": "free_slot", "pa_id": None, "signal": "never", "scope": "kind",
+               "until": None, "at": dt.datetime(DAY.year, DAY.month, DAY.day, 8,
+                                                tzinfo=TZ).isoformat(timespec="seconds")}]
+        self._seed_ledger(pa, aq, fb)
+        rep = proactive.acceptance_report(store=self.store, days=7, today=DAY)
+        self.assertEqual(rep["flow"], {"accepted": 1, "rejected": 1, "expired": 1,
+                                       "pending": 1, "missing": 0})  # القديم خارج النافذة
+        self.assertEqual(rep["decided"], 3)
+        self.assertAlmostEqual(rep["approval_rate"], 1 / 3, places=2)
+        self.assertEqual(rep["acts"], 2)
+        self.assertAlmostEqual(rep["undone_rate"], 0.5, places=2)
+        self.assertEqual(rep["per_kind"]["bill_due"]["accepted"], 1)
+        self.assertEqual(rep["per_kind"]["renewal_watch"]["expired"], 1)
+        self.assertEqual(rep["feedback"], {"good": 0, "much": 0, "never": 1})
+        txt = proactive.review_text(store=self.store, days=7, today=DAY)
+        self.assertIn("معدل القبول", txt)
+        # 3 قرارات فقط < الحد الأدنى 5 ← عرض بلا تعديل (الحماية من التسرّب المبكر)
+        self.assertIn("بيانات غير كافية", txt)
+
+    def test_review_insufficient_data_blocks_tuning(self):
+        self._seed_ledger([self._pa_row("PA-1", "bill_due", "PREPARE", DAY, "A-001")],
+                          [self._aq_row("A-001", "EXECUTED")])
+        rep = proactive.acceptance_report(store=self.store, days=7, today=DAY)
+        recs, notes = proactive.tuning_recommendations(rep, proactive.DEFAULT_CFG)
+        self.assertEqual(recs, {})
+        self.assertIn("بيانات غير كافية", notes[0])
+        self.assertEqual(proactive.apply_tuning(recs, store=self.store), {})
+        markers = self.store.rows_all()["manager_markers"]
+        self.assertNotIn("proactive_cfg", markers)
+
+    def test_high_acceptance_lowers_threshold_and_apply_persists(self):
+        d = lambda n: DAY - dt.timedelta(days=n)
+        pa = [self._pa_row(f"PA-{i}", "bill_due", "ALERT_DRAFT", d(i % 3), f"A-0{i:02d}")
+              for i in range(1, 7)]
+        aq = [self._aq_row(f"A-0{i:02d}", "EXECUTED") for i in range(1, 7)]
+        self._seed_ledger(pa, aq)
+        rep = proactive.acceptance_report(store=self.store, days=7, today=DAY)
+        self.assertEqual(rep["approval_rate"], 1.0)
+        recs, _ = proactive.tuning_recommendations(rep, proactive.DEFAULT_CFG)
+        self.assertEqual(recs, {"confidence_act": 0.75})
+        applied = proactive.apply_tuning(recs, store=self.store)
+        self.assertEqual(applied, {"confidence_act": 0.75})
+        self.assertEqual(proactive.resolve_cfg(self.store)["confidence_act"], 0.75)
+        # الحد الأدنى يمنع الانحدار دون 0.70 مهما تكرر التطبيق
+        proactive.apply_tuning({"confidence_act": 0.40}, store=self.store)
+        self.assertEqual(proactive.resolve_cfg(self.store)["confidence_act"], 0.70)
+
+    def test_rejections_or_undos_raise_threshold(self):
+        d = lambda n: DAY - dt.timedelta(days=n)
+        pa = [self._pa_row("PA-1", "bill_due", "PREPARE", d(1), "A-001"),
+              self._pa_row("PA-2", "bill_due", "PREPARE", d(1), "A-002"),
+              self._pa_row("PA-3", "bill_due", "PREPARE", d(1), "A-003"),
+              self._pa_row("PA-4", "bill_due", "PREPARE", d(1), "A-004"),
+              self._pa_row("PA-5", "bill_due", "PREPARE", d(1), "A-005")]
+        aq = [self._aq_row("A-001", "EXECUTED")] + \
+             [self._aq_row(f"A-00{i}", "REJECTED") for i in (2, 3, 4, 5)]
+        self._seed_ledger(pa, aq)
+        rep = proactive.acceptance_report(store=self.store, days=7, today=DAY)
+        recs, _ = proactive.tuning_recommendations(rep, proactive.DEFAULT_CFG)
+        self.assertEqual(recs, {"confidence_act": 0.9})
+        # تراجع ≥30% أيضًا يشدّد حتى مع قبول مرتفع (عينة ≥5 إجراءات لتجاوز الحارس)
+        pa2 = ([self._pa_row(f"PX-{i}", "missed_recovery", "ACT", d(1)) for i in range(3)]
+               + [self._pa_row(f"PX-9{i}", "missed_recovery", "ACT", d(1), None, "UNDONE")
+                  for i in range(2)])
+        self._seed_ledger(pa2, [])
+        rep = proactive.acceptance_report(store=self.store, days=7, today=DAY)
+        self.assertGreaterEqual(rep["undone_rate"], 0.30)
+        recs, _ = proactive.tuning_recommendations(rep, proactive.DEFAULT_CFG)
+        self.assertEqual(recs.get("confidence_act"), 0.9)
+
+    def test_cap_hit_with_happy_user_raises_max_alerts(self):
+        d = lambda n: DAY - dt.timedelta(days=n)
+        pa, aq = [], []
+        for day_i in range(3):  # ثلاثة أيام امتلأ فيها السقف 6/6
+            for i in range(6):
+                pid = f"PA-{day_i}{i}"
+                pa.append(self._pa_row(pid, "bill_due", "ALERT_DRAFT", d(day_i), f"A-{day_i}{i}"))
+                aq.append(self._aq_row(f"A-{day_i}{i}", "EXECUTED"))
+        self._seed_ledger(pa, aq)
+        rep = proactive.acceptance_report(store=self.store, days=7, today=DAY)
+        self.assertEqual(rep["cap_hit_days"], 3)
+        recs, _ = proactive.tuning_recommendations(rep, proactive.DEFAULT_CFG)
+        self.assertEqual(recs["max_alerts"], 8)
+        applied = proactive.apply_tuning({"max_alerts": 99}, store=self.store)
+        self.assertEqual(applied["max_alerts"], 12)  # السقف الأقصى مضبوط
+
+    def test_never_feedback_lowers_max_alerts(self):
+        fb = [{"target": "x", "pa_id": None, "signal": "never", "scope": "kind",
+               "until": None, "at": dt.datetime(DAY.year, DAY.month, DAY.day, 8,
+                                                tzinfo=TZ).isoformat(timespec="seconds")}
+              for _ in range(2)]
+        pa = [self._pa_row(f"PA-{i}", "bill_due", "PREPARE", DAY, f"A-00{i}")
+              for i in range(1, 7)]
+        aq = [self._aq_row(f"A-00{i}", "EXECUTED") for i in range(1, 7)]
+        self._seed_ledger(pa, aq, fb)
+        rep = proactive.acceptance_report(store=self.store, days=7, today=DAY)
+        recs, notes = proactive.tuning_recommendations(rep, proactive.DEFAULT_CFG)
+        self.assertEqual(recs["max_alerts"], 5)
+        self.assertIn("أبدًا", " ".join(notes))
+
+    def test_stored_override_changes_sweep_behavior(self):
+        # عتبة 0.95 المخزنة تجعل مرشح 0.9 يجهّز بدل أن ينفّذ
+        proactive.apply_tuning({"confidence_act": 0.95}, store=self.store)
+        self.seed(tasks=[task("تسليم العرض", due=DAY + dt.timedelta(days=1))])
+        self.sweep()
+        rows = self.by_kind("deadline_48h")
+        self.assertEqual(rows[0]["decision"], "PREPARE")
+        self.assertIn("0.95", rows[0]["note"])
+
+    def test_review_text_reports_effective_settings(self):
+        proactive.apply_tuning({"max_alerts": 8}, store=self.store)
+        self._seed_ledger([self._pa_row("PA-1", "bill_due", "PREPARE", DAY, "A-001")],
+                          [self._aq_row("A-001", "EXECUTED")])
+        txt = proactive.review_text(store=self.store, days=7, today=DAY)
+        self.assertIn("max_alerts=8", txt)
+        self.assertIn("(بيئة 6)", txt)
+
     def test_collision_and_travel_and_renewal_candidates(self):
         self.seed(meetings=[
             {"التاريخ": DAY, "الوقت": "10:00", "الموضوع": "أ", "الحضور": "",

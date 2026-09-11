@@ -862,6 +862,10 @@ def _mutate_sweep(S, t, cfg):
                   "SUGGEST": "suggest"}.get(row["decision"], "skipped")] += 1
     before = len(S.get("proactive_actions", []))
     recovery_pass(S, t, cfg, events)
+    for row in S.get("proactive_actions", [])[before:]:  # عدّل صفوف الاستدراك في الملخص
+        summary[{"ACT": "act", "PREPARE": "prepare", "ALERT": "alert",
+                  "ALERT_DRAFT": "alert", "BATCHED": "batched",
+                  "SUGGEST": "suggest"}.get(row["decision"], "skipped")] += 1
     changed = changed or len(S.get("proactive_actions", [])) != before
     summary["missed"] = sum(1 for l in S.get("open_loops", [])
                             if l.get("status") in ("MISSED", "RECOVERING"))
@@ -873,11 +877,12 @@ def _mutate_sweep(S, t, cfg):
 def sweep(store=None, now_dt=None, cfg=None, verbose=True):
     """دورة رصد كاملة داخل معاملة Store واحدة (write-on-change).
 
+    العتبات المؤثرة: البيئة ثم تجاوزات review --apply المخزنة ثم المعامل الصريح.
     دفع التنبيهات (تيليجرام) يحدث بعد إقفال المعاملة — القناة أثر خارجي اختياري
     لا يدخل في ذرّية الحالة، وفشل الشبكة لا يُسقط الدورة."""
-    cfg = {**DEFAULT_CFG, **(cfg or {})}
     t = now_dt or now()
     store = store or Store()
+    cfg = resolve_cfg(store, cfg)
     summary, events = store.transaction(
         lambda S: _mutate_sweep(S, t, cfg), "proactive_sweep")
     for event, details in events:
@@ -1006,9 +1011,9 @@ def set_order(order_id, enabled_flag, store=None):
 
 # ---------------------------------------------------------------- البريف الاستباقي
 def render_brief(store=None, now_dt=None, cfg=None, reports_dir=None):
-    cfg = {**DEFAULT_CFG, **(cfg or {})}
     t = now_dt or now()
     store = store or Store()
+    cfg = resolve_cfg(store, cfg)
     out_dir = reports_dir or REPORTS
     today = t.date().isoformat()
     S = store.rows_all()
@@ -1104,14 +1109,16 @@ def status(store=None):
                   if str(a.get("ts", ""))[:10] == today]
     paused_until = (S.get("manager_markers") or {}).get("proactive_paused_until")
     paused_dt = _as_dt(paused_until)
+    eff_cfg = resolve_cfg(store)
     return {
         "enabled": enabled(),
         "paused_until": paused_until if paused_dt and paused_dt > t else None,
-        "quiet_now": _in_quiet(t, DEFAULT_CFG),
+        "quiet_now": _in_quiet(t, eff_cfg),
         "telegram_push": telegram_push_status(),
         "alerts_today": sum(1 for a in rows_today
                             if a["decision"] in ("ALERT", "ALERT_DRAFT")),
-        "max_alerts": DEFAULT_CFG["max_alerts"],
+        "max_alerts": eff_cfg["max_alerts"],
+        "confidence_act": eff_cfg["confidence_act"],
         "orders": {o["order_id"]: o.get("enabled") for o in S.get("standing_orders", [])},
         "open_loops": sum(1 for l in S.get("open_loops", []) if l.get("status") == "OPEN"),
         "recovering": sum(1 for l in S.get("open_loops", [])
@@ -1123,6 +1130,186 @@ def status(store=None):
 
 def enabled():
     return os.environ.get("PROACTIVE_ENABLED", "1") != "0"
+
+
+# ---------------------------------------------------------------- عتبات ذاتية الضبط من الواقع
+# القيم تعيش في البيئة أولًا ثم تخزَّن تجاوزاتها في manager_markers["proactive_cfg"]
+# بالأمر review --apply — فتصحح الأسبوعية تصبح فعلية دون تعديل متغيرات المنصة.
+CFG_OVERRIDABLE = ("confidence_act", "max_alerts")
+CFG_BOUNDS = {"confidence_act": (0.70, 0.95), "max_alerts": (2, 12)}
+MIN_DECISIONS_FOR_TUNING = 5
+
+
+def _stored_cfg(store):
+    try:
+        markers = store.rows_all().get("manager_markers") or {}
+        ov = markers.get("proactive_cfg") or {}
+        return {k: ov[k] for k in CFG_OVERRIDABLE if k in ov}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def resolve_cfg(store=None, cfg=None):
+    """التقاطع المرتب: القيم الافتراضية/البيئة ← تجاوزات مخزنة ← معامل صريح."""
+    base = dict(DEFAULT_CFG)
+    if store is not None:
+        base.update(_stored_cfg(store))
+    if cfg:
+        base.update(cfg)
+    return base
+
+
+def acceptance_report(store=None, days=7, today=None):
+    """معدل القبول الأسبوعي: ما قبلتَه/رفضتَه/انتهى من المسودات، وما تراجعتَ عنه
+    من التنفيذ الأخضر، واستهلاك سقف التنبيهات، وإشارات التغذية — لكل نوع محفز."""
+    store = store or Store()
+    t = today or now().date()
+    if isinstance(t, dt.datetime):
+        t = t.date()
+    start = t - dt.timedelta(days=days)
+    S = store.rows_all()
+    rows = [a for a in S.get("proactive_actions", [])
+            if (a.get("ts") and start <= (_as_date(a["ts"]) or t) <= t)]
+    queue = {a["action_id"]: a for a in S.get("action_queue", [])}
+    flow_keys = ("accepted", "rejected", "expired", "pending", "missing")
+    flow = {k: 0 for k in flow_keys}
+    per_kind = {}
+    for a in rows:
+        if a["decision"] not in ("PREPARE", "ALERT_DRAFT"):
+            continue
+        q = queue.get((a.get("result") or {}).get("action_id"))
+        st = ("missing" if q is None else
+              "accepted" if q["status"] in ("APPROVED", "EXECUTED") else
+              "rejected" if q["status"] == "REJECTED" else
+              "expired" if q["status"] == "EXPIRED" else "pending")
+        flow[st] += 1
+        per_kind.setdefault(a["kind"], {k: 0 for k in flow_keys})[st] += 1
+    acts = [a for a in rows if a["decision"] == "ACT"]
+    undone = [a for a in acts if a.get("status") == "UNDONE"]
+    alerts = [a for a in rows if a["decision"] in ("ALERT", "ALERT_DRAFT")]
+    batched = [a for a in rows if a["decision"] == "BATCHED"]
+    by_day = {}
+    for a in alerts:
+        key = str(a["ts"])[:10]
+        by_day[key] = by_day.get(key, 0) + 1
+    max_alerts = resolve_cfg(store)["max_alerts"]
+    fb = [f for f in S.get("proactive_feedback", [])
+          if f.get("at") and start <= (_as_date(f["at"]) or t) <= t]
+    signals = {"good": 0, "much": 0, "never": 0}
+    for f in fb:
+        if f.get("signal") in signals:
+            signals[f["signal"]] += 1
+    decided = flow["accepted"] + flow["rejected"] + flow["expired"]
+    return {
+        "window": {"start": start.isoformat(), "end": t.isoformat(), "days": days},
+        "prepared": len([a for a in rows if a["decision"] in ("PREPARE", "ALERT_DRAFT")]),
+        "flow": flow,
+        "decided": decided,
+        "approval_rate": round(flow["accepted"] / decided, 3) if decided else None,
+        "acts": len(acts), "undone": len(undone),
+        "undone_rate": round(len(undone) / len(acts), 3) if acts else 0.0,
+        "alerts": len(alerts), "batched": len(batched),
+        "suggestions": len([a for a in rows if a["decision"] == "SUGGEST"]),
+        "cap_hit_days": sum(1 for c in by_day.values() if c >= max_alerts),
+        "feedback": signals, "per_kind": per_kind,
+        "ledger_rows_in_window": len(rows),
+    }
+
+
+def tuning_recommendations(report, current_cfg):
+    """قواعد تحفظية محدودة: قبول عالٍ وصفر تراجع ← مزيد استقلالية؛ رفض/تراجع
+    مرتفع ← تراجع عنها؛ إشباع السقف مع قبول ← رفعه؛ إشارات «أبدًا» ← خفضه."""
+    recs = {}
+    notes = []
+    if report["decided"] < MIN_DECISIONS_FOR_TUNING and report["acts"] < MIN_DECISIONS_FOR_TUNING:
+        notes.append(f"بيانات غير كافية ({report['decided']} قرارات "
+                     f"< {MIN_DECISIONS_FOR_TUNING}) — راجع بعد أسبوع تشغيل.")
+        return recs, notes
+    rate, undone_rate = report["approval_rate"], report["undone_rate"]
+    lo_c, hi_c = CFG_BOUNDS["confidence_act"]
+    cur_c = float(current_cfg["confidence_act"])
+    if rate is not None and rate >= 0.85 and undone_rate == 0.0 and cur_c > lo_c:
+        recs["confidence_act"] = max(lo_c, round(cur_c - 0.05, 2))
+        notes.append(f"قبول {rate:.0%} وصفر تراجع — استحققت استقلالية أعلى: "
+                     f"عتبة الثقة {cur_c} ← {recs['confidence_act']}.")
+    elif ((rate is not None and rate < 0.5) or undone_rate >= 0.30) and cur_c < hi_c:
+        recs["confidence_act"] = min(hi_c, round(cur_c + 0.10, 2))
+        why = f"قبول {rate:.0%}" if rate is not None and rate < 0.5 else f"تراجع {undone_rate:.0%}"
+        notes.append(f"{why} — شدّد العتبة: ثقة {cur_c} ← {recs['confidence_act']}.")
+    lo_a, hi_a = CFG_BOUNDS["max_alerts"]
+    cur_a = int(current_cfg["max_alerts"])
+    if (report["cap_hit_days"] >= 2 and (rate or 0) >= 0.70) and cur_a < hi_a:
+        recs["max_alerts"] = min(hi_a, cur_a + 2)
+        notes.append(f"السقف امتلأ {report['cap_hit_days']} أيام وترضى عن التنبيهات "
+                     f"({(rate or 0):.0%}) — وسّعه: {cur_a} ← {recs['max_alerts']}.")
+    elif report["feedback"]["never"] >= 2 and cur_a > lo_a:
+        recs["max_alerts"] = max(lo_a, cur_a - 1)
+        notes.append(f"{report['feedback']['never']} إشارات «أبدًا» هذا الأسبوع — "
+                     f"خفّض الضجيج: {cur_a} ← {recs['max_alerts']} (الأنواع المحظورة أُوقفت ذاتيًا).")
+    if not recs:
+        notes.append("الإعدادات الحالية مناسبة لواقع هذا الأسبوع — لا تغيير.")
+    return recs, notes
+
+
+def apply_tuning(recs, store=None):
+    """يكتب التجاوزات الموصى بها في manager_markers (معاملة + تدقيق حد أدنى)."""
+    store = store or Store()
+    clean = {k: v for k, v in recs.items() if k in CFG_OVERRIDABLE}
+    if not clean:
+        return {}
+
+    def mutate(S):
+        markers = dict(S.get("manager_markers") or {})
+        cfg = dict(markers.get("proactive_cfg") or {})
+        changed = False
+        for k, v in clean.items():
+            if cfg.get(k) != v:
+                lo, hi = CFG_BOUNDS[k]
+                cfg[k] = max(lo, min(hi, v))
+                changed = True
+        markers["proactive_cfg"] = cfg
+        S["manager_markers"] = markers
+        return changed, dict(cfg)
+
+    result = store.transaction(mutate, "proactive_cfg_applied", keys=sorted(clean))
+    log_event("proactive_cfg_applied", overrides=result)
+    return result
+
+
+def review_text(store=None, days=7, today=None):
+    store = store or Store()
+    rep = acceptance_report(store, days, today)
+    cfg = resolve_cfg(store)
+    recs, notes = tuning_recommendations(rep, cfg)
+    w = rep["window"]
+    lines = [f"📊 مراجعة الأسبوع الاستباقي ({w['start']} ← {w['end']})", ""]
+    if rep["ledger_rows_in_window"] == 0:
+        lines.append("لا إجراءات استباقية في النافذة — شغّل sweep أولًا واتركه يعمل أيامًا.")
+        return "\n".join(lines)
+    rate = f"{rep['approval_rate']:.0%}" if rep['approval_rate'] is not None else "—"
+    lines += [
+        f"• مسودات جُهّزت: {rep['prepared']} | مقبولة {rep['flow']['accepted']} · "
+        f"مرفوضة {rep['flow']['rejected']} · منتهية {rep['flow']['expired']} · "
+        f"معلّقة {rep['flow']['pending']}",
+        f"• معدل القبول: {rate} (على {rep['decided']} قرارات)",
+        f"• تنفيذ أخضر: {rep['acts']} | تراجعتَ عنه: {rep['undone']} ({rep['undone_rate']:.0%})",
+        f"• تنبيهات فورية: {rep['alerts']} | أُرجئت للبريف: {rep['batched']} · "
+        f"أيام بلغ السقف: {rep['cap_hit_days']}",
+        f"• اقتراحات عُرضت: {rep['suggestions']} | تغذية: "
+        f"👍{rep['feedback']['good']} 🔕{rep['feedback']['much']} ⛔{rep['feedback']['never']}"]
+    noisy = sorted(((k, v["rejected"] + v["expired"]) for k, v in rep["per_kind"].items()),
+                   key=lambda x: -x[1])
+    noisy = [(k, n) for k, n in noisy if n > 0][:3]
+    if noisy:
+        lines.append("• أكثر الأنواع رفضًا/انتهاءً: " + "، ".join(f"{k} ({n})" for k, n in noisy))
+    lines += ["", "⚙️ الإعدادات المؤثرة الآن:",
+              f"  confidence_act={cfg['confidence_act']} (بيئة {DEFAULT_CFG['confidence_act']}) · "
+              f"max_alerts={cfg['max_alerts']} (بيئة {DEFAULT_CFG['max_alerts']})",
+              "", "🧭 التوصيات:"]
+    lines += ["  - " + n for n in notes]
+    if recs:
+        lines.append("  للتطبيق: python3 engine/proactive.py review --apply")
+    return "\n".join(lines)
 
 
 def push_test():
@@ -1140,10 +1327,12 @@ def main():
     ap = argparse.ArgumentParser(description="محرك الاستباقية — Proactive Chief of Staff")
     ap.add_argument("cmd", choices=["sweep", "brief", "status", "orders", "matrix",
                                     "order-enable", "order-disable", "pause", "resume",
-                                    "undo", "feedback", "push-test"])
+                                    "undo", "feedback", "push-test", "review"])
     ap.add_argument("id", nargs="?")
     ap.add_argument("signal", nargs="?", choices=["good", "much", "never"])
     ap.add_argument("--hours", type=float, default=4.0)
+    ap.add_argument("--days", type=int, default=7)
+    ap.add_argument("--apply", action="store_true")
     ap.add_argument("--scope", choices=["kind", "category"], default="kind")
     args = ap.parse_args()
 
@@ -1188,6 +1377,17 @@ def main():
                 print(f"❌ قناة الدفع غير جاهزة ({why}). اضبط TELEGRAM_BOT_TOKEN و"
                       "TELEGRAM_ALLOWED_CHAT_ID (أو تحدث مع البوت خاصة أولًا).")
             raise SystemExit(code)
+        elif args.cmd == "review":
+            store = Store()
+            print(review_text(store=store, days=args.days))
+            if args.apply:
+                rep = acceptance_report(store=store, days=args.days)
+                recs, _ = tuning_recommendations(rep, resolve_cfg(store))
+                applied = apply_tuning(recs, store=store)
+                if applied:
+                    print(f"✅ طُبّقت التجاوزات وخُزّنت: {applied} — تسري من الدورة القادمة.")
+                else:
+                    print("ℹ️ لا شيء مستحق التطبيق هذه المرة (لا تغيير موصى به).")
     except ValueError as exc:
         print(f"❌ {exc}")
         raise SystemExit(1)
