@@ -80,6 +80,24 @@ def _load_external_evidence() -> list[dict]:
     signals = ("okr", "objective", "هدف", "تفويض", "delegat", "قرار", "decision", "blocker", "عائق", "waiting")
     clinical = ("patient", "مريض", "diagnosis", "تشخيص", "clinical", "سريري", "mrn", "medical record")
     evidence = []
+    try:
+        from engine.books_context import extract_books
+        for book in extract_books(snapshot or {}):
+            status = str(book.get("status") or "").strip().lower()
+            if status in {"تم", "منجز", "مكتمل", "انتهى", "منجزة"}:
+                continue
+            title = str(book.get("title") or "").strip()
+            if title:
+                evidence.append({
+                    "source": f"Google Sheets:{book.get('tab', 'المصادر والتعلم العلمي')}",
+                    "date": "غير مؤرخ",
+                    "signal": f"كتاب مسجل للمراجعة: {title[:160]}",
+                })
+                if len(evidence) >= 5:
+                    return evidence
+    except Exception:
+        pass
+
     for tab, rows in (snapshot or {}).items():
         if tab in excluded:
             continue

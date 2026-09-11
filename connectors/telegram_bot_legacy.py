@@ -459,12 +459,20 @@ def command_proactive(chat_id: int, raw: str = ""):
         return
 
     if subcommand in {"suggest", "اقتراح"}:
-        alerts = pc.collect(store=store, include_context=True, respect_quiet=False)
+        from engine.proactive_worker import _load_external_evidence
+        alerts = pc.collect(
+            store=store, include_context=True, respect_quiet=False,
+            external_evidence=_load_external_evidence(),
+        )
         send(chat_id, pc.render_proposals(alerts[:1]))
         return
 
     if subcommand in {"run", "تشغيل", "محاكاة"}:
-        alerts = pc.collect(store=store, include_context=True, respect_quiet=False)
+        from engine.proactive_worker import _load_external_evidence
+        alerts = pc.collect(
+            store=store, include_context=True, respect_quiet=False,
+            external_evidence=_load_external_evidence(),
+        )
         if not alerts:
             send(chat_id, "🧪 لا توجد قاعدة مستحقة الآن؛ لم يتم إرسال شيء.")
         else:
