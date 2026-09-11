@@ -743,7 +743,10 @@ def command_confirm(chat_id: int, token: str):
         send(chat_id, "❌ رمز التأكيد غير صالح أو انتهت مدته.")
         return
     from connectors.sheet_intelligence import update_cell
-    result = update_cell(item["sheet"], item["a1"], item["value"])
+    result = update_cell(
+        item["sheet"], item["a1"], item["value"],
+        approved_by=f"telegram:{chat_id}", approval_ref=f"tg-{token.strip()}"
+    )
     send(
         chat_id,
         f"✅ تم التحديث\n{item['sheet']}!{item['a1']}"
