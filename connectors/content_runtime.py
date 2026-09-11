@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 from connectors import content_creator
+from connectors import content_sheet
 from connectors import task_delegation as team
 
 _INSTALLED = False
@@ -24,6 +25,8 @@ def install():
         legacy.send(chat_id, "\n✍️ Content Creator Agent\n/content idea — multi-agent draft\n"
                     "/approve_content ID CODE — send approved draft to Buffer\n"
                     "/reject_content ID — reject draft\n/content_status — connection and recent drafts")
+        legacy.send(chat_id, "📊 /content_sheet [Q-ID] — draft next/specific queue row\n"
+                    "/content_sheet_status — verify workbook connection")
 
     def configure_commands():
         original_configure()
@@ -35,6 +38,8 @@ def install():
                 {"command": "approve_content", "description": "Approve draft and send to Buffer"},
                 {"command": "reject_content", "description": "Reject a content draft"},
                 {"command": "content_status", "description": "Content Creator and Buffer status"},
+                {"command": "content_sheet", "description": "Create draft from publishing queue"},
+                {"command": "content_sheet_status", "description": "Content workbook connection status"},
             ]
             commands.extend(x for x in additions if x["command"] not in existing)
             legacy.api("setMyCommands", {"commands": json.dumps(commands, ensure_ascii=False)})
@@ -48,7 +53,8 @@ def install():
     def handle_message(message: dict):
         raw = (message.get("text") or message.get("caption") or "").strip()
         command = raw.split()[0].split("@")[0].lower() if raw else ""
-        supported = command in {"/content", "/approve_content", "/reject_content", "/content_status"}
+        supported = command in {"/content", "/approve_content", "/reject_content", "/content_status",
+                                "/content_sheet", "/content_sheet_status"}
         if not supported:
             return original_handle(message)
         chat = message.get("chat") or {}
@@ -63,6 +69,14 @@ def install():
         try:
             if command == "/content_status":
                 answer = content_creator.status_text()
+            elif command == "/content_sheet_status":
+                answer = content_sheet.status_text()
+            elif command == "/content_sheet":
+                parts = raw.split(maxsplit=1)
+                queue_id = parts[1].strip() if len(parts) == 2 else None
+                legacy.api("sendChatAction", {"chat_id": chat_id, "action": "typing"})
+                row = content_sheet.create_preview(queue_id, chat_id=chat_id, model_call=model_call)
+                answer = content_creator.render_preview(row) + f"\n\nSheet row: {row.get('source_queue_id')} ✅"
             elif command == "/approve_content":
                 parts = raw.split()
                 if len(parts) != 3:
