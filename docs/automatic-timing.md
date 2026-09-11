@@ -13,6 +13,7 @@
 |---|---|---|---|
 | ☀️ بريف الصباح | `timing.morning_brief` | يوميًا **06:30** | دورة استباقية ← `reports/proactive-brief-YYYY-MM-DD.md` ← رسالة الصباح للمحادثة المالكة |
 | 🛰️ المسح الدوري | `timing.periodic_sweep` | **كل 3 ساعات** | `manager.fast_cycle()` (متأخرات/انتهاء صلاحيات/طلبات قرار) + `scheduler.dispatch_due()` (مسودات محرك الأتمتة) + `proactive.sweep()` |
+| 🔬 أهداف البحث | `timing.research_goals` | **يوميًا 05:40** | `research_goals.run_due()`: كبسولة لكل هدف مستحق + ترويج المُلحَق — **تُتخطّى تلقائيًا إن لا أهداف مسجَّلة** ([v1.2](research-goals.md)) |
 | 📊 مراجعة الأسبوع | `timing.weekly_review` | **الأحد 07:00** | `proactive.review_text()` (معدل القبول/التراجع/امتلاء السقف) + ضبط العتبات إن فُعّل `TIMING_REVIEW_APPLY=1` |
 
 المواقيت بتوقيت `MANAGER_TIMEZONE` (الافتراضي Asia/Riyadh) **لا بتوقيت الخادم** —

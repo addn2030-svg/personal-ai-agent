@@ -34,7 +34,7 @@ _MASTEROS_COMMANDS = {
     "/run", "/diag", "/tasks", "/decisions", "/approve",
     "/reviews", "/door", "/mastery", "/answer", "/okr",
     "/proactive", "/proactive_test", "/sweep",
-    "/timing", "/timing_run", "/review",
+    "/timing", "/timing_run", "/review", "/goals", "/goal_add",
 }
 
 
@@ -131,7 +131,9 @@ def _command_start(chat_id: int):
         "/proactive_test — تجربة قناة التنبيه المستعجل\n"
         "/timing — حالة الجدولة التلقائية (بريف 06:30 · مسح كل 3 س)\n"
         "/timing_run [brief|sweep|review] — تشغيل المستحق الآن\n"
-        "/review [days] — مراجعة الأسبوع وضبط العتبات\n\n"
+        "/review [days] — مراجعة الأسبوع وضبط العتبات\n"
+        "/goals — أهداف البحث الدورية (هياكل كبسولات، بلا تصفّح)\n"
+        "/goal_add <نص> — تسجيل هدف بحث أسبوعي من الجوال\n\n"
         "أي أثر خارجي يبقى خلف الاقتراح/المعاينة/الموافقة/التنفيذ.",
     )
 

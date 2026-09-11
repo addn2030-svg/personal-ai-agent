@@ -368,7 +368,11 @@ class StatusAndCronTests(TimingTestCase):
             timing.run_job("brief", force=True, store=self.store, ref=at(6, 30), verbose=False)
         st = timing.timing_status(store=self.store, ref=at(6, 31))
         self.assertTrue(st["enabled"])
-        self.assertEqual(len(st["jobs"]), 3)
+        self.assertEqual(len(st["jobs"]), 4, "v1.2 أضافت وظيفة أهداف البحث")
+        r_card = {j["job_id"]: j for j in st["jobs"]}[JOB_BY_KIND["research"]]
+        self.assertEqual(r_card["reason"], "لا أهداف مسجّلة",
+                         "صفر أهداف ⇒ البطالة لا العطل")
+        self.assertFalse(r_card["due_now"])
         card = {j["job_id"]: j for j in st["jobs"]}[JOB_BY_KIND["brief"]]
         self.assertEqual(card["when"], "06:30")
         self.assertEqual(card["last_status"], "ok")

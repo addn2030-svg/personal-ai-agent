@@ -13,4 +13,5 @@
 #   python3 engine/timing.py install-cron --mode native
 # 30 6 * * *   __REPO__/scripts/aios-timing.sh run brief    # بريف الصباح 06:30
 # 15 */3 * * * __REPO__/scripts/aios-timing.sh run sweep    # مسح دوري كل 3 ساعات
+# 40 5 * * *  __REPO__/scripts/aios-timing.sh run research # أهداف البحث (تُتخطى إن لا أهداف)
 # 0 7 * * 0    __REPO__/scripts/aios-timing.sh run review   # مراجعة الأسبوع (الأحد)

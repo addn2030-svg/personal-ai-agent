@@ -55,6 +55,7 @@
   TIMING_SWEEP_INTERVAL_HOURS=3  TIMING_SWEEP_ENABLED=1
   TIMING_REVIEW_AT=07:00  TIMING_REVIEW_WEEKDAY=6  TIMING_REVIEW_ENABLED=1
   TIMING_REVIEW_DAYS=7  TIMING_REVIEW_APPLY=0
+  TIMING_RESEARCH_AT=05:40  TIMING_RESEARCH_ENABLED=1  ← دورة أهداف البحث (v1.2)
   TIMING_PUSH=1                ← دفع البريف/المراجعة لتيليجرام (0 = ملفات فقط)
   TIMING_RETRY_MINUTES=20      ← أرضية الرجوع عند الفشل
 """
@@ -129,6 +130,8 @@ def cfg():
                       "time": _env_hhmm("TIMING_BRIEF_AT", "06:30")},
             "sweep": {"enabled": _env_flag("TIMING_SWEEP_ENABLED", True),
                       "interval_hours": max(1, _env_int("TIMING_SWEEP_INTERVAL_HOURS", 3))},
+            "research": {"enabled": _env_flag("TIMING_RESEARCH_ENABLED", True),
+                       "time": _env_hhmm("TIMING_RESEARCH_AT", "05:40")},
             "review": {"enabled": _env_flag("TIMING_REVIEW_ENABLED", True),
                        "time": _env_hhmm("TIMING_REVIEW_AT", "07:00"),
                        "weekday": _env_int("TIMING_REVIEW_WEEKDAY", 6) % 7,
@@ -148,6 +151,10 @@ JOB_SPECS = [
      "name": "المسح الدوري: دورة المدير السريعة + محرك الأتمتة + الاستباقية",
      "cadence": "interval", "kind": "sweep",
      "purpose": "متأخرات/انتهاء صلاحيات + مسودات الجدولة + حلقة استباقية"},
+    {"job_id": "timing.research_goals", "handler": "research", "emoji": "🔬",
+     "name": "دورة أهداف البحث (هياكل كبسولات + ترويج المُلحَق)",
+     "cadence": "daily", "kind": "research",
+     "purpose": "run_due في research_goals: كبسولة لكل هدف مستحق، بلا شبكة"},
     {"job_id": "timing.weekly_review", "handler": "review", "emoji": "📊",
      "name": "مراجعة الأسبوع الاستباقية (وقبولك/تراجعك من الواقع)",
      "cadence": "weekly", "kind": "review",
@@ -155,10 +162,28 @@ JOB_SPECS = [
 ]
 
 JOB_ALIASES = {"brief": "timing.morning_brief", "sweep": "timing.periodic_sweep",
-               "review": "timing.weekly_review",
+               "review": "timing.weekly_review", "research": "timing.research_goals",
                "timing.morning_brief": "timing.morning_brief",
                "timing.periodic_sweep": "timing.periodic_sweep",
-               "timing.weekly_review": "timing.weekly_review"}
+               "timing.weekly_review": "timing.weekly_review",
+    "timing.research_goals": "timing.research_goals"}
+
+
+def has_goals(kind):
+    """بوابة وظائف المعرفة: لا شيء لتعمله إن لا أهداف مسجَّلة.
+
+    بلا هذه البوابة كانت وظيفة بحث يومية مفعّلة افتراضيًا تجعل صندوقًا فارغًا
+    «فاشلاً» في verify وتُنبّه «مستحق» بلا عمل — والبطالة ليست عطلًا.
+    """
+    if kind != "research":
+        return True
+    goals = _soft("research_goals")
+    if goals is None:
+        return False
+    try:
+        return bool(goals.read_goals())
+    except Exception:  # noqa: BLE001 — عطب الحالة لا يُسقط الجدولة
+        return False
 
 
 def jobs_for(cfg_dict=None):
@@ -234,6 +259,8 @@ def due_info(job, ref: dt.datetime, runs, c):
     """تعيد (due, reason) لوظيفة عند لحظة معينة — دالة نقية بلا كتابة."""
     if not job.get("due"):
         return False, "معطّلة بالبيئة"
+    if not has_goals(job.get("kind", "")):
+        return False, "لا أهداف مسجّلة"
     hist = [r for r in runs if str(r.get("job_id")) == job["job_id"]]
     hist.sort(key=lambda r: str(r.get("finished_at") or r.get("started_at") or ""))
     last_ok = next((r for r in reversed(hist) if r.get("status") == "ok"), None)
@@ -471,7 +498,36 @@ def run_review(store=None, ref=None, c=None, push_enabled=None):
                   "push": "sent" if ok else why, "text": text}
 
 
-HANDLERS = {"brief": run_brief, "sweep": run_sweep, "review": run_review}
+def run_research(store=None, ref=None, c=None, push_enabled=None):
+    """🔬 دورة أهداف البحث (v1.2): كبسولة لكل هدف مستحق — بلا شبكة وبلا إرسال ذاتي.
+
+    المحرك لا يتصفّح ولا يستدعي نماذج: يولّد هياكل الكبسولات بميزانية توكن، ويروّج
+    ما أُلحق بها من مصدر بحث خارجي (`research_goals attach`). الدفع للجوال اختياري
+    كسابقاته، والأثر كله ملفاتٌ في `research_capsules/` + سجلّ في الحالة.
+    """
+    t = ref or now()
+    c = c or cfg()
+    store = store or Store()
+    goals = _soft("research_goals")
+    if goals is None:
+        return False, "وحدة أهداف البحث غير قابلة للاستيراد"
+    ok, detail = goals.run_due(store=store, ref=t, verbose=False, record=True)
+    summary = {"due": detail.get("due", 0), "capsules": len(detail.get("capsules", [])),
+               "errors": len(detail.get("errors", [])), "deferred": detail.get("deferred", 0)}
+    if not ok:
+        return False, {**summary, "errors": detail["errors"][:3]}
+    send = cfg()["push"] if push_enabled is None else push_enabled
+    pushed = ""
+    if send and detail.get("capsules"):
+        text = ("🔬 أهداف البحث — " + " · ".join(
+            f"{c_['goal_id']} {c_['status']}" for c_ in detail["capsules"]))
+        pushed = "sent" if push(text)[0] else "skipped"
+    return True, {**summary, "push": pushed or "quiet",
+                  "text": goals.goals_text(store=store, ref=t)}
+
+
+HANDLERS = {"brief": run_brief, "sweep": run_sweep, "review": run_review,
+            "research": run_research}
 
 
 # ---------------------------------------------------------------- نص بريف الصباح
@@ -549,7 +605,9 @@ def _execute(job, store=None, ref=None, verbose=True):
     if status == "error":
         log_event("timing_job_error", job=job["job_id"],
                   error=str(detail.get("error") or detail)[:240])
-    _record(store, job, now(), status, detail, t)
+    # t (لحظة النبضة) لا now(): مفتاح الدورة ووقت الانتهاء يجب أن يبقيا من
+    # لحظة واحدة، وإلا قارن due_info مفتاحًا بيومٍ غير يوم التشغيل المسجَّل.
+    _record(store, job, t, status, detail, t)
     if verbose:
         body = json.dumps({k: v for k, v in detail.items() if k != "text"},
                           ensure_ascii=False, default=str)
@@ -582,8 +640,10 @@ def _tick_locked(store, t, c, verbose, trigger):
         return {"status": "idle", "ran": [], "at": t.isoformat(timespec="seconds")}
     ran = []
     for job, reason in pending:
+        # ref=t لا ref=now(): مفتاح الدورة يجب أن يُحسب من لحظة النبضة الممرَّرة،
+        # وإلا كسر كل تشغيل بـ --at (محاكاة زمنية) قفلَ تكرار اليوم الحقيقي.
         res = _execute(dict(job, trigger=trigger, reason=reason),
-                       store=store, ref=now(), verbose=verbose)
+                       store=store, ref=t, verbose=verbose)
         res["reason"] = reason
         ran.append(res)
     return {"status": "ran", "ran": ran, "at": t.isoformat(timespec="seconds")}
@@ -666,6 +726,7 @@ def timing_status(store=None, ref=None):
         "next_line": {
             "brief": f"{c['jobs']['brief']['time']} يوميًا",
             "sweep": f"كل {c['jobs']['sweep']['interval_hours']} ساعات",
+            "research": f"{c['jobs']['research']['time']} يوميًا (أهداف البحث)",
             "review": f"{AR_DAYS[c['jobs']['review']['weekday']]} "
                       f"{c['jobs']['review']['time']}",
         },
@@ -708,6 +769,7 @@ def verify(store=None, ref=None):
         "النبضة كل 5 دقائق تتجاهل فروق الساعة؛ سطور native تحتاج توقيت الخادم" if note else "")
     add("schedule", "الجدول الفاعل", "ok",
         f"brief={c['jobs']['brief']['time']} · sweep=every {c['jobs']['sweep']['interval_hours']}h · "
+        f"research={c['jobs']['research']['time']} · "
         f"review={AR_DAYS[c['jobs']['review']['weekday']]} {c['jobs']['review']['time']}",
         "")
     markers = S.get("manager_markers") or {}
@@ -858,6 +920,9 @@ def crontab_lines(repo=None, python=None, mode="tick"):
     if c["jobs"]["sweep"]["enabled"]:
         lines.append(f"15 */{c['jobs']['sweep']['interval_hours']} * * * "
                      f"{wrapper} run sweep  # {CRON_MARK}")
+    if c["jobs"]["research"]["enabled"]:
+        sh, sm = c["jobs"]["research"]["time"].split(":")
+        lines.append(f"{int(sm)} {int(sh)} * * * {wrapper} run research  # {CRON_MARK}")
     if c["jobs"]["review"]["enabled"]:
         rh, rm = c["jobs"]["review"]["time"].split(":")
         lines.append(f"{int(rm)} {int(rh)} * * {c['jobs']['review']['weekday']} "
@@ -927,7 +992,7 @@ def main(argv=None):
     ap.add_argument("cmd", nargs="?", default="status",
                     choices=["status", "list", "tick", "run", "loop", "next", "verify",
                              "install-cron", "uninstall-cron"])
-    ap.add_argument("job", nargs="?", help="اسم الوظيفة لـ run: brief|sweep|review")
+    ap.add_argument("job", nargs="?", help="اسم الوظيفة لـ run: brief|sweep|review|research")
     ap.add_argument("--force", action="store_true", help="نفّذ ولو غير مستحقة")
     ap.add_argument("--write", action="store_true", help="طبّق على crontab فعليًا")
     ap.add_argument("--mode", choices=["tick", "native"], default="tick")
@@ -975,7 +1040,7 @@ def main(argv=None):
         return
     if args.cmd == "run":
         if not args.job:
-            raise SystemExit("صيغة: python3 engine/timing.py run brief|sweep|review")
+            raise SystemExit("صيغة: python3 engine/timing.py run brief|sweep|review|research")
         res = run_job(args.job, force=True, ref=ref)
         if res["status"] == "error":
             raise SystemExit(1)

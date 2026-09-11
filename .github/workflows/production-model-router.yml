@@ -66,6 +66,9 @@ on:
       - 'tests/test_approve_draft.py'
       - 'engine/approve.py'
       - 'engine/agent_runtime.py'
+      - 'engine/research_goals.py'
+      - 'tests/test_research_goals.py'
+      - 'docs/research-goals.md'
       - 'tests/test_knowledge_privacy.py'
       - 'knowledge/**'
       - 'research_capsules/**'
@@ -150,6 +153,7 @@ jobs:
           tests.test_timing
           tests.test_approve_draft
           tests.test_knowledge_privacy
+          tests.test_research_goals
       - name: Check cron wrapper and templates
         run: >-
           bash -n scripts/aios-timing.sh &&
@@ -203,6 +207,7 @@ jobs:
           engine/timing.py
           engine/approve.py
           engine/agent_runtime.py
+          engine/research_goals.py
           engine/telegram_bot.py
           engine/master_os.py
           engine/drive_tree.py
