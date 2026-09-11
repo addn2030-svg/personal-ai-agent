@@ -75,3 +75,10 @@ _install_brief_signal_runtime()
 from .commerce_runtime import install as _install_commerce_runtime
 
 _install_commerce_runtime()
+
+# Content Creator is an orchestra specialist: research -> critique -> branded copy.
+# It never publishes until the owner supplies the preview's approval code; Buffer
+# returns a provider receipt that is persisted in the shared action queue.
+from .content_runtime import install as _install_content_runtime
+
+_install_content_runtime()
