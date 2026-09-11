@@ -3,6 +3,14 @@
 موصل `connectors/buffer_publisher.py` ينشر أو يجدول منشورًا (نص + صورة) في Buffer
 عبر واجهة **GraphQL API** الرسمية (`https://api.buffer.com`).
 
+## الطريقة الموصى بها — Telegram Content Creator على Railway
+
+اضبط في Railway: `BUFFER_API_KEY` و`CONTENT_DEFAULT_PLATFORM=linkedin` و
+`BUFFER_DEFAULT_MODE=draft`. ثم استخدم `/content linkedin الفكرة`. يمر الطلب عبر
+Researcher → Critic → Creator ويعود Preview فقط. لا يتصل Buffer حتى ترسل
+`/approve_content ID CODE`؛ عند النجاح يُحفظ `post_id` وحالة Buffer كإيصال في
+`action_queue`. استخدم `/content_status` لفحص الإعداد دون نشر.
+
 ## الطريقة (أ) — GitHub Actions دون تثبيت أي شيء
 
 انشر مباشرة من المستودع دون تشغيل أي شيء محليًا:
@@ -12,8 +20,9 @@
    - الاسم: `BUFFER_API_KEY` — القيمة: مفتاحك من publish.buffer.com/settings/api
    - (أو من الطرفية: `gh secret set BUFFER_API_KEY` ثم ألصق المفتاح)
 2. اختر طريقة التشغيل:
-   - **قائمة الانتظار (موصى بها):** أضف ملف JSON في `posts/buffer/` داخل PR نحو `main`
-     — يُجدول المنشور تلقائيًا عند فتح الـ PR (الحقول في `posts/buffer/README.md`)
+   - **قائمة الانتظار (موصى بها):** أضف ملف JSON في `posts/buffer/` داخل PR نحو `main`.
+     فتح الـPR لا ينشر شيئًا؛ يبدأ الإرسال إلى Buffer فقط بعد المراجعة والدمج في `main`
+     (الحقول في `posts/buffer/README.md`).
    - **يدويًا:** تبويب **Actions** → **Buffer Publish** → **Run workflow**
      (أو `gh workflow run buffer-publish.yml --ref main -f text="نص المنشور" -f service=instagram`)
 
