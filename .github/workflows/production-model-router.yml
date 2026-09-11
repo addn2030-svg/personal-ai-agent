@@ -123,10 +123,8 @@ jobs:
         shell: bash
         run: |
           set +e
-          both() { python -m unittest $* 2>&1 | tr '\n' ';' | sed -e 's/%/%25/g' -e 's/:/%3A/g' | rev | cut -c1-700 | rev; }
-          echo "::error title=tail-research::$(both tests.test_research_goals)"
-          echo "::error title=tail-both::$(both tests.test_research_goals tests.test_timing)"
-          echo "::error title=tail-list::$(python -m unittest $(ls tests/test_*.py | sed 's#tests/##;s#.py$##;s#^#tests.#' | tr '\n' ' ') 2>&1 | tr '\n' ';' | sed -e 's/%/%25/g' -e 's/:/%3A/g' | rev | cut -c1-700 | rev)"
+          o=$(python -m unittest tests.test_production_model_gateway tests.test_telegram_bot tests.test_telegram_response_policy tests.test_direct_specialists tests.test_provider_diagnostics tests.test_team_orchestrator tests.test_bedrock_team tests.test_lean_missions tests.test_ops_context tests.test_super_manager tests.test_manager_fast_canary tests.test_capability_truth tests.test_natural_action_executor tests.test_executive_signals tests.test_commerce_agent tests.test_google_context_transport tests.test_calendar_actions tests.test_calendar_webhook_reminders tests.test_mobile_calendar_confirm tests.test_task_delegation tests.test_state_safety_manager tests.test_multi_intent tests.test_manager_wo8_compat tests.test_v09_master_os tests.test_v09_mindmap tests.test_v09_audio_digest tests.test_v09_scheduler tests.test_proactive tests.test_timing tests.test_approve_draft tests.test_knowledge_privacy tests.test_research_goals 2>&1); rc=$?
+          echo "::error title=rc::$rc :: $(echo "$o" | tail -c 600 | tr '\n' ';' | sed -e 's/%/%25/g' -e 's/:/%3A/g')"
           exit 0
 
       - name: Test production model routing
