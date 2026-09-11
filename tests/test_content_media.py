@@ -34,6 +34,12 @@ class ContentMediaTests(unittest.TestCase):
                 content_media.generate(None, "image")
         generate.assert_not_called()
 
+    def test_queue_id_and_common_content_queue_spelling_resolve_preview(self):
+        for value in ("Q-001", "CONTENT-Q-001"):
+            with self.subTest(value=value), patch.object(content_media, "Store", return_value=self.store):
+                row = content_media._pending(value)
+            self.assertEqual(row["action_id"], "CONTENT-1")
+
     def test_prompt_forbids_patient_identity_and_claims(self):
         prompt = content_media._prompt(self.state["action_queue"][0], "image")
         self.assertIn("no patient identity", prompt)

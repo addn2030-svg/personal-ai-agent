@@ -32,11 +32,21 @@ def _pending(action_id: str | None) -> dict:
     rows = [x for x in Store().rows_all().get("action_queue", [])
             if x.get("type") == "CONTENT_BUFFER_POST" and x.get("status") == "PENDING_APPROVAL"]
     if action_id:
-        row = next((x for x in rows if x.get("action_id") == action_id), None)
+        requested = str(action_id).strip().upper()
+        # Telegram users naturally reuse the Sheet queue id. Accept Q-001 and the
+        # common CONTENT-Q-001 spelling as aliases for the linked pending preview.
+        queue_id = requested[8:] if requested.startswith("CONTENT-Q-") else requested
+        row = next((x for x in rows if str(x.get("action_id", "")).upper() == requested), None)
+        if row is None and queue_id.startswith("Q-"):
+            row = next((x for x in reversed(rows)
+                        if str(x.get("source_queue_id", "")).upper() == queue_id), None)
     else:
         row = rows[-1] if rows else None
     if not row:
-        raise ValueError("No pending content preview found. Create one with /content_sheet Q-001")
+        raise ValueError(
+            "No pending preview matches that Content/Queue ID. Run /content_sheet Q-001 first, "
+            "then use /design_content Q-001 or copy the returned CONTENT-ID."
+        )
     return row
 
 
