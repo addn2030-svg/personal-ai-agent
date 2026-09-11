@@ -20,6 +20,10 @@
   `pause --hours 4` · سجل تدقيق كامل.
 - **يتعلّم منك**: `feedback PA-xxxx good|much|never` — «أبدًا» توقف النوع، «كثير»
   يحصره في البريف 14 يومًا، والأحمر الحرج يتجاوزها موثَّقًا لحمايتك.
+- **قناة تنبيه تيليجرام المستعجلة**: بمجرد ضبط `TELEGRAM_BOT_TOKEN` (ومعرّف المحادثة
+  كما في البوت القائم) تصلك تنبيهات `proactive_alert` فورًا للجوال — فقط ما اجتاز سقف
+  اليوم وساعات الهدوء، وفشل الشبكة موثَّق ولا يُسقط الدورة. تحقق بضغطة واحدة:
+  `python3 engine/proactive.py push-test` (`PROACTIVE_TELEGRAM_PUSH=0` للإيقاف).
 - أوامر: `python3 engine/proactive.py sweep|brief|status|orders` ← بريف اليوم
   `reports/proactive-brief-YYYY-MM-DD.md`. حزمة الأوامر: `prompts/proactive-chief-of-staff.md`
   · المرجع: `docs/v1.0-proactive-chief-of-staff.md` · الاختبارات: `tests/test_proactive.py` (22).

@@ -31,6 +31,13 @@
   python3 engine/proactive.py pause --hours 4 | resume  ← مفتاح الإيقاف المؤقت
   python3 engine/proactive.py undo PA-0001              ← زر التراجع عن تنفيذ
   python3 engine/proactive.py feedback PA-0001 good     ← تعلّم: good|much|never
+  python3 engine/proactive.py push-test                 ← تجربة قناة تنبيه تيليجرام
+
+قناة التنبيه المستعجل (تيليجرام): تفعَّل تلقائيًا عند توفر TELEGRAM_BOT_TOKEN
+ومعرّف المحادثة (TELEGRAM_ALLOWED_CHAT_ID أو ملف المالك الذي يصنعه البوت عند أول
+محادثة خاصة). تدفع حوادث proactive_alert فقط — أي ما اجتاز سقف اليوم وساعات
+الهدوء أصلًا — ولا تدخل في ذرّية الحالة، وفشلها موثَّق ولا يُسقط الدورة.
+للإيقاف الكامل: PROACTIVE_TELEGRAM_PUSH=0.
 """
 from __future__ import annotations
 
@@ -40,10 +47,13 @@ import hashlib
 import json
 import os
 import sys
+import urllib.parse
+import urllib.request
 from zoneinfo import ZoneInfo
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import store as _store_mod
 from store import Store, log_event
 
 TZ = ZoneInfo(os.environ.get("MANAGER_TIMEZONE", "Asia/Riyadh"))
@@ -129,7 +139,98 @@ DEFAULT_STANDING_ORDERS = [
 now = lambda: dt.datetime.now(TZ)
 
 
-# ---------------------------------------------------------------- أدوات مساعدة
+# ---------------------------------------------------------------- قناة التنبيه المستعجل (تيليجرام)
+# يدفع حوادث proactive_alert — وحدها ما اجتاز الحواجز (السقف اليومي/الهدوء) أصلًا.
+# نفس اصطلاحات connectors/telegram_bot_legacy: التوكن في البيئة فقط، ومعرف المحادثة
+# من TELEGRAM_ALLOWED_CHAT_ID ثم ملف المالك (أول محادثة خاصة مع البوت).
+TELEGRAM_API = "https://api.telegram.org"
+
+
+def _push_disabled():
+    return os.environ.get("PROACTIVE_TELEGRAM_PUSH", "1") == "0"
+
+
+def _telegram_token():
+    return os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+
+
+def _telegram_chat_id():
+    env = os.environ.get("TELEGRAM_ALLOWED_CHAT_ID", "").strip()
+    if env:
+        return env
+    for folder in (_store_mod.DATA_DIR, os.path.join(BASE, "data")):
+        try:
+            with open(os.path.join(folder, ".telegram-owner-chat-id"),
+                      encoding="utf-8") as f:
+                value = f.read().strip()
+            if value:
+                return value
+        except OSError:
+            continue
+    return ""
+
+
+def _telegram_send(text, chat_id=None, token=None, timeout=15):
+    """دالة الشبكة الخام — قابلة للاستبدال في الاختبارات. ترجع True عند ok."""
+    token = token or _telegram_token()
+    chat_id = chat_id or _telegram_chat_id()
+    if not token or not chat_id:
+        return False
+    payload = urllib.parse.urlencode({"chat_id": chat_id, "text": text[:3500]}).encode()
+    req = urllib.request.Request(f"{TELEGRAM_API}/bot{token}/sendMessage", data=payload)
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    if not data.get("ok"):
+        raise RuntimeError(f"Telegram sendMessage failed: {data}")
+    return True
+
+
+def telegram_push_status():
+    if _push_disabled():
+        return "disabled_env"
+    if not _telegram_token():
+        return "no_token"
+    if not _telegram_chat_id():
+        return "no_chat_id"
+    return "ready"
+
+
+def _alert_text(t, row):
+    red = row.get("lane") == "RED"
+    icon = "⛔" if red else "⚠️"
+    head = "تنبيه استباقي أحمر" if red else "تنبيه استباقي"
+    lines = [f"{icon} {head} — {t.date().isoformat()}", str(row.get("title", ""))]
+    if row.get("note"):
+        lines.append(str(row["note"]))
+    if row.get("quiet_override"):
+        lines.append("🌙 تجاوز ساعات الهدوء موثَّقًا لاستعجال المهلة (<ساعتين).")
+    lines += [f"🗂 التفاصيل والاعتمادات: reports/proactive-brief-{t.date().isoformat()}.md",
+              f"↩️ تراجع: undo {row.get('pa_id')} · 🚫 إيقاف النوع: "
+              f"feedback {row.get('pa_id')} never · ⏸️ إيقاف: pause --hours 4"]
+    return "\n".join(l for l in lines if l)
+
+
+def _push_alerts(t, events, alert_rows, verbose):
+    """يدفع تنبيهات الدورة للمحادثة المالكة — فشل الشبكة لا يُسقط الدورة أبدًا."""
+    pushed = 0
+    if not alert_rows or _push_disabled():
+        return pushed
+    status = telegram_push_status()
+    if status != "ready":
+        if verbose:
+            print(f"📵 قناة تيليجرام للتنبيهات: {status} — التنبيهات في البريف فقط.")
+        return pushed
+    chat_id, token = _telegram_chat_id(), _telegram_token()
+    for row in alert_rows:
+        try:
+            if _telegram_send(_alert_text(t, row), chat_id=chat_id, token=token):
+                pushed += 1
+                log_event("proactive_alert_pushed", pa_id=row.get("pa_id"),
+                          lane=row.get("lane"))
+        except Exception as exc:  # noqa: BLE001 — القناة اختيارية؛ موثَّقة ولا تُسقط
+            log_event("proactive_push_error", pa_id=row.get("pa_id"),
+                      error=str(exc)[:160])
+    return pushed
 def _hash(txt):
     return hashlib.sha256(txt.encode("utf-8")).hexdigest()[:16]
 
@@ -676,10 +777,12 @@ def _alert(S, row, cand, t, cfg, events):
         row["note"] += " | ساعات هدوء — أُرجئ للبريف التالي"
         events.append(("proactive_batched", {"pa_id": row["pa_id"], "reason": "quiet"}))
     else:
+        quiet_override = bool(_in_quiet(t, cfg) and cand.get("override_quiet"))
+        if quiet_override:
+            row["quiet_override"] = True
         events.append(("proactive_alert", {"pa_id": row["pa_id"], "lane": row["lane"],
                                            "title": str(cand["title"])[:80],
-                                           "quiet_override": bool(
-                                               _in_quiet(t, cfg) and cand.get("override_quiet"))}))
+                                           "quiet_override": quiet_override}))
     row["status"] = "DONE"
 
 
@@ -768,7 +871,10 @@ def _mutate_sweep(S, t, cfg):
 
 
 def sweep(store=None, now_dt=None, cfg=None, verbose=True):
-    """دورة رصد كاملة داخل معاملة Store واحدة (write-on-change)."""
+    """دورة رصد كاملة داخل معاملة Store واحدة (write-on-change).
+
+    دفع التنبيهات (تيليجرام) يحدث بعد إقفال المعاملة — القناة أثر خارجي اختياري
+    لا يدخل في ذرّية الحالة، وفشل الشبكة لا يُسقط الدورة."""
     cfg = {**DEFAULT_CFG, **(cfg or {})}
     t = now_dt or now()
     store = store or Store()
@@ -780,11 +886,17 @@ def sweep(store=None, now_dt=None, cfg=None, verbose=True):
         if verbose:
             print("⏸️ الاستباقية موقوفة مؤقتًا — لم تُنفَّذ الدورة (resume للاستئناف).")
         return summary
+    alert_ids = [d["pa_id"] for e, d in events if e == "proactive_alert"]
+    alert_rows = [a for a in store.rows_all().get("proactive_actions", [])
+                  if a.get("pa_id") in set(alert_ids)] if alert_ids else []
+    summary["pushed"] = _push_alerts(t, events, alert_rows, verbose)
     if verbose:
+        pushed = f" | دُفع تيليجرام={summary['pushed']}" if summary.get("pushed") else ""
         print(f"🛰️ دورة استباقية: حلقات مفتوحة={summary['loops_open']} | "
               f"نُفّذ={summary['act']} | جهّز={summary['prepare']} | "
               f"تنبيه={summary['alert']} | أُرجئ={summary['batched']} | "
-              f"اقتراح={summary['suggest']} | فائت تحت الاستدراك={summary['missed']}")
+              f"اقتراح={summary['suggest']} | فائت تحت الاستدراك={summary['missed']}"
+              f"{pushed}")
     return summary
 
 
@@ -996,6 +1108,7 @@ def status(store=None):
         "enabled": enabled(),
         "paused_until": paused_until if paused_dt and paused_dt > t else None,
         "quiet_now": _in_quiet(t, DEFAULT_CFG),
+        "telegram_push": telegram_push_status(),
         "alerts_today": sum(1 for a in rows_today
                             if a["decision"] in ("ALERT", "ALERT_DRAFT")),
         "max_alerts": DEFAULT_CFG["max_alerts"],
@@ -1012,11 +1125,22 @@ def enabled():
     return os.environ.get("PROACTIVE_ENABLED", "1") != "0"
 
 
+def push_test():
+    """يرسل رسالة تجريبية عبر قناة التنبيه المستعجل نفسها للتحقق من التهيئة."""
+    status = telegram_push_status()
+    if status != "ready":
+        return 1, status
+    ok = _telegram_send("🛰️ تجربة قناة التنبيه الاستباقي — التوصيل يعمل.\n"
+                        "(للإيقاف: PROACTIVE_TELEGRAM_PUSH=0)")
+    log_event("proactive_push_test", ok=bool(ok))
+    return (0, "sent") if ok else (1, "telegram_rejected")
+
+
 def main():
     ap = argparse.ArgumentParser(description="محرك الاستباقية — Proactive Chief of Staff")
     ap.add_argument("cmd", choices=["sweep", "brief", "status", "orders", "matrix",
                                     "order-enable", "order-disable", "pause", "resume",
-                                    "undo", "feedback"])
+                                    "undo", "feedback", "push-test"])
     ap.add_argument("id", nargs="?")
     ap.add_argument("signal", nargs="?", choices=["good", "much", "never"])
     ap.add_argument("--hours", type=float, default=4.0)
@@ -1056,6 +1180,14 @@ def main():
         elif args.cmd == "feedback":
             target = add_feedback(args.id, args.signal, args.scope)
             print(f"🧠 سُجّلت تغذيتك «{args.signal}» على {target} — سأتعلم منها.")
+        elif args.cmd == "push-test":
+            code, why = push_test()
+            if code == 0:
+                print("✅ أُرسلت رسالة تجريبية إلى المحادثة المالكة — القناة تعمل.")
+            else:
+                print(f"❌ قناة الدفع غير جاهزة ({why}). اضبط TELEGRAM_BOT_TOKEN و"
+                      "TELEGRAM_ALLOWED_CHAT_ID (أو تحدث مع البوت خاصة أولًا).")
+            raise SystemExit(code)
     except ValueError as exc:
         print(f"❌ {exc}")
         raise SystemExit(1)

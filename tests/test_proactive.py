@@ -349,6 +349,113 @@ class ProactiveTests(unittest.TestCase):
             self.assertIsNone(a["approved_at"])
             self.assertIsNone(a["executed_at"])
 
+    # ---------------------------------------------------------- قناة تيليجرام المستعجلة
+    PUSH_ENV_VARS = ("TELEGRAM_BOT_TOKEN", "TELEGRAM_ALLOWED_CHAT_ID",
+                     "PROACTIVE_TELEGRAM_PUSH")
+
+    def _isolate_env(self):
+        saved = {v: os.environ.get(v) for v in self.PUSH_ENV_VARS}
+
+        def restore():
+            for v, val in saved.items():
+                if val is None:
+                    os.environ.pop(v, None)
+                else:
+                    os.environ[v] = val
+
+        self.addCleanup(restore)
+
+    def _enable_push(self, record):
+        self._isolate_env()
+        os.environ["TELEGRAM_BOT_TOKEN"] = "test-token"
+        os.environ["TELEGRAM_ALLOWED_CHAT_ID"] = "12345"
+        os.environ.pop("PROACTIVE_TELEGRAM_PUSH", None)
+        original = proactive._telegram_send
+
+        def fake_send(text, chat_id=None, token=None, timeout=15):
+            record.append((chat_id, token, text))
+            return True
+
+        proactive._telegram_send = fake_send
+        self.addCleanup(setattr, proactive, "_telegram_send", original)
+
+    def _seed_bill(self, days=1):
+        self.seed(finance=[{"البند": "اشتراك", "النوع": "اشتراك",
+                            "التكلفة (ريال/شهر)": 100,
+                            "تاريخ التجديد": (DAY + dt.timedelta(days=days)).isoformat(),
+                            "آخر استخدام": None, "ملاحظة": ""}])
+
+    def test_red_alert_is_pushed_to_telegram_once(self):
+        pushed = []
+        self._enable_push(pushed)
+        self._seed_bill(days=1)
+        summary = self.sweep()
+        self.assertEqual(summary["pushed"], 1)
+        chat, token, text = pushed[0]
+        self.assertEqual((chat, token), ("12345", "test-token"))
+        self.assertIn("⛔", text)
+        self.assertIn("استحقاق مالي وشيك: اشتراك", text)
+        self.assertIn("undo PA-", text)
+        pushed.clear()
+        self.sweep(at(10))  # نفس المفتاح ← لا دفع مكرر
+        self.assertEqual(pushed, [])
+
+    def test_batched_alerts_are_not_pushed(self):
+        pushed = []
+        self._enable_push(pushed)
+        self._seed_bill(days=2)  # دون عتبة اليوم الواحد ← ساعات الهدوء تحجبه
+        self.sweep(at(23, 15))
+        self.assertEqual(self.by_kind("bill_due")[0]["decision"], "BATCHED")
+        self.assertEqual(pushed, [])
+
+    def test_quiet_override_alert_still_pushes_with_note(self):
+        pushed = []
+        self._enable_push(pushed)
+        self._seed_bill(days=1)  # override_quiet — يتجاوز الهدوء موثَّقًا
+        self.sweep(at(23, 15))
+        self.assertEqual(len(pushed), 1)
+        self.assertIn("الهدوء", pushed[0][2])
+
+    def test_push_disabled_by_env(self):
+        pushed = []
+        self._enable_push(pushed)
+        os.environ["PROACTIVE_TELEGRAM_PUSH"] = "0"
+        self._seed_bill(days=1)
+        summary = self.sweep()
+        self.assertEqual(summary["pushed"], 0)
+        self.assertEqual(pushed, [])
+        self.assertEqual(proactive.telegram_push_status(), "disabled_env")
+
+    def test_push_unconfigured_is_safe_and_reported(self):
+        self._isolate_env()
+        os.environ.pop("TELEGRAM_BOT_TOKEN", None)
+        os.environ.pop("TELEGRAM_ALLOWED_CHAT_ID", None)
+        os.environ.pop("PROACTIVE_TELEGRAM_PUSH", None)
+        self._seed_bill(days=1)
+        summary = self.sweep()  # لا قناة ← الدورة تكمل بلا دفع ولا خطأ
+        self.assertEqual(summary["pushed"], 0)
+        self.assertEqual(proactive.telegram_push_status(), "no_token")
+        self.assertEqual(proactive.status(store=self.store)["telegram_push"], "no_token")
+
+    def test_push_network_failure_never_breaks_sweep(self):
+        self._enable_push([])
+        proactive._telegram_send = lambda *a, **k: (_ for _ in ()).throw(
+            ConnectionError("الشبكة مقطوعة"))
+        self._seed_bill(days=1)
+        summary = self.sweep()
+        self.assertEqual(summary["pushed"], 0)
+        self.assertEqual(self.by_kind("bill_due")[0]["decision"], "ALERT_DRAFT")
+
+    def test_push_test_command_paths(self):
+        pushed = []
+        self._enable_push(pushed)
+        code, why = proactive.push_test()
+        self.assertEqual((code, why), (0, "sent"))
+        self.assertTrue(pushed)
+        os.environ.pop("TELEGRAM_BOT_TOKEN", None)
+        code, why = proactive.push_test()
+        self.assertEqual((code, why), (1, "no_token"))
+
     def test_collision_and_travel_and_renewal_candidates(self):
         self.seed(meetings=[
             {"التاريخ": DAY, "الوقت": "10:00", "الموضوع": "أ", "الحضور": "",
