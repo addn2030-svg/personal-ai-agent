@@ -3,6 +3,22 @@
 موصل `connectors/buffer_publisher.py` ينشر أو يجدول منشورًا (نص + صورة) في Buffer
 عبر واجهة **GraphQL API** الرسمية (`https://api.buffer.com`).
 
+## الطريقة (أ) — GitHub Actions دون تثبيت أي شيء
+
+انشر مباشرة من المستودع دون تشغيل أي شيء محليًا:
+
+1. **أضف المفتاح كـ Secret مشفّر** (مرة واحدة فقط):
+   - GitHub → المستودع → **Settings → Secrets and variables → Actions → New repository secret**
+   - الاسم: `BUFFER_API_KEY` — القيمة: مفتاحك من publish.buffer.com/settings/api
+   - (أو من الطرفية: `gh secret set BUFFER_API_KEY` ثم ألصق المفتاح)
+2. **شغّل سير العمل**: تبويب **Actions** → **Buffer Publish** → **Run workflow**
+   (أو `gh workflow run buffer-publish.yml --ref main -f text="نص المنشور" -f service=instagram`)
+3. أدخل: النص، الشبكة الهدف (`service`)، ووضع النشر (queue / draft / schedule).
+
+المفتاح يبقى مشفّرًا ولا يظهر في السجلات أبدًا.
+
+## الطريقة (ب) — من جهازك مباشرة
+
 ## 1) الحصول على مفتاح API
 
 1. افتح **publish.buffer.com/settings/api**

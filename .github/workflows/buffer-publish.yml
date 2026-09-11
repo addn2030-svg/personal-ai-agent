@@ -1,0 +1,82 @@
+name: Buffer Publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      text:
+        description: 'نص المنشور'
+        required: true
+        type: string
+      service:
+        description: 'الشبكة الهدف (instagram / twitter / linkedin / facebook ...)'
+        required: false
+        type: string
+      channel_id:
+        description: 'معرّف القناة الصريح (يتجاوز service)'
+        required: false
+        type: string
+      mode:
+        description: 'queue | draft | schedule'
+        required: false
+        default: 'queue'
+        type: choice
+        options: [queue, draft, schedule]
+      due_at:
+        description: 'عند اختيار schedule: "YYYY-MM-DD HH:MM" بتوقيت السعودية'
+        required: false
+        type: string
+      image_url:
+        description: 'رابط الصورة العام (افتراضي: غلاف الكتاب من assets/ في نفس الفرع)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: buffer-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONPATH: ${{ github.workspace }}
+      BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
+      TEXT: ${{ inputs.text }}
+      SERVICE: ${{ inputs.service }}
+      CHANNEL_ID: ${{ inputs.channel_id }}
+      MODE: ${{ inputs.mode }}
+      DUE_AT: ${{ inputs.due_at }}
+      IMAGE_URL: ${{ inputs.image_url || format('https://raw.githubusercontent.com/{0}/{1}/assets/book-cover.jpg', github.repository, github.ref_name) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Publish to Buffer
+        run: |
+          if [ -z "$BUFFER_API_KEY" ]; then
+            echo "::error::BUFFER_API_KEY secret is not configured on this repository."
+            exit 1
+          fi
+          ARGS=(--text "$TEXT" --image-url "$IMAGE_URL")
+          if [ -n "$CHANNEL_ID" ]; then
+            ARGS+=(--channel-id "$CHANNEL_ID")
+          elif [ -n "$SERVICE" ]; then
+            ARGS+=(--service "$SERVICE")
+          else
+            echo "::error::Provide either service or channel_id input."
+            exit 1
+          fi
+          case "$MODE" in
+            draft) ARGS+=(--draft) ;;
+            schedule)
+              if [ -z "$DUE_AT" ]; then
+                echo "::error::schedule mode requires due_at input."
+                exit 1
+              fi
+              ARGS+=(--due-at "$DUE_AT") ;;
+          esac
+          python3 -m connectors.buffer_publisher "${ARGS[@]}"

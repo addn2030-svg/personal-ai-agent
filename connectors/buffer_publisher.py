@@ -107,26 +107,54 @@ def _graphql_value(value) -> str:
     return f'"{escaped}"'
 
 
-def list_channels() -> None:
+def get_channels() -> list[dict]:
+    """يعيد كل القنوات في كل المؤسسات المرتبطة بالمفتاح."""
     data = _gql(GET_ORGANIZATIONS_QUERY)
     orgs = (data.get("data") or {}).get("account", {}).get("organizations") or []
-    if not orgs:
-        print("لا توجد مؤسسات مرتبطة بهذا المفتاح.")
-        return
+    channels: list[dict] = []
     for org in orgs:
-        print(f"المؤسسة: {org.get('name')} — id: {org.get('id')}")
-        channels = _gql(
-            GET_CHANNELS_QUERY, {"organizationId": org["id"]}
-        ).get("data", {}).get("channels") or []
-        if not channels:
-            print("  (لا قنوات)")
-        for ch in channels:
-            paused = " [متوقف]" if ch.get("isQueuePaused") else ""
-            print(
-                f"  - {ch.get('displayName') or ch.get('name')} "
-                f"({ch.get('service')}) — channel id: {ch.get('id')}{paused}"
-            )
-        print()
+        found = (
+            _gql(GET_CHANNELS_QUERY, {"organizationId": org["id"]})
+            .get("data", {})
+            .get("channels")
+            or []
+        )
+        for ch in found:
+            ch["_organization"] = org.get("name")
+        channels.extend(found)
+    return channels
+
+
+def list_channels() -> None:
+    channels = get_channels()
+    if not channels:
+        print("لا توجد قنوات مرتبطة بهذا المفتاح.")
+        return
+    for ch in channels:
+        paused = " [متوقف]" if ch.get("isQueuePaused") else ""
+        print(
+            f"{ch.get('_organization', '')}: {ch.get('displayName') or ch.get('name')} "
+            f"({ch.get('service')}) — channel id: {ch.get('id')}{paused}"
+        )
+
+
+def resolve_channel(channel_id: str, service: str) -> str:
+    """يحدد القناة الهدف إما بالمعرّف أو باسم الشبكة (أول قناة مطابقة غير متوقفة)."""
+    if channel_id:
+        return channel_id
+    if not service:
+        raise SystemExit("حدد --channel-id أو --service (اسم الشبكة مثل instagram أو linkedin).")
+    channels = get_channels()
+    matches = [c for c in channels if (c.get("service") or "").lower() == service.lower()]
+    if not matches:
+        available = ", ".join(sorted({str(c.get("service")) for c in channels}))
+        raise SystemExit(
+            f"لا توجد قناة للشبكة «{service}». الشبكات المتصلة: {available or 'لا شيء'}"
+        )
+    active = [c for c in matches if not c.get("isQueuePaused")]
+    chosen = active[0] if active else matches[0]
+    print(f"القناة المستهدفة: {chosen.get('displayName') or chosen.get('name')} ({chosen.get('service')})")
+    return chosen["id"]
 
 
 def _normalize_due_at(raw: str, tz_offset: str) -> str:
@@ -205,6 +233,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--list", action="store_true", help="استعراض المؤسسات والقنوات")
     parser.add_argument("--channel-id", help="معرّف القناة الهدف")
+    parser.add_argument("--service",
+                        help="اسم الشبكة الهدف (instagram, twitter, linkedn, facebook, ...) — يختار أول قناة مطابقة")
     parser.add_argument("--text", help="نص المنشور")
     parser.add_argument("--image-url", help="رابط عام للصورة (Buffer لا يقبل الرفع المباشر)")
     parser.add_argument("--due-at", help='وقت الجدولة: "YYYY-MM-DD HH:MM" (توقيت محلي)')
@@ -217,8 +247,13 @@ def main(argv: list[str] | None = None) -> int:
         list_channels()
         return 0
 
+    if not args.text:
+        raise SystemExit("--text مطلوب للنشر.")
+    if not (args.channel_id or args.service):
+        raise SystemExit("حدد --channel-id أو --service.")
+
     post = create_post(
-        channel_id=args.channel_id or "",
+        channel_id=resolve_channel(args.channel_id or "", args.service or ""),
         text=args.text or "",
         image_url=args.image_url,
         due_at=args.due_at,
