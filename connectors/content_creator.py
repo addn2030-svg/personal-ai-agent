@@ -232,6 +232,16 @@ def execute(action_id: str, approval_code: str) -> dict:
     row = Store().transaction(claim, "content_publish_claimed", action_id=action_id)
     if row.get("status") == "EXPIRED":
         raise ValueError("Content approval expired; create a fresh preview")
+    if row.get("video_url"):
+        def restore(state):
+            target = next(x for x in state["action_queue"] if x.get("action_id") == action_id)
+            target["status"] = "PENDING_APPROVAL"
+            return True, dict(target)
+        Store().transaction(restore, "content_video_buffer_blocked", action_id=action_id)
+        raise ValueError(
+            "Video is generated and saved in Drive, but this Buffer connector has not yet "
+            "verified video-upload support. Nothing was published."
+        )
     channel_id = buffer_publisher.resolve_channel("", row["platform"])
     post = buffer_publisher.create_post(
         channel_id=channel_id,

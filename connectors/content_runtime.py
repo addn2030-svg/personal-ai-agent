@@ -7,6 +7,7 @@ import re
 
 from connectors import content_creator
 from connectors import content_sheet
+from connectors import content_media
 from connectors import task_delegation as team
 
 _INSTALLED = False
@@ -54,6 +55,8 @@ def install():
                     "/reject_content ID — reject draft\n/content_status — connection and recent drafts")
         legacy.send(chat_id, "📊 /content_sheet [Q-ID] — draft next/specific queue row\n"
                     "/content_sheet_status — verify workbook connection")
+        legacy.send(chat_id, "🎨 /design_content CONTENT-ID — generate image\n"
+                    "/video_content CONTENT-ID — generate video\n/media_status — verify Gemini + Drive")
 
     def configure_commands():
         original_configure()
@@ -67,6 +70,9 @@ def install():
                 {"command": "content_status", "description": "Content Creator and Buffer status"},
                 {"command": "content_sheet", "description": "Create draft from publishing queue"},
                 {"command": "content_sheet_status", "description": "Content workbook connection status"},
+                {"command": "design_content", "description": "Generate image for pending content"},
+                {"command": "video_content", "description": "Generate video for pending content"},
+                {"command": "media_status", "description": "Gemini media and Drive status"},
             ]
             commands.extend(x for x in additions if x["command"] not in existing)
             legacy.api("setMyCommands", {"commands": json.dumps(commands, ensure_ascii=False)})
@@ -103,7 +109,8 @@ def install():
         publish_status = bool(_PUBLISH_STATUS_RE.search(raw))
         proactive_info = bool(_PROACTIVE_INFO_RE.search(raw))
         supported = command in {"/content", "/approve_content", "/reject_content", "/content_status",
-                                "/content_sheet", "/content_sheet_status"} or content_skills or publish_status or proactive_info
+                                "/content_sheet", "/content_sheet_status", "/design_content",
+                                "/video_content", "/media_status"} or content_skills or publish_status or proactive_info
         if not supported:
             return original_handle(message)
         chat = message.get("chat") or {}
@@ -127,6 +134,21 @@ def install():
                 answer = content_creator.status_text()
             elif command == "/content_sheet_status":
                 answer = content_sheet.status_text()
+            elif command == "/media_status":
+                answer = content_media.status_text()
+            elif command in {"/design_content", "/video_content"}:
+                parts = raw.split(maxsplit=1)
+                action_id = parts[1].strip() if len(parts) == 2 else None
+                kind = "image" if command == "/design_content" else "video"
+                legacy.api("sendChatAction", {"chat_id": chat_id, "action": "upload_photo" if kind == "image" else "upload_video"})
+                receipt = content_media.generate(action_id, kind)
+                method = "sendPhoto" if kind == "image" else "sendVideo"
+                media_key = "photo" if kind == "image" else "video"
+                legacy.api(method, {"chat_id": chat_id, media_key: receipt["url"],
+                                    "caption": f"{kind.title()} preview — {receipt['action_id']}"})
+                answer = (f"✅ {kind.title()} generated and saved to Drive\n"
+                          f"Content: {receipt['action_id']}\nDrive: {receipt.get('view_url')}\n"
+                          "Media_URL updated in the source sheet. Nothing was sent to Buffer.")
             elif command == "/content_sheet":
                 parts = raw.split(maxsplit=1)
                 queue_id = parts[1].strip() if len(parts) == 2 else None

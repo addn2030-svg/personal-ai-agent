@@ -97,6 +97,16 @@ class ContentCreatorTests(unittest.TestCase):
         self.assertEqual(self.state["action_queue"][0]["status"], "EXECUTED")
         self.assertTrue(publish.call_args.kwargs["draft"])
 
+    def test_video_never_publishes_through_unverified_buffer_asset_shape(self):
+        with patch.object(content, "Store", return_value=self.store):
+            row = content.create_content_preview("movement", chat_id=1, model_call=self.model)
+            self.state["action_queue"][0]["video_url"] = "https://drive/video.mp4"
+            with patch.object(content.buffer_publisher, "create_post") as publish:
+                with self.assertRaisesRegex(ValueError, "video-upload support"):
+                    content.execute(row["action_id"], row["approval_code"])
+        publish.assert_not_called()
+        self.assertEqual(self.state["action_queue"][0]["status"], "PENDING_APPROVAL")
+
     def test_status_reports_buffer_configuration(self):
         with patch.object(content, "Store", return_value=self.store), patch.dict(
             os.environ, {"BUFFER_API_KEY": "configured"}, clear=False
