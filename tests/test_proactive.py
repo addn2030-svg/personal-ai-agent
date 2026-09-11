@@ -632,5 +632,163 @@ class ProactiveTests(unittest.TestCase):
         self.assertEqual(rw["decision"], "PREPARE")
 
 
+class ProactiveConfigStoreTests(unittest.TestCase):
+    """طبقة الإعدادات في v1.1: ساعات الهدوء والسقف تُخزَّن في الحالة وتعلو البيئة."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.store = Store(path=str(Path(self.tmp.name) / "state.json"))
+        saved = {k: os.environ.get(k) for k in
+                 ("PROACTIVE_QUIET_START", "PROACTIVE_QUIET_END", "PROACTIVE_MAX_ALERTS",
+                  "PROACTIVE_CONFIDENCE_THRESHOLD")}
+
+        def restore():
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+        self.addCleanup(restore)
+        for k in saved:
+            os.environ.pop(k, None)
+
+    def seed_bill(self, days=2):
+        S = self.store.rows_all()
+        S["finance"] = [{"البند": "اشتراك", "النوع": "اشتراك", "التكلفة (ريال/شهر)": 100,
+                         "تاريخ التجديد": (DAY + dt.timedelta(days=days)).isoformat(),
+                         "آخر استخدام": None, "ملاحظة": ""}]
+        self.store.commit(S, "seed")
+
+    def sweep(self, when):
+        return proactive.sweep(store=self.store, now_dt=when, verbose=False)
+
+    # ------------------------- الحدود والتحقق -------------------------
+    def test_quiet_hours_and_cap_are_now_storable(self):
+        self.assertEqual(set(proactive.CFG_OVERRIDABLE),
+                         {"confidence_act", "max_alerts", "quiet_start", "quiet_end"})
+
+    def test_sanitize_clamps_numbers_and_normalizes_times(self):
+        clean, notes = proactive.sanitize_cfg({"max_alerts": 99, "confidence_act": 0.2,
+                                               "quiet_start": "9:5", "quiet_end": "10:30"})
+        self.assertEqual(clean["max_alerts"], 12)
+        self.assertEqual(clean["confidence_act"], 0.7)
+        self.assertEqual(clean["quiet_start"], "09:05")   # تُهيّأ إلى HH:MM
+        self.assertEqual(len(notes), 2)          # ملاحظة لكل قيمة جُهزت إلى الحد
+
+    def test_sanitize_rejects_garbage_and_a_silencing_window(self):
+        for bad in ({"quiet_start": "25:70"}, {"quiet_start": "ليل"}, {"unknown": 1}):
+            clean, errors = proactive.sanitize_cfg(bad)
+            self.assertEqual(clean, {})
+            self.assertTrue(errors)
+        # نافذة صفرية، ونافذة تبتلع اليوم كله ← رفض لا تطبيق
+        for pair in (({"quiet_start": "06:30", "quiet_end": "06:30"}),
+                     ({"quiet_start": "06:31", "quiet_end": "06:30"})):
+            clean, errors = proactive.sanitize_cfg(pair)
+            self.assertEqual({k for k in clean if k.startswith("quiet")}, set())
+            self.assertTrue(errors)
+
+    def test_long_quiet_window_needs_an_explicit_permission(self):
+        # قلب الساعات سهوًا شائع (07:00–23:00 بدل 23:00–07:00) ← لا يُقبل بصمت
+        clean, errors = proactive.sanitize_cfg({"quiet_start": "07:00", "quiet_end": "23:00"})
+        self.assertEqual({k for k in clean if k.startswith("quiet")}, set())
+        self.assertIn("--force", errors[0])
+        clean2, errors2 = proactive.sanitize_cfg({"quiet_start": "07:00", "quiet_end": "23:00"},
+                                                 allow_long=True)
+        self.assertEqual((clean2["quiet_start"], clean2["quiet_end"]), ("07:00", "23:00"))
+        self.assertEqual(errors2, [])
+        # لكن >22 ساعة مرفوض مطلقًا — لا رخصة فيه
+        clean3, errors3 = proactive.sanitize_cfg({"quiet_start": "06:31", "quiet_end": "06:30"},
+                                                 allow_long=True)
+        self.assertEqual({k for k in clean3 if k.startswith("quiet")}, set())
+        self.assertTrue(errors3)
+
+    def test_quiet_span_wraps_midnight(self):
+        self.assertEqual(proactive.quiet_span_hours("22:00", "06:30"), 8.5)
+        self.assertEqual(proactive.quiet_span_hours("23:00", "05:00"), 6.0)
+
+    # ------------------------- التخزين والأولوية -------------------------
+    def test_set_cfg_persists_to_state_and_survives_reload(self):
+        stored, applied, errors = proactive.set_cfg(
+            {"quiet_start": "23:30", "quiet_end": "05:45", "max_alerts": 4}, store=self.store)
+        self.assertEqual(errors, [])
+        markers = Store(path=self.store.path).rows_all()["manager_markers"]
+        self.assertEqual(markers["proactive_cfg"], {"quiet_start": "23:30", "quiet_end": "05:45",
+                                                    "max_alerts": 4})
+        self.assertEqual(proactive.resolve_cfg(self.store)["quiet_start"], "23:30")
+        st = proactive.status(self.store)
+        self.assertEqual(st["quiet_window"], "23:30–05:45")
+        self.assertEqual(st["cfg_overrides"]["max_alerts"], 4)
+
+    def test_state_override_beats_environment(self):
+        os.environ["PROACTIVE_QUIET_START"] = "00:00"
+        os.environ["PROACTIVE_QUIET_END"] = "01:00"
+        proactive.set_cfg({"quiet_start": "20:00", "quiet_end": "07:00"}, store=self.store)
+        eff = proactive.resolve_cfg(self.store)
+        self.assertEqual((eff["quiet_start"], eff["quiet_end"]), ("20:00", "07:00"))
+        sources = proactive.cfg_sources(self.store)
+        self.assertEqual(sources["quiet_start"]["source"], "state")
+        self.assertEqual(sources["aging_days"]["source"], "default")
+
+    def test_clear_cfg_falls_back_off_the_stored_value(self):
+        # البيئة تُقرأ عند الاستيراد (DEFAULT_CFG)، فالعبرة هنا: الحذف يُسقط التجاوز
+        proactive.set_cfg({"max_alerts": 9, "quiet_start": "20:00"}, store=self.store)
+        self.assertEqual(proactive.resolve_cfg(self.store)["max_alerts"], 9)
+        kept = proactive.clear_cfg(["max_alerts"], store=self.store)
+        self.assertEqual(kept, {"quiet_start": "20:00"})     # الباقي لم يُمسّ
+        self.assertEqual(proactive.resolve_cfg(self.store)["max_alerts"],
+                         proactive.DEFAULT_CFG["max_alerts"])
+        self.assertEqual(proactive.resolve_cfg(self.store)["quiet_start"], "20:00")
+        self.assertEqual(proactive.clear_cfg(store=self.store), {})
+        self.assertEqual(proactive.resolve_cfg(self.store)["quiet_start"],
+                         proactive.DEFAULT_CFG["quiet_start"])
+
+    def test_set_cfg_rejects_everything_when_all_keys_invalid(self):
+        with self.assertRaises(ValueError):
+            proactive.set_cfg({"quiet_start": "بالمساء"}, store=self.store)
+        self.assertNotIn("proactive_cfg", self.store.rows_all()["manager_markers"])
+
+    # ------------------------- الأثر السلوكي -------------------------
+    def test_stored_quiet_window_changes_the_lane_in_the_same_sweep(self):
+        # 09:00 ليس هدوءًا افتراضيًا ← تنبيه؛ ثم نفس التوقيت بعد تخزين نافذة هدوء ← تأجيل
+        self.seed_bill(days=2)
+        self.sweep(at(9))
+        self.assertEqual(self.by_kind("bill_due")[0]["decision"], "ALERT_DRAFT")
+
+        fresh = Store(path=str(Path(self.tmp.name) / "state2.json"))
+        S = fresh.rows_all()
+        S["finance"] = self.store.rows_all()["finance"]
+        fresh.commit(S, "seed2")
+        proactive.set_cfg({"quiet_start": "08:00", "quiet_end": "10:00"}, store=fresh)
+        proactive.sweep(store=fresh, now_dt=at(9), verbose=False)
+        row = [a for a in fresh.rows_all()["proactive_actions"] if a["kind"] == "bill_due"][0]
+        self.assertEqual(row["decision"], "BATCHED")
+        self.assertIn("هدوء", row["note"])
+
+    def by_kind(self, kind):
+        return [a for a in self.store.rows_all()["proactive_actions"] if a["kind"] == kind]
+
+    # ------------------------- العرض -------------------------
+    def test_config_text_shows_source_of_truth(self):
+        proactive.set_cfg({"quiet_start": "21:00"}, store=self.store)
+        text = proactive.config_text(store=self.store)
+        self.assertIn("21:00–06:30 (9.5 س)", text)     # النافذة محسوبة بالالتفاف
+        self.assertIn("← state", text)
+        self.assertIn("← default", text)
+        self.assertIn("engine/proactive.py config", text)
+
+    def test_review_reports_the_stored_source(self):
+        def seed(S):
+            S["proactive_actions"] = [{"pa_id": "PA-0001", "kind": "bill_due",
+                                       "ts": at(9).isoformat(), "decision": "ALERT_DRAFT",
+                                       "title": "فاتورة", "category": "money", "key": "k1"}]
+            return True, None
+        self.store.transaction(seed, "seed_ledger")
+        proactive.set_cfg({"max_alerts": 3, "quiet_start": "21:00"}, store=self.store)
+        text = proactive.review_text(store=self.store, days=7, today=DAY)
+        self.assertIn("من الحالة", text)
+        self.assertIn("ساعات الهدوء: 21:00–06:30", text)
+        self.assertIn("(تجاوز مخزّن)", text)
+
 if __name__ == "__main__":
     unittest.main()

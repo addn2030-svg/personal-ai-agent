@@ -46,6 +46,7 @@ import datetime as dt
 import hashlib
 import json
 import os
+import re
 import sys
 import urllib.parse
 import urllib.request
@@ -1119,6 +1120,8 @@ def status(store=None):
                             if a["decision"] in ("ALERT", "ALERT_DRAFT")),
         "max_alerts": eff_cfg["max_alerts"],
         "confidence_act": eff_cfg["confidence_act"],
+        "quiet_window": f"{eff_cfg['quiet_start']}–{eff_cfg['quiet_end']}",
+        "cfg_overrides": _stored_cfg(store),
         "orders": {o["order_id"]: o.get("enabled") for o in S.get("standing_orders", [])},
         "open_loops": sum(1 for l in S.get("open_loops", []) if l.get("status") == "OPEN"),
         "recovering": sum(1 for l in S.get("open_loops", [])
@@ -1133,11 +1136,86 @@ def enabled():
 
 
 # ---------------------------------------------------------------- عتبات ذاتية الضبط من الواقع
-# القيم تعيش في البيئة أولًا ثم تخزَّن تجاوزاتها في manager_markers["proactive_cfg"]
-# بالأمر review --apply — فتصحح الأسبوعية تصبح فعلية دون تعديل متغيرات المنصة.
-CFG_OVERRIDABLE = ("confidence_act", "max_alerts")
+# القيم تعيش في البيئة أولًا ثم تُخزَّن تجاوزاتها في manager_markers["proactive_cfg"]
+# — بالأمر review --apply (عتبات الأرقام) أو بالأمر config (بما فيها ساعات الهدوء
+# وسقف التنبيهات)، فتصبح التصحيحات فعلية دون تعديل متغيرات المنصة.
+CFG_OVERRIDABLE = ("confidence_act", "max_alerts", "quiet_start", "quiet_end")
 CFG_BOUNDS = {"confidence_act": (0.70, 0.95), "max_alerts": (2, 12)}
+CFG_TIME_KEYS = ("quiet_start", "quiet_end")
+CFG_MAX_QUIET_SPAN_H = 22      # نافذة هدوء أطول من هذا = إسكات شبه كامل — مرفوض
+CFG_LONG_QUIET_SPAN_H = 12     # أطول من يوم عمل معقول ← يحتاج تصريحًا صريحًا (--force)
 MIN_DECISIONS_FOR_TUNING = 5
+
+
+def _hm_valid(txt):
+    """HH:MM (ساعة 0–23، دقيقة 0–59) بصيغة قياسية، أو ValueError."""
+    m = re.match(r"^\s*(\d{1,2})\s*:\s*(\d{1,2})\s*$", str(txt or ""))
+    if not m:
+        raise ValueError(f"صيغة وقت غير مفهومة: {txt} — المطلوب HH:MM")
+    h, mi = int(m.group(1)), int(m.group(2))
+    if h > 23 or mi > 59:
+        raise ValueError(f"وقت خارج النطاق: {txt}")
+    return f"{h:02d}:{mi:02d}"
+
+
+def quiet_span_hours(start, end):
+    """طول نافذة الهدوء بالساعات (تقبل الالتفاف عبر منتصف الليل)."""
+    sh, sm = (int(x) for x in str(start).split(":"))
+    eh, em = (int(x) for x in str(end).split(":"))
+    a, b = sh * 60 + sm, eh * 60 + em
+    return ((b - a) % (24 * 60)) / 60.0
+
+
+def sanitize_cfg(values, base=None, allow_long=False):
+    """يتحقق ويهذّب تجاوزات الإعدادات — يعيد (نظيف، أخطاء) بلا رمي.
+
+    الحدود تُطبَّق على الأرقام، وأوقات الهدوء تُقيَّم معًا لأن معناها في الاقتران
+    لا في كل مفتاح وحده: لا نافذة صفرية، ولا إسكات شبه كامل (>22 س)، ولا نافذة
+    أطول من يوم عمل (>12 س) إلا بتصريح صريح — فقلب الساعات سهوًا شائع.
+    """
+    base = {**DEFAULT_CFG, **(dict(base) if base else {})}   # لا تنكسر على لقطة ناقصة
+    clean, errors, notes = {}, [], []
+    for key, raw in dict(values or {}).items():
+        if key not in CFG_OVERRIDABLE:
+            errors.append(f"مفتاح غير قابل للتخزين: {key} "
+                          f"(القابل: {', '.join(CFG_OVERRIDABLE)})")
+            continue
+        try:
+            if key in CFG_TIME_KEYS:
+                clean[key] = _hm_valid(raw)
+            elif key == "confidence_act":
+                lo, hi = CFG_BOUNDS[key]
+                val = float(raw)
+                clean[key] = round(max(lo, min(hi, val)), 2)
+                if clean[key] != val:
+                    notes.append(f"{key}: {val} خارج الحدود {lo}–{hi} — جُعلت {clean[key]}")
+            else:
+                lo, hi = CFG_BOUNDS[key]
+                val = int(float(raw))
+                clean[key] = int(max(lo, min(hi, val)))
+                if clean[key] != val:
+                    notes.append(f"{key}: {val} خارج الحدود {lo}–{hi} — جُعل {clean[key]}")
+        except (TypeError, ValueError) as exc:
+            errors.append(f"{key}: {str(exc)[:80] or 'قيمة غير صالحة'} — لم تُطبَّق")
+    merged = {**base, **clean}
+    span = quiet_span_hours(merged["quiet_start"], merged["quiet_end"])
+    if span == 0:
+        errors.append("ساعات الهدوء: البداية = النهاية (نافذة صفرية) — لم تُطبَّق")
+        for k in CFG_TIME_KEYS:
+            clean.pop(k, None)
+    elif span > CFG_MAX_QUIET_SPAN_H:
+        errors.append(f"ساعات الهدوء: النافذة {span:.1f} س تتجاوز "
+                      f"{CFG_MAX_QUIET_SPAN_H} س (إسكات شبه كامل) — لم تُطبَّق")
+        for k in CFG_TIME_KEYS:
+            clean.pop(k, None)
+    elif span > CFG_LONG_QUIET_SPAN_H and not allow_long:
+        errors.append(f"ساعات الهدوء: {span:.1f} س أطول من يوم عمل — إن كان مقصودًا "
+                      "(وردية ليلية مثلًا) مرّر --force، وإلا فغالبًا الساعتان معكوستان")
+        for k in CFG_TIME_KEYS:
+            clean.pop(k, None)
+    if errors and not clean:
+        return {}, errors
+    return clean, errors + notes
 
 
 def _stored_cfg(store):
@@ -1147,6 +1225,98 @@ def _stored_cfg(store):
         return {k: ov[k] for k in CFG_OVERRIDABLE if k in ov}
     except Exception:  # noqa: BLE001
         return {}
+
+
+ENV_KEYS = {"confidence_act": "PROACTIVE_CONFIDENCE_THRESHOLD", "max_alerts": "PROACTIVE_MAX_ALERTS",
+            "quiet_start": "PROACTIVE_QUIET_START", "quiet_end": "PROACTIVE_QUIET_END",
+            "meeting_window_min": "PROACTIVE_MEETING_WINDOW_MIN",
+            "deadline_window_h": "PROACTIVE_DEADLINE_WINDOW_H",
+            "aging_days": "PROACTIVE_AGING_DAYS", "renew_red_days": "PROACTIVE_RENEW_RED_DAYS",
+            "renew_watch_days": "PROACTIVE_RENEW_WATCH_DAYS", "unused_days": "PROACTIVE_UNUSED_DAYS",
+            "conflict_days": "PROACTIVE_CONFLICT_DAYS", "travel_window_h": "PROACTIVE_TRAVEL_WINDOW_H",
+            "slip_days": "PROACTIVE_SLIP_DAYS", "focus_gap_min": "PROACTIVE_FOCUS_GAP_MIN",
+            "focus_day_start": "PROACTIVE_FOCUS_DAY_START", "focus_day_end": "PROACTIVE_FOCUS_DAY_END",
+            "demote_days": "PROACTIVE_DEMOTE_DAYS"}
+
+
+def cfg_sources(store=None):
+    """مصدر كل قيمة عاملة: state (تجاوز مخزّن في الحالة) أم env أم default — للتحقق."""
+    store = store or Store()
+    stored = _stored_cfg(store)
+    out = {}
+    for key, val in resolve_cfg(store).items():
+        env_var = ENV_KEYS.get(key, "")
+        src = ("state" if key in stored
+               else ("env" if env_var and os.environ.get(env_var) else "default"))
+        out[key] = {"value": val, "source": src, "default": DEFAULT_CFG.get(key)}
+    return out
+
+
+def set_cfg(updates, store=None, allow_long=False):
+    """يخزّن تجاوزات الإعدادات في الحالة (معاملة + تدقيق) — تسري من الدورة القادمة."""
+    store = store or Store()
+    clean, errors = sanitize_cfg(updates, base=resolve_cfg(store), allow_long=allow_long)
+    if not clean:
+        raise ValueError("؛ ".join(errors) if errors else "لا شيء للتطبيق")
+
+    def mutate(S):
+        markers = dict(S.get("manager_markers") or {})
+        cfg = dict(markers.get("proactive_cfg") or {})
+        changed = False
+        for k, v in clean.items():
+            if cfg.get(k) != v:
+                cfg[k] = v
+                changed = True
+        markers["proactive_cfg"] = cfg
+        S["manager_markers"] = markers
+        return changed, dict(cfg)
+
+    stored = store.transaction(mutate, "proactive_cfg_set", keys=sorted(clean))
+    log_event("proactive_cfg_set", applied=clean, rejected=errors or None)
+    return stored, clean, errors
+
+
+def clear_cfg(keys=None, store=None):
+    """يحذف تجاوزات مخزنة (كلها أو مفاتيح بعينها) فتعود القيم إلى البيئة/الافتراضي."""
+    store = store or Store()
+
+    def mutate(S):
+        markers = dict(S.get("manager_markers") or {})
+        cfg = dict(markers.get("proactive_cfg") or {})
+        if not cfg:
+            return False, {}
+        drop = [k for k in (keys or list(cfg))] if (keys or True) else []
+        for k in drop:
+            cfg.pop(k, None)
+        markers["proactive_cfg"] = cfg
+        S["manager_markers"] = markers
+        return bool(drop), dict(cfg)
+
+    kept = store.transaction(mutate, "proactive_cfg_clear", keys=sorted(keys or []))
+    log_event("proactive_cfg_clear", removed=keys or "all")
+    return kept
+
+
+def config_text(store=None):
+    """جدول الإعدادات العاملة مع مصدر كل قيمة — «من يضبط ماذا» بلا تخمين."""
+    store = store or Store()
+    src = cfg_sources(store)
+    eff = resolve_cfg(store)
+    lines = ["⚙️ إعدادات الطبقة الاستباقية (state ← env ← default)",
+             f"  نافذة الهدوء الفاعلة: {eff['quiet_start']}–{eff['quiet_end']} "
+             f"({quiet_span_hours(eff['quiet_start'], eff['quiet_end']):.1f} س) · "
+             f"هدوء الآن: {'نعم' if _in_quiet(now(), eff) else 'لا'}"]
+    shown = ("confidence_act", "max_alerts", "quiet_start", "quiet_end", "aging_days",
+             "meeting_window_min", "deadline_window_h", "demote_days")
+    for key in shown:
+        row = src.get(key, {})
+        lines.append(f"  • {key:<22} {str(row.get('value')):<10} ← {row.get('source')}"
+                     f" (افتراضي {row.get('default')})")
+    lines += ["", "للتعديل من الحالة (بلا لمس البيئة):",
+              "  python3 engine/proactive.py config --quiet 22:00-06:30 --max-alerts 6",
+              "  python3 engine/proactive.py config-clear            ← للرجوع إلى البيئة",
+              "  python3 engine/proactive.py review --apply          ← توصية الأسبوع تلقائيًا"]
+    return "\n".join(lines)
 
 
 def resolve_cfg(store=None, cfg=None):
@@ -1254,7 +1424,8 @@ def tuning_recommendations(report, current_cfg):
 def apply_tuning(recs, store=None):
     """يكتب التجاوزات الموصى بها في manager_markers (معاملة + تدقيق حد أدنى)."""
     store = store or Store()
-    clean = {k: v for k, v in recs.items() if k in CFG_OVERRIDABLE}
+    clean, _errors = sanitize_cfg({k: v for k, v in recs.items() if k in CFG_OVERRIDABLE},
+                                  base=resolve_cfg(store))
     if not clean:
         return {}
 
@@ -1264,8 +1435,7 @@ def apply_tuning(recs, store=None):
         changed = False
         for k, v in clean.items():
             if cfg.get(k) != v:
-                lo, hi = CFG_BOUNDS[k]
-                cfg[k] = max(lo, min(hi, v))
+                cfg[k] = v          # sanitize_cfg طبّقت الحدود فعلًا
                 changed = True
         markers["proactive_cfg"] = cfg
         S["manager_markers"] = markers
@@ -1302,9 +1472,13 @@ def review_text(store=None, days=7, today=None):
     noisy = [(k, n) for k, n in noisy if n > 0][:3]
     if noisy:
         lines.append("• أكثر الأنواع رفضًا/انتهاءً: " + "، ".join(f"{k} ({n})" for k, n in noisy))
+    stored = _stored_cfg(store)
+    src = "من الحالة" if "confidence_act" in stored or "max_alerts" in stored else "من البيئة/الافتراضي"
     lines += ["", "⚙️ الإعدادات المؤثرة الآن:",
               f"  confidence_act={cfg['confidence_act']} (بيئة {DEFAULT_CFG['confidence_act']}) · "
-              f"max_alerts={cfg['max_alerts']} (بيئة {DEFAULT_CFG['max_alerts']})",
+              f"max_alerts={cfg['max_alerts']} (بيئة {DEFAULT_CFG['max_alerts']}) · مصدر: {src}",
+              f"  ساعات الهدوء: {cfg['quiet_start']}–{cfg['quiet_end']}"
+              + (f" (تجاوز مخزّن)" if "quiet_start" in stored or "quiet_end" in stored else ""),
               "", "🧭 التوصيات:"]
     lines += ["  - " + n for n in notes]
     if recs:
@@ -1327,13 +1501,19 @@ def main():
     ap = argparse.ArgumentParser(description="محرك الاستباقية — Proactive Chief of Staff")
     ap.add_argument("cmd", choices=["sweep", "brief", "status", "orders", "matrix",
                                     "order-enable", "order-disable", "pause", "resume",
-                                    "undo", "feedback", "push-test", "review"])
+                                    "undo", "feedback", "push-test", "review",
+                                    "config", "config-clear"])
     ap.add_argument("id", nargs="?")
     ap.add_argument("signal", nargs="?", choices=["good", "much", "never"])
     ap.add_argument("--hours", type=float, default=4.0)
     ap.add_argument("--days", type=int, default=7)
     ap.add_argument("--apply", action="store_true")
     ap.add_argument("--scope", choices=["kind", "category"], default="kind")
+    ap.add_argument("--quiet", help="نافذة الهدوء HH:MM-HH:MM تُخزَّن في الحالة")
+    ap.add_argument("--max-alerts", type=int, dest="max_alerts")
+    ap.add_argument("--confidence", type=float, dest="confidence")
+    ap.add_argument("--force", action="store_true",
+                    help="قبول نافذة هدوء أطول من يوم عمل (وردية ليلية)")
     args = ap.parse_args()
 
     try:
@@ -1377,6 +1557,29 @@ def main():
                 print(f"❌ قناة الدفع غير جاهزة ({why}). اضبط TELEGRAM_BOT_TOKEN و"
                       "TELEGRAM_ALLOWED_CHAT_ID (أو تحدث مع البوت خاصة أولًا).")
             raise SystemExit(code)
+        elif args.cmd == "config":
+            updates = {}
+            if args.quiet:
+                parts = re.split(r"\s*-\s*", args.quiet)
+                if len(parts) != 2:
+                    raise ValueError("صيغة --quiet: \"22:00-06:30\"")
+                updates["quiet_start"], updates["quiet_end"] = parts[0], parts[1]
+            if args.max_alerts is not None:
+                updates["max_alerts"] = args.max_alerts
+            if args.confidence is not None:
+                updates["confidence_act"] = args.confidence
+            if not updates:
+                print(config_text())
+                return
+            stored, applied, errors = set_cfg(updates, allow_long=args.force)
+            print("✅ خُزّنت في الحالة وتسري من الدورة القادمة: " + json.dumps(applied, ensure_ascii=False))
+            for w in errors:
+                print(f"⚠️ {w}")
+        elif args.cmd == "config-clear":
+            kept = clear_cfg([args.id] if args.id else None)
+            print("🧹 لا تجاوزات مخزنة." if not kept else
+                  f"✅ الإعدادات العاملة الآن من البيئة/الافتراضي: "
+                  f"{json.dumps(kept, ensure_ascii=False)}")
         elif args.cmd == "review":
             store = Store()
             print(review_text(store=store, days=args.days))

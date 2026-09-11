@@ -98,6 +98,10 @@ Transcribe -> delete temporary objects -> normal text flow.
 - /ai_status
 - /storage_status
 - /timing (automatic-timing card), /timing_run [brief|sweep|review], /review [days]
+- `python3 engine/timing.py verify` on the container prints a 13-point proof of life
+  (flags, clock vs schedule, today's pulse, push channel, installer, data dir).
+- Proactive guardrails are tunable from state without redeploying:
+  `python3 engine/proactive.py config --quiet 22:00-06:30 --max-alerts 6`.
 
 Clinical content is tagged CLINICAL_PRIVATE; email, Saudi mobile, MRN and similar
 identifiers are redacted before Sheets logging. Human review remains required.

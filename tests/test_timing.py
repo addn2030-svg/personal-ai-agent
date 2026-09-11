@@ -404,6 +404,51 @@ class StatusAndCronTests(TimingTestCase):
                              "disabled")
 
 
+class VerifyCliTests(unittest.TestCase):
+    """CLI: المخرج النصي يعطي رمز exit دالًا، و --json للمراقبة الآلية."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.data = Path(self.tmp.name) / "data"
+        self.data.mkdir()
+
+    def run_cli(self, *args):
+        import json as _json
+        import subprocess
+        env = dict(os.environ, AI_OS_DATA_DIR=str(self.data), TIMING_PUSH="0", PYTHONPATH=BASE)
+        proc = subprocess.run([sys.executable, os.path.join(BASE, "engine", "timing.py")]
+                              + list(args), capture_output=True, text=True, env=env, cwd=BASE)
+        return proc, (_json.loads(proc.stdout) if proc.stdout.strip().startswith("{") else None)
+
+    def test_verify_text_exits_1_when_the_pulse_is_missing(self):
+        proc, parsed = self.run_cli("verify")
+        self.assertIsNone(parsed)
+        self.assertEqual(proc.returncode, 1)          # حالة نظيفة بلا أي تشغيل اليوم
+        self.assertIn("تحقق التوقيت التلقائي", proc.stdout)
+        self.assertIn("❌", proc.stdout)
+
+    def test_verify_json_carries_the_verdict(self):
+        proc, parsed = self.run_cli("verify", "--json")
+        self.assertEqual(proc.returncode, 0)          # الآلة تقرأ الحكم من الحقل لا من الرمز
+        self.assertEqual(parsed["verdict"], "fail")
+        self.assertEqual({c["id"] for c in parsed["checks"]},
+                         {"engine", "worker", "timezone", "schedule", "heartbeat", "runs",
+                          "errors", "push", "brief_file", "installer", "data_dir", "lock",
+                          "state_schema"})
+
+    def test_tick_then_verify_reports_health(self):
+        self.run_cli("tick")
+        proc, parsed = self.run_cli("verify", "--json")
+        self.assertEqual(proc.returncode, 0)
+        self.assertNotEqual(parsed["verdict"], "fail")   # نبض اليوم ودفتر التشغيل حاضران
+        self.assertEqual(parsed["checks"][0]["id"], "engine")
+        states = {c["id"]: c["state"] for c in parsed["checks"]}
+        self.assertEqual(states["heartbeat"], "ok")
+        self.assertEqual(states["runs"], "ok")
+        self.assertEqual(states["data_dir"], "ok")
+
+
 class WorkerContractTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -516,5 +561,70 @@ class TelegramSurfaceTests(unittest.TestCase):
                 review_only.assert_not_called()
 
 
+class VerifyTests(TimingTestCase):
+    """`verify` = برهان حياة يُطبع للمطوّر: الطبقات الخمس (بيئة/ساعة/نبض/قناة/مثبّت)."""
+
+    def check(self, checks, cid):
+        return next(k for k in checks if k["id"] == cid)
+
+    def test_fresh_state_reports_a_hard_fail_on_the_pulse(self):
+        v = timing.verify(store=self.store, ref=at(9, 0))
+        self.assertEqual(v["verdict"], "fail")
+        self.assertEqual(self.check(v["checks"], "heartbeat")["state"], "fail")
+        self.assertEqual(self.check(v["checks"], "runs")["state"], "fail")
+        self.assertTrue(self.check(v["checks"], "heartbeat")["fix"])
+        self.assertEqual(self.check(v["checks"], "engine")["state"], "ok")
+        self.assertEqual(self.check(v["checks"], "data_dir")["state"], "ok")
+
+    def test_idle_schedule_is_not_a_failure(self):
+        # لا شيء مستحق اليوم (كل الوظائف معطّلة بالبيئة) ← warn لا fail
+        for k in ("TIMING_BRIEF_ENABLED", "TIMING_SWEEP_ENABLED", "TIMING_REVIEW_ENABLED"):
+            os.environ[k] = "0"
+        v = timing.verify(store=self.store, ref=at(9, 0))
+        self.assertNotEqual(self.check(v["checks"], "runs")["state"], "fail")
+        self.assertEqual(v["verdict"], "warn")
+
+    def test_a_successful_tick_clears_the_pulse_checks(self):
+        calls = []
+        with self.stub_handlers(calls):
+            timing.tick(store=self.store, ref=at(6, 30), verbose=False)
+        v = timing.verify(store=self.store, ref=at(7, 0))
+        states = {k["id"]: k["state"] for k in v["checks"]}
+        self.assertNotIn("fail", states.values())
+        self.assertEqual(states["heartbeat"], "ok")
+        self.assertEqual(states["runs"], "ok")
+        self.assertEqual(states["errors"], "ok")
+        self.assertEqual(states["brief_file"] if "brief_file" in states else "ok", "ok")
+        self.assertIn("2 تشغيل", v["summary"] + " ".join(
+            str(k["value"]) for k in v["checks"] if k["id"] == "runs"))
+        self.assertTrue(any(r["job_id"] == "timing.morning_brief" for r in v["last_runs"]))
+
+    def test_repeated_failures_are_surfaced(self):
+        def seed(S):
+            S["timing_runs"] = [{"job_id": "timing.morning_brief", "status": "error",
+                                 "finished_at": at(h).isoformat(), "cycle_key": DAY.isoformat(),
+                                 "trigger": "cron", "detail": "{}"} for h in (6, 7, 8)]
+            return True, None
+        self.store.transaction(seed, "seed_errors")
+        v = timing.verify(store=self.store, ref=at(9, 0))
+        self.assertEqual(self.check(v["checks"], "errors")["state"], "fail")
+        self.assertEqual(v["verdict"], "fail")
+
+    def test_verify_text_is_paste_ready(self):
+        text = timing.verify_text(store=self.store, ref=at(9, 0))
+        self.assertIn("تحقق التوقيت التلقائي", text)
+        self.assertIn("الحكم: ❌ لا يعمل", text)
+        self.assertIn("نبض اليوم في الحالة", text)
+        self.assertIn("↳", text)                      # سطر إصلاح تحت بنود الأعطال
+        self.assertIn("python3 engine/timing.py tick", text)
+        # لا أسطر إصلاح تحت البنود النظيفة
+        ok_line_before = [l for l in text.splitlines() if "محرّك الجدولة" in l][0]
+        self.assertIn("✅", ok_line_before)
+
+    def test_disabled_engine_is_reported_as_fail_with_the_env_flag(self):
+        os.environ["AIOS_TIMING_ENABLED"] = "0"
+        v = timing.verify(store=self.store, ref=at(9, 0))
+        self.assertEqual(self.check(v["checks"], "engine")["state"], "fail")
+        self.assertIn("AIOS_TIMING_ENABLED=0", self.check(v["checks"], "engine")["fix"])
 if __name__ == "__main__":
     unittest.main()

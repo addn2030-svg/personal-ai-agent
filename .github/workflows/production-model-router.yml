@@ -61,6 +61,8 @@ on:
       - 'tests/test_v09_scheduler.py'
       - 'tests/test_proactive.py'
       - 'tests/test_timing.py'
+      - 'tests/test_approve_draft.py'
+      - 'engine/approve.py'
       - 'research_capsules/**'
       - 'tests/test_production_model_gateway.py'
       - 'tests/test_telegram_bot.py'
@@ -127,6 +129,7 @@ jobs:
           tests.test_v09_scheduler
           tests.test_proactive
           tests.test_timing
+          tests.test_approve_draft
       - name: Check cron wrapper and templates
         run: >-
           bash -n scripts/aios-timing.sh &&
@@ -178,6 +181,7 @@ jobs:
           engine/manager.py
           engine/proactive.py
           engine/timing.py
+          engine/approve.py
           engine/telegram_bot.py
           engine/master_os.py
           engine/drive_tree.py

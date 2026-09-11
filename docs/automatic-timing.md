@@ -131,14 +131,42 @@ MANAGER_TIMEZONE=Asia/Riyadh       AI_OS_DATA_DIR=/data
 بناء. للتجربة بلا تعديل المنصة: `pause` من محرك الاستباقية يوقف دورات sweep
 وحده، و`AIOS_TIMING_ENABLED=0` يوقف الجدولة كلها.
 
-## 6. التحقق (أربع نظرات)
+## 6. التحقق — أمر واحد يعطي برهانًا كاملاً
+
+```bash
+python3 engine/timing.py verify          # نص يُرمى في الرد كما هو (exit 0 سليم / 1 عطل)
+python3 engine/timing.py verify --json    # للنسخ الآلي أو لوحة المراقبة
+```
+
+يفحص 13 بندًا بطبقاتها، ويضع تحت كل بند معطّل سطر إصلاح:
+
+| الطبقة | البنود | الحكم |
+|---|---|---|
+| الأعلام | `engine` (AIOS_TIMING_ENABLED) · `worker` (AIOS_TIMING_WORKER) | ❌ إن كان المحرّك موقوفًا |
+| الساعة | `timezone` (فرق ساعة الخادم عن منطقة الجدولة) · `schedule` (المواقيت الفاعلة) | ⚠️ فرق ساعة لا يهمّ وضع tick ويهمّ native |
+| النبض | `heartbeat` (نبض اليوم) · `runs` (عدد تشغيلات اليوم) · `errors` (أخطاء اليوم) | ❌ إذا استحق شيء ولم يُنفَّذ؛ ⚠️ إن لم يستحق شيء بعد |
+| المخرجات | `push` (قناة تيليجرام) · `brief_file` (ملف بريف اليوم) | ⚠️ قناة غائبة = ملفات فقط، لا فشل |
+| التركيب | `installer` (سطر cron أو وحدة timer) · `data_dir` (قابل للكتابة) · `lock` (متاح الآن) · `state_schema` | ❌ مجلد غير قابل للكتابة أو قسم مفقود |
+
+والنظر اليدوي عند الحاجة:
 
 | ماذا | الأمر | النتيجة الدالة على الحياة |
 |---|---|---|
 | المحرّك يرى الجدول | `python3 engine/timing.py status` | `heartbeat_day` = اليوم، ووظيفة واحدة على الأقل `due_now` أو سبب انتظار منطقي |
-| cron يركض فعلًا | `crontab -l \| grep AIOS-TIMING` وسطر `logs/timing.log` | أسطر `── … aios-timing tick` + `exited rc=0` |
+| cron يركض فعلًا | `crontab -l \| grep AIOS-TIMING` و`logs/timing.log` | أسطر `── … aios-timing tick` + `exited rc=0` |
 | الحالة شهدت بالتشغيل | `python3 -c "import json;print(json.load(open('data/state.json'))['timing_runs'][-3:])"` | صفوف بـ `status: ok` و`trigger: cron/loop/webhook-worker` |
 | لا إرسال خارجيًا | `python3 engine/approve.py list` | كل ناتج الجدولة مسودة `PENDING_APPROVAL` |
+
+### إعدادات الطبقة الاستباقية من الحالة (بلا إعادة نشر)
+
+الجدولة تقرأ الحواجز من نفس المصدر الذي تُضبط منه، فتصحيح «لا ترفعني قبل 7» لا
+يحتاج لمس متغيرات المنصة:
+
+```bash
+python3 engine/proactive.py config --quiet 23:00-07:00 --max-alerts 4
+python3 engine/proactive.py config            # القيمة + مصدرها (state/env/default)
+python3 engine/proactive.py config-clear      # رجوعًا إلى البيئة
+```
 
 ولتشغيل شيء الآن من جوالك بلا طرفية: `/timing_run` (المستحق) أو
 `/timing_run brief` (بريف الصباح فورًا). للجدولة الكاملة القديمة: `/schedule`؛
@@ -164,7 +192,10 @@ autostart/cron/aios-timing.{service,timer}.template
 autostart/cron/install.sh · remove.sh
 ```
 
-الاختبارات: `python3 -m unittest tests.test_timing` (25) — قواعد الاستحقاق،
+الاختبارات: `python3 -m unittest tests.test_timing` (34) — قواعد الاستحقاق،
 اللحاق بالفائت، idempotency، الرجوع عند الفشل، قفل التراكب، نص بريف الصباح،
-توليد سطور cron، عقد الخيط، وأوامر البوت `/timing` `/timing_run` `/review`.
+توليد سطور cron، عقد الخيط، وصندوق `verify`، وأوامر البوت `/timing` `/timing_run` `/review`.
+و`tests/test_proactive.py` (48) يغطي طبقة الإعدادات المخزّنة (أولوية الحالة على
+البيئة، رفض النافذة الصفرية والإسكات، والأثر الفعلي على مسار التنبيه)،
+و`tests/test_approve_draft.py` (6) يغطي إدخال المسودات إلى الطابور بالبصمة.
 المرجع الشقيق: `docs/v1.0-proactive-chief-of-staff.md`.

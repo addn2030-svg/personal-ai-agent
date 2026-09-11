@@ -42,6 +42,7 @@
 التشغيل من الطرفية (الأتمتة):
   python3 engine/timing.py list          ← الجدول + الحالة القادمة لكل وظيفة
   python3 engine/timing.py status        ← بطاقة JSON: آخر تشغيل + متى يستحق
+  python3 engine/timing.py verify        ← برهان حياة كامل (13 بندًا + إصلاح) للمطوّر
   python3 engine/timing.py tick          ← نفّذ ما استحق الآن فقط
   python3 engine/timing.py run brief     ← تنفيذ وظيفة بعينها الآن (للاختبار)
   python3 engine/timing.py loop          ← مُنَبِّه مقيم داخل العملية (حاوية بلا cron)
@@ -675,6 +676,145 @@ def timing_status(store=None, ref=None):
     }
 
 
+def verify(store=None, ref=None):
+    """برهان حياة واحد للجدولة التلقائية — يُطبع للمطوّر أو يُلصق كما هو في الرد.
+
+    يفحص الطبقات التي لا تظهر في مخرجات الوظيفة نفسها: أعلام البيئة، ساعة
+    الخادم مقابل منطقة الجدولة، نبض اليوم في الحالة، دفتر timing_runs، أخطاء
+    اليوم، قناة تيليجرام، ملف بريف اليوم، وجود سطر cron/وحدة timer، قابلية
+    الكتابة لمجلد البيانات، وتوفر القفل الآن.
+    """
+    c = cfg()
+    t = ref or now()
+    store = store or Store()
+    S = store.rows_all()
+    today = t.date().isoformat()
+    checks = []
+
+    def add(cid, label, state, value, fix=""):
+        checks.append({"id": cid, "label": label, "state": state, "value": value,
+                       "fix": fix})
+
+    add("engine", "محرّك الجدولة (AIOS_TIMING_ENABLED)",
+        "ok" if c["enabled"] else "fail", f"enabled={c['enabled']} · worker-loop={c['tick_seconds']}s",
+        "" if c["enabled"] else "AIOS_TIMING_ENABLED=0 — الجدولة موقوفة بالبيئة")
+    add("worker", "خيط الحاوية (AIOS_TIMING_WORKER)",
+        "ok" if os.environ.get("AIOS_TIMING_WORKER", "1").strip() != "0" else "warn",
+        os.environ.get("AIOS_TIMING_WORKER", "1 (default)"),
+        "على Railway/X1: الخيط هو بديل cron؛ فعّله أو اضبط سطر cron")
+    note = _server_tz_note()
+    add("timezone", f"منطقة الجدولة = {TZ}", "warn" if note else "ok",
+        (note or "ساعة الخادم مطابقة لمنطقة الجدولة"),
+        "النبضة كل 5 دقائق تتجاهل فروق الساعة؛ سطور native تحتاج توقيت الخادم" if note else "")
+    add("schedule", "الجدول الفاعل", "ok",
+        f"brief={c['jobs']['brief']['time']} · sweep=every {c['jobs']['sweep']['interval_hours']}h · "
+        f"review={AR_DAYS[c['jobs']['review']['weekday']]} {c['jobs']['review']['time']}",
+        "")
+    markers = S.get("manager_markers") or {}
+    hb = str(markers.get("timing_heartbeat_day") or "")
+    runs = list(S.get("timing_runs", []))
+    runs_today = [r for r in runs if str(r.get("finished_at", ""))[:10] == today]
+    errs_today = [r for r in runs_today if r.get("status") != "ok"]
+    pending_now = due_jobs(t, store, c)
+    # «لا شيء اليوم» عطلٌ فقط إذا كان هناك ما يستحق — وإلا فإعداد أو هدولة منتظرة
+    pulse_state = "ok" if hb == today else ("fail" if pending_now else "warn")
+    add("heartbeat", "نبض اليوم في الحالة", pulse_state,
+        hb or ("لا نبض ولا شيء مستحق الآن" if not pending_now else "لا يوجد"),
+        "لم تُنفَّذ أي دورة مع وجود وظيفة مستحقة: `crontab -l | grep AIOS-TIMING` و tail -n 40 logs/timing.log")
+    add("runs", "دفتر التشغيل اليوم (timing_runs)",
+        "ok" if runs_today else ("fail" if pending_now else "warn"),
+        f"{len(runs_today)} تشغيل ({len({r.get('job_id') for r in runs_today})}/{len(jobs_for(c))} وظائف)"
+        + ("" if pending_now else " · لا مستحق الآن"),
+        "python3 engine/timing.py tick — أو تحقق من نبض cron")
+    add("errors", "أخطاء اليوم", "fail" if len(errs_today) >= 3 else
+        ("warn" if errs_today else "ok"),
+        f"{len(errs_today)}",
+        "راجع data/audit.jsonl: grep timing_job_error")
+    channel = "unknown"
+    try:
+        import proactive
+        channel = proactive.telegram_push_status()
+    except Exception as exc:  # noqa: BLE001
+        channel = f"unavailable: {str(exc)[:60]}"
+    add("push", "قناة رسالة الصباح/المراجعة (تيليجرام)",
+        "ok" if channel == "ready" else "warn", f"{channel} · TIMING_PUSH={1 if c['push'] else 0}",
+        "الملفات تُولَّد بلا قناة؛ اضبط TELEGRAM_BOT_TOKEN و TELEGRAM_ALLOWED_CHAT_ID")
+    brief_file = os.path.join(BASE, "reports", f"proactive-brief-{today}.md")
+    add("brief_file", "ملف بريف اليوم", "ok" if os.path.exists(brief_file) else "warn",
+        os.path.relpath(brief_file, BASE), "python3 engine/proactive.py brief")
+    cron_state, cron_value = "warn", "غير متوفر على هذا النظام"
+    if os.path.exists(os.path.join(os.path.expanduser("~"), ".config", "systemd", "user",
+                                   "aios-timing.timer")):
+        cron_state, cron_value = "ok", "systemd user timer: aios-timing.timer"
+    else:
+        try:
+            res = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
+            if res.returncode == 0:
+                hit = [ln.strip() for ln in res.stdout.splitlines() if CRON_MARK in ln]
+                cron_state = "ok" if hit else "warn"
+                cron_value = "\n      ".join(hit) if hit else "لا سطر " + CRON_MARK + " في crontab"
+        except FileNotFoundError:
+            cron_value = "لا crontab (حاوية؟) — استخدم خيط الحاوية أو systemd timer"
+    add("installer", "تثبيت الجدولة (cron / timer)", cron_state, cron_value,
+        "bash autostart/cron/install.sh")
+    try:
+        data_dir = os.path.dirname(store.path)
+        os.makedirs(data_dir, exist_ok=True)   # مجلد جديد ليس عطلًا — الحالة ستنشئه عند أول كتابة
+        probe = os.path.join(data_dir, ".timing.verify")
+        with open(probe, "w", encoding="utf-8") as fh:
+            fh.write(today)
+        os.remove(probe)
+        add("data_dir", f"مجلد البيانات قابل للكتابة ({os.path.dirname(store.path)})", "ok",
+            "rw", "")
+    except Exception as exc:  # noqa: BLE001
+        add("data_dir", "مجلد البيانات قابل للكتابة", "fail", str(exc)[:120],
+            "اضبط AI_OS_DATA_DIR على مجلد قابل للكتابة (Volume على Railway)")
+    try:
+        with run_lock(blocking=False) as acquired:
+            add("lock", "قفل التوقيت متاح الآن", "ok" if acquired else "warn",
+                "متاح" if acquired else "دورة أخرى تعمل الآن",
+                "عادي أثناء تشغيل طويل؛ تحقق إن استمر أكثر من 10 دقائق")
+    except Exception as exc:  # noqa: BLE001
+        add("lock", "قفل التوقيت", "warn", f"تعذر القفل: {str(exc)[:80]}", "")
+    add("state_schema", "قسم timing_runs في مخزن الحالة",
+        "ok" if "timing_runs" in S else "fail", f"{len(runs)} صف",
+        "النشر الحالي أقدم من v1.1 — ادمج PR التوقيت وأعد البناء")
+    states = [k["state"] for k in checks]
+    verdict = "fail" if "fail" in states else ("warn" if "warn" in states else "ok")
+    return {
+        "verdict": verdict,
+        "at": t.isoformat(timespec="seconds"),
+        "timezone": str(TZ),
+        "summary": (f"{states.count('ok')}/{len(states)} فحص نظيف · "
+                    f"أخطاء اليوم {len(errs_today)} · قناة {channel}"),
+        "checks": checks,
+        "last_runs": [{k: r.get(k) for k in ("job_id", "finished_at", "status", "trigger")}
+                      for r in runs[-5:]][::-1],
+    }
+
+
+def verify_text(store=None, ref=None):
+    """نسخة نصية من verify() — للّصق في رد المطوّر أو لمراجعة سريعة."""
+    v = verify(store, ref)
+    icons = {"ok": "✅", "warn": "⚠️", "fail": "❌"}
+    lines = [f"🕰️ تحقق التوقيت التلقائي — {v['at']} · {v['timezone']}",
+             f"الحكم: {'✅ يعمل' if v['verdict'] == 'ok' else ('⚠️ يعمل مع ملاحظات' if v['verdict'] == 'warn' else '❌ لا يعمل')}"
+             f" — {v['summary']}", ""]
+    for k in v["checks"]:
+        lines.append(f"{icons[k['state']]} {k['label']}")
+        for part in str(k["value"]).splitlines():
+            if part.strip():
+                lines.append(f"      {part.strip()}")
+        if k["fix"] and k["state"] != "ok":      # الإصلاح يُعرض حيث يلزم لا تحت كل سطر نظيف
+            lines.append(f"      ↳ {k['fix']}")
+    if v["last_runs"]:
+        lines += ["", "آخر التشغيلات:"]
+        for r in v["last_runs"]:
+            lines.append(f"  • {r['job_id']} — {r['status']} @ {r['finished_at']} "
+                         f"({r.get('trigger', '—')})")
+    return "\n".join(lines)
+
+
 def status_text(store=None, ref=None):
     """بطاقة نصية مختصرة لبوت تيليجرام (/timing)."""
     st = timing_status(store, ref)
@@ -690,7 +830,7 @@ def status_text(store=None, ref=None):
         last = f"آخر تشغيل: {j['last_run']}" if j["last_run"] else "لم تُنفَّذ بعد"
         lines.append(f"    {icons.get(j['last_status'], '▫️')} {last}"
                      + (f" ({j['last_status']})" if j["last_status"] else ""))
-    lines.append("من الطرفية: python3 engine/timing.py status · من الجوال: "
+    lines.append("من الطرفية: python3 engine/timing.py verify · من الجوال: "
                  "/timing_run [brief|sweep|review]")
     return "\n".join(lines)
 
@@ -785,13 +925,15 @@ def uninstall_cron(write=False, repo=None, python=None):
 def main(argv=None):
     ap = argparse.ArgumentParser(description="التوقيت التلقائي — بريف 06:30 ومسح كل 3 ساعات")
     ap.add_argument("cmd", nargs="?", default="status",
-                    choices=["status", "list", "tick", "run", "loop", "next",
+                    choices=["status", "list", "tick", "run", "loop", "next", "verify",
                              "install-cron", "uninstall-cron"])
     ap.add_argument("job", nargs="?", help="اسم الوظيفة لـ run: brief|sweep|review")
     ap.add_argument("--force", action="store_true", help="نفّذ ولو غير مستحقة")
     ap.add_argument("--write", action="store_true", help="طبّق على crontab فعليًا")
     ap.add_argument("--mode", choices=["tick", "native"], default="tick")
     ap.add_argument("--at", help="مرجع زمني للاختبار: YYYY-MM-DDTHH:MM")
+    ap.add_argument("--json", dest="as_json", action="store_true",
+                    help="مخرج آلي (verify)")
     args = ap.parse_args(argv)
 
     ref = None
@@ -811,6 +953,15 @@ def main(argv=None):
         return
     if args.cmd == "status":
         print(json.dumps(timing_status(ref=ref), ensure_ascii=False, indent=2, default=str))
+        return
+    if args.cmd == "verify":
+        report = verify(ref=ref)
+        if args.as_json:
+            print(json.dumps(report, ensure_ascii=False, indent=2, default=str))
+        else:
+            print(verify_text(ref=ref))
+        if report["verdict"] == "fail" and not args.as_json:
+            raise SystemExit(1)     # الـ JSON يُترك للآلة تقرأ الحكم من الحقل
         return
     if args.cmd == "next":
         st = timing_status(ref=ref)
