@@ -3,12 +3,39 @@
 from __future__ import annotations
 
 import json
+import re
 
 from connectors import content_creator
 from connectors import content_sheet
 from connectors import task_delegation as team
 
 _INSTALLED = False
+
+_CONTENT_SKILLS_RE = re.compile(
+    r"(?:مهارات|قدرات).*(?:وكيل\s*)?(?:النشر|المحتوى)|publishing\s+agent\s+(?:skills|capabilities)", re.I
+)
+_PUBLISH_STATUS_RE = re.compile(
+    r"(?:did\s+you\s+(?:send|publish)|هل\s+(?:أرسلت|نشرت)|تم\s+(?:إرسال|نشر)).*(?:linkedin|لينكد|poster|بوستر|منشور)", re.I
+)
+_PROACTIVE_INFO_RE = re.compile(
+    r"how\s+can\s+you\s+use\s+proactive|(?:كيف|ما).*(?:الاستباق|استباقي)|proactive\s+(?:layer|status|work)", re.I
+)
+
+
+def _proactive_truth_text() -> str:
+    from connectors import proactive_worker
+    from engine import proactive
+    state = proactive.status()
+    return "\n".join([
+        "🔔 حالة الاستباقية الفعلية",
+        f"• المحرك: {'يعمل ✅' if state.get('enabled') else 'متوقف ❌'}.",
+        f"• عامل Railway الدوري: {'مفعّل ✅' if proactive_worker.enabled() else 'متوقف ❌'} — كل {proactive_worker.interval_seconds()} ثانية.",
+        f"• الحلقات المفتوحة: {state.get('open_loops', 0)}؛ تنبيهات اليوم: {state.get('alerts_today', 0)}/{state.get('max_alerts', 0)}.",
+        "• يكتشف التأخير والتعارضات والاستحقاقات، يجهز الإجراء، ويرسل تنبيه Telegram وفق الحواجز.",
+        "• الحالة محفوظة في StateStore وتبقى بعد إعادة التشغيل؛ ليست ذاكرة مؤقتة.",
+        "• أي نشر أو إجراء خارجي يبقى خلف المعاينة والموافقة والإيصال.",
+        "للتشغيل الفوري: /sweep — وللحالة التفصيلية: /proactive",
+    ])
 
 
 def install():
@@ -72,8 +99,11 @@ def install():
     def handle_message(message: dict):
         raw = (message.get("text") or message.get("caption") or "").strip()
         command = raw.split()[0].split("@")[0].lower() if raw else ""
+        content_skills = bool(_CONTENT_SKILLS_RE.search(raw))
+        publish_status = bool(_PUBLISH_STATUS_RE.search(raw))
+        proactive_info = bool(_PROACTIVE_INFO_RE.search(raw))
         supported = command in {"/content", "/approve_content", "/reject_content", "/content_status",
-                                "/content_sheet", "/content_sheet_status"}
+                                "/content_sheet", "/content_sheet_status"} or content_skills or publish_status or proactive_info
         if not supported:
             return original_handle(message)
         chat = message.get("chat") or {}
@@ -86,7 +116,14 @@ def install():
         text, kind, attachment = legacy._message_payload(message)
         iid = legacy._local_capture(text, message, kind)
         try:
-            if command == "/content_status":
+            if proactive_info:
+                answer = _proactive_truth_text()
+            elif content_skills:
+                answer = content_creator.capabilities_text()
+            elif publish_status:
+                platform = "linkedin" if re.search(r"linkedin|لينكد", raw, re.I) else None
+                answer = content_creator.publication_status_text(platform)
+            elif command == "/content_status":
                 answer = content_creator.status_text()
             elif command == "/content_sheet_status":
                 answer = content_sheet.status_text()

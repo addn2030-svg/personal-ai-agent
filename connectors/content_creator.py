@@ -286,3 +286,38 @@ def status_text() -> str:
              "Workflow: Researcher → Critic → Creator → preview → approval → Buffer receipt"]
     lines += [f"• {x['action_id']} — {x['status']} — {x.get('platform')}" for x in reversed(rows)]
     return "\n".join(lines)
+
+
+def capabilities_text() -> str:
+    """Deterministic publishing capability inventory for conversational queries."""
+    configured = bool(os.environ.get("BUFFER_API_KEY", "").strip())
+    return "\n".join([
+        "✍️ مهارات وكيل النشر الفعلية",
+        "• قراءة BRAND_SETUP وPUBLISH_QUEUE من شيت المحتوى.",
+        "• Researcher → Critic → Creator مع صياغة عربية/إنجليزية.",
+        "• تجهيز النص، Hook، CTA، Hashtags وقراءة رابط Media_URL.",
+        "• كتابة المسودة والحالة والملاحظات في صف الشيت نفسه.",
+        "• دعم LinkedIn وInstagram وFacebook وX وThreads وTikTok وYouTube وPinterest وBluesky.",
+        "• Preview → موافقة صريحة → Buffer → إيصال محفوظ في الشيت.",
+        f"• Buffer: {'مهيأ ✅' if configured else 'غير مهيأ ❌'}.",
+        "لا يدّعي النشر دون Buffer receipt فعلي.",
+    ])
+
+
+def publication_status_text(platform: str | None = None) -> str:
+    """Report persisted publishing truth; never infer delivery from a preview."""
+    rows = [x for x in Store().rows_all().get("action_queue", [])
+            if x.get("type") == "CONTENT_BUFFER_POST"]
+    if platform:
+        rows = [x for x in rows if str(x.get("platform", "")).lower() == platform.lower()]
+    executed = [x for x in rows if x.get("status") == "EXECUTED" and x.get("receipts")]
+    if executed:
+        row = executed[-1]
+        receipt = row["receipts"][-1]
+        media = "مع صورة" if row.get("image_url") else "نص فقط"
+        return (f"✅ يوجد إيصال Buffer فعلي\nPlatform: {row.get('platform')}\n"
+                f"Post: {receipt.get('post_id')}\nStatus: {receipt.get('status')}\nMedia: {media}")
+    pending = [x for x in rows if x.get("status") == "PENDING_APPROVAL"]
+    suffix = f" توجد {len(pending)} معاينة بانتظار الموافقة." if pending else " لا توجد معاينة معلقة."
+    label = f" إلى {platform}" if platform else ""
+    return f"❌ لا يوجد Buffer receipt يثبت إرسال محتوى{label}.{suffix}"

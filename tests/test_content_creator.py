@@ -103,6 +103,33 @@ class ContentCreatorTests(unittest.TestCase):
         ):
             self.assertIn("configured", content.status_text())
 
+    def test_capabilities_are_grounded_in_publishing_workflow(self):
+        with patch.dict(os.environ, {"BUFFER_API_KEY": "configured"}, clear=False):
+            text = content.capabilities_text()
+        self.assertIn("PUBLISH_QUEUE", text)
+        self.assertIn("Buffer: مهيأ", text)
+
+    def test_preview_is_not_reported_as_published(self):
+        self.state["action_queue"] = [{
+            "type": "CONTENT_BUFFER_POST", "status": "PENDING_APPROVAL",
+            "platform": "linkedin", "receipts": [],
+        }]
+        with patch.object(content, "Store", return_value=self.store):
+            text = content.publication_status_text("linkedin")
+        self.assertIn("لا يوجد Buffer receipt", text)
+        self.assertIn("معاينة", text)
+
+    def test_executed_post_requires_and_reports_receipt(self):
+        self.state["action_queue"] = [{
+            "type": "CONTENT_BUFFER_POST", "status": "EXECUTED", "platform": "linkedin",
+            "image_url": "https://example.com/poster.jpg",
+            "receipts": [{"post_id": "POST-1", "status": "draft"}],
+        }]
+        with patch.object(content, "Store", return_value=self.store):
+            text = content.publication_status_text("linkedin")
+        self.assertIn("POST-1", text)
+        self.assertIn("مع صورة", text)
+
 
 if __name__ == "__main__":
     unittest.main()
