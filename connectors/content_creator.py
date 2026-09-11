@@ -68,6 +68,36 @@ def _normalise(result: dict, idea: str, platform: str) -> dict:
     }
 
 
+def _field_from_packet(packet: str, name: str) -> str:
+    match = re.search(rf"(?m)^{re.escape(name)}:\s*(.+)$", packet or "")
+    return match.group(1).strip() if match else ""
+
+
+def _safe_fallback(idea: str, platform: str) -> dict:
+    """Build a reviewable draft when a low-credit model truncates its JSON.
+
+    Sheet packets already contain approved source copy.  For free-form `/content`
+    requests we use the supplied idea itself.  This fallback never invents facts.
+    """
+    sheet_copy = _field_from_packet(idea, "Caption_AR") or _field_from_packet(idea, "Caption_EN")
+    copy = sheet_copy or (idea if "QUEUE ITEM " not in idea else _field_from_packet(idea, "Post_Title"))
+    copy = _bounded(copy, 2200)
+    if not copy:
+        raise ValueError("Creator output was incomplete and the source row has no usable caption")
+    tags = _field_from_packet(idea, "Hashtags").split()
+    return {
+        "platform": platform,
+        "goal": _bounded(_field_from_packet(idea, "Post_Title") or "reviewed content draft", 300),
+        "audience": "Life Pulse audience",
+        "hook": _bounded(_field_from_packet(idea, "Hook_AR"), 300),
+        "copy": copy,
+        "cta": _bounded(_field_from_packet(idea, "CTA_AR"), 300),
+        "hashtags": [_bounded(x, 80) for x in tags[:12]],
+        "image_brief": _bounded(_field_from_packet(idea, "Cover_Text"), 700),
+        "claims_to_verify": ["AI JSON was incomplete; source-sheet copy used — review before approval"],
+    }
+
+
 def create_content_preview(
     idea: str,
     *,
@@ -117,7 +147,10 @@ def create_content_preview(
         "goal, audience, hook, copy, cta, hashtags (array), image_brief, claims_to_verify (array). "
         f"Platform: {platform}.\n\nIDEA:\n{idea}\n\nRESEARCH:\n{research[:6000]}\n\nCRITIQUE:\n{critique[:5000]}",
     )
-    content = _normalise(_json_object(final), idea, platform)
+    try:
+        content = _normalise(_json_object(final), idea, platform)
+    except (ValueError, json.JSONDecodeError):
+        content = _safe_fallback(idea, platform)
     digest = hashlib.sha256(json.dumps(content, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
     action_id = "CONTENT-" + secrets.token_hex(4).upper()
     row = {
