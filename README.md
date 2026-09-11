@@ -165,8 +165,13 @@ python3 engine/chief_of_staff.py
 - `/content_status`: حالة Content Creator وBuffer وآخر المسودات.
 
 الوضع الافتراضي لـContent Creator هو `linkedin` وBuffer `draft`. يمكن ضبطهما عبر
-`CONTENT_DEFAULT_PLATFORM` و`BUFFER_DEFAULT_MODE`. لا ينشر أي نموذج مباشرة؛ جميع
-النسخ تدخل `action_queue` أولًا ولا يصل Buffer إلا بعد رمز الموافقة الخاص بالمسودة.
+`CONTENT_DEFAULT_PLATFORM` و`BUFFER_DEFAULT_MODE`. يمكن ربط وكيل المحتوى بورقة
+تشغيل مستقلة عبر `CONTENT_SHEET_ID` (ويستخدم افتراضيًا
+ورقة `life_pulse_content_engine`) ثم `/content_sheet Q-001` أو `/content_sheet`
+لأول صف Ready/Idea. يكتب المسودة في `PUBLISH_QUEUE` ويظل الإرسال إلى Buffer خلف
+`/approve_content ID CODE`. استخدم `/content_sheet_status` لفحص صلاحية القراءة.
+لا ينشر أي نموذج مباشرة؛ جميع النسخ تدخل `action_queue` أولًا ولا يصل Buffer إلا
+بعد رمز الموافقة الخاص بالمسودة.
 
 الرد العادي يبدأ بالنتيجة أو المسودة المطلوبة، وبجملة أو جملتين افتراضيًا؛
 التفصيل يكون عند طلبه أو لضرورة السلامة. لا تُضاف قوائم ملفات المعرفة أو إشعارات

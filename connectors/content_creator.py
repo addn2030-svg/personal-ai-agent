@@ -22,7 +22,10 @@ from engine.store import Store, log_event
 DEFAULT_PLATFORM = os.environ.get("CONTENT_DEFAULT_PLATFORM", "linkedin").strip().lower()
 DEFAULT_MODE = os.environ.get("BUFFER_DEFAULT_MODE", "draft").strip().lower()
 ALLOWED_MODES = {"draft", "queue", "schedule"}
-ALLOWED_PLATFORMS = {"linkedin", "instagram", "facebook", "twitter", "x", "threads"}
+ALLOWED_PLATFORMS = {
+    "linkedin", "instagram", "facebook", "twitter", "x", "threads",
+    "tiktok", "youtube", "pinterest", "bluesky",
+}
 
 
 def _now() -> str:
@@ -208,6 +211,11 @@ def execute(action_id: str, approval_code: str) -> dict:
 
     Store().transaction(finish, "content_published", action_id=action_id, post_id=post.get("id"))
     log_event("content_published", action_id=action_id, post_id=post.get("id"))
+    try:
+        from connectors import content_sheet
+        content_sheet.sync_result(row, "Published", f"Buffer receipt: {post.get('id')} ({post.get('status')})")
+    except Exception as exc:
+        receipt["sheet_sync_error"] = str(exc)[:300]
     return receipt
 
 
@@ -221,7 +229,13 @@ def reject(action_id: str) -> dict:
         row["status"] = "REJECTED"
         row["rejected_at"] = _now()
         return True, dict(row)
-    return Store().transaction(mutate, "content_rejected", action_id=action_id)
+    row = Store().transaction(mutate, "content_rejected", action_id=action_id)
+    try:
+        from connectors import content_sheet
+        content_sheet.sync_result(row, "Rejected", f"Agent preview {action_id} rejected; nothing sent")
+    except Exception:
+        pass
+    return row
 
 
 def status_text() -> str:
