@@ -28,6 +28,26 @@ PROFILE = "master-professional-profile.yaml"
 
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 PHONE_RE = re.compile(r"(?<!\d)(?:\+?966|0)?\s*5\d[\s\d]{7,10}(?!\d)")
+# نفس نمط _safe() — يتبع التنسيق بمسافات/شرطات (مثال: 966 50 000 0009)
+SAUDI_PHONE_RE = re.compile(r"(?<![\dA-Za-z])(?:\+?966|0)[\s-]?5\d(?:[\s-]?\d){7,8}(?![\d])")
+
+SAFE_EMAIL_SUFFIXES = (".iam.gserviceaccount.com", ".calendar.google.com")
+SAFE_EMAIL_MARKS = ("example", "noreply@", "test@", "sample@")
+
+
+# أرقام عرض مُدقَّقة يدويًا — لا قاعدة حدسية. الاختيار عمدًا: الفشل الآمن
+# (الفشل على مثال بريء يكلّف سطرًا هنا) أفضل من النجاح الصامت على رقم حقيقي.
+#  • +966 50 000 000{1..5} → سيناريوهات `engine/voice_call.py` demo A..E
+#  • 0500000000           → نموذج اختبار التسليم في tests/test_commerce_agent.py
+#  • +966 50 000 0009     → مثال التوثيق في README + نفس الرقم في test_commerce_agent
+SYNTHETIC_NUMBERS = {
+    "966500000001", "966500000002", "966500000003", "966500000004", "966500000005",
+    "966500000009", "0500000000",
+}
+
+
+def _synthetic_number(raw):
+    return re.sub(r"\D", "", raw) in SYNTHETIC_NUMBERS
 
 
 def _profile_text():
@@ -44,6 +64,22 @@ class PublicProfileIsSafe(unittest.TestCase):
         sealed = re.findall(r'  (?:email|mobile):\n    value: "([^"]*)"', _profile_text())
         self.assertEqual(sealed, [REDACTED, REDACTED], "حقل اتصال غير مختَّم")
 
+    def test_allowlist_is_itself_demo_shaped(self):
+        """كل رقم في قائمة الاستثناء يجب أن يكون بلا إنتروبيا (آلي التوليد)."""
+        for num in SYNTHETIC_NUMBERS:
+            body = re.sub(r"^0", "", num)
+            body = re.sub(r"^966", "", body)
+            self.assertLessEqual(len(set(body)), 3,
+                                 f"استثناء مرفوض — قد يكون رقمًا حقيقيًا: …{body[-3:]}")
+            self.assertLessEqual(len(set(re.sub(r"\d0*$", "", body))), 3)
+
+    def test_saudi_phone_allowlist_is_closed_set(self):
+        """المسار الوحيد لقبول رقم هو السجل أعلاه — لا نطاقات ولا أنماط حدسية."""
+        self.assertNotIn("966500000000", SYNTHETIC_NUMBERS)
+        self.assertFalse(_synthetic_number("+966 50 000 0010"),
+                         "رقم خارج السجل وإن كان مجاورًا — يُرفض")
+        self.assertFalse(_synthetic_number("0512345678"))
+
     def test_redaction_is_declared(self):
         self.assertEqual(_profile_text().count("redacted_for_public_repo: true"), 2)
 
@@ -58,18 +94,34 @@ class PublicProfileIsSafe(unittest.TestCase):
         self.assertEqual(body.count("privacy: PRIVATE_CONTACT"), 2,
                          "على الملف أن يظل يعلن تصنيف هذين الحقلين")
 
-    def test_every_tracked_file_under_knowledge_is_contact_free(self):
+    def test_every_tracked_file_is_contact_free(self):
+        """الحارس لا يكتفي بـ knowledge/: يفحص كل ملف متتبَّع في المستودع.
+
+        مستثنيات موثّقة: معرّفات خدمة Google (عامة بطبيعتها)، نماذج الاختبار،
+        وأرقام العرض متكررة الأرقام (`+966 50 000 0001`) في `engine/voice_call.py`
+        — تُرفض بخاصية الإنتروبيا لا بمسار مُستثنى يدويًا، فلا يُفتح بابٌ لرقم حقيقي.
+        """
         import subprocess
-        files = subprocess.run(["git", "-C", BASE, "ls-files", "knowledge"],
-                                capture_output=True, text=True).stdout.split()
+        files = subprocess.run(["git", "-C", BASE, "ls-files"],
+                               capture_output=True, text=True).stdout.split()
         if not files:
             self.skipTest("git غير متاح في بيئة الاختبار")
+        checked = 0
         for rel in files:
+            if rel.endswith("test_knowledge_privacy.py"):
+                continue  # يحمل أنماط الفحص نفسها
             text = Path(BASE, rel).read_text(encoding="utf-8", errors="ignore")
+            checked += 1
             for m in EMAIL_RE.finditer(text):
-                if "iam.gserviceaccount.com" in m.group(0):
+                v = m.group(0)
+                if v.endswith(SAFE_EMAIL_SUFFIXES) or any(k in v for k in SAFE_EMAIL_MARKS):
                     continue
-                self.fail(f"{rel} يحمل بريدًا: {m.group(0)[:3]}…")
+                self.fail(f"{rel} يحمل بريدًا شخصيًا: {v[:4]}…")
+            for m in SAUDI_PHONE_RE.finditer(text):
+                if _synthetic_number(m.group(0)):
+                    continue
+                self.fail(f"{rel} يحمل رقم جوال غير تصنّعي: {m.group(0)[:4]}…")
+        self.assertGreater(checked, 50, "لم يُفحص المستودع فعلًا")
 
 
 class ProfilePathPrecedence(unittest.TestCase):

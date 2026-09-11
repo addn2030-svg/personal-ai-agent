@@ -21,21 +21,21 @@ class CommerceAgentTests(unittest.TestCase):
         self.assertEqual(c.rank_offers([wrong, out, good]), [good])
 
     def test_private_delivery_data_is_redacted(self):
-        text = "الجوال +966545684917، حي مثال، طريق الاختبار، عمارة 3، شقة 12"
+        text = "الجوال +966500000009، حي مثال، طريق الاختبار، عمارة 3، شقة 12"
         cleaned = c.redact_private(text)
-        self.assertNotIn("545684917", cleaned)
+        self.assertNotIn("500000009", cleaned)
         self.assertIn("[PHONE_REDACTED]", cleaned)
         self.assertNotIn("طريق الاختبار", cleaned)
 
     def test_natural_order_query_excludes_address_and_phone(self):
-        raw = "ابدأ واطلب كيس منديل فئة ١٠ حبات بأفضل سعر، ارسل الى العنوان: حي مثال، طريق الاختبار، عمارة 3، شقة 12، جوال +966545684917"
+        raw = "ابدأ واطلب كيس منديل فئة ١٠ حبات بأفضل سعر، ارسل الى العنوان: حي مثال، طريق الاختبار، عمارة 3، شقة 12، جوال +966500000009"
         query = c.natural_order_product_query(raw)
         self.assertIn("كيس منديل", query)
         self.assertIn("١٠", query)
         self.assertNotIn("العنوان", query)
         self.assertNotIn("حي مثال", query)
         self.assertNotIn("طريق الاختبار", query)
-        self.assertNotIn("545684917", query)
+        self.assertNotIn("500000009", query)
         self.assertNotIn("أفضل سعر", query)
 
     def test_preview_never_persists_address_or_phone(self):
