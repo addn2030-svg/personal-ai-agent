@@ -59,6 +59,17 @@ class ContentCreatorTests(unittest.TestCase):
             row = content.create_content_preview("leadership post", chat_id=1, model_call=model)
         self.assertEqual(row["status"], "PENDING_APPROVAL")
 
+    def test_truncated_creator_json_falls_back_to_sheet_caption(self):
+        def model(role, prompt):
+            if role == "creator":
+                return '{"goal":"education","copy":"cut off'
+            return role + " packet"
+        packet = "QUEUE ITEM Q-001:\nPost_Title: الحركة أولاً\nHook_AR: الألم إشارة\nCaption_AR: نص آمن من الشيت\nCTA_AR: اكتب حركة\nHashtags: #نبض_الحياة #حركة"
+        with patch.object(content, "Store", return_value=self.store):
+            row = content.create_content_preview(packet, chat_id=1, model_call=model)
+        self.assertEqual(row["content"], "نص آمن من الشيت")
+        self.assertIn("JSON was incomplete", row["content_plan"]["claims_to_verify"][0])
+
     def test_wrong_code_never_calls_buffer(self):
         with patch.object(content, "Store", return_value=self.store):
             row = content.create_content_preview("movement", chat_id=1, model_call=self.model)
