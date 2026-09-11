@@ -110,7 +110,10 @@ class PublicProfileIsSafe(unittest.TestCase):
         for rel in files:
             if rel.endswith("test_knowledge_privacy.py"):
                 continue  # يحمل أنماط الفحص نفسها
-            text = Path(BASE, rel).read_text(encoding="utf-8", errors="ignore")
+            raw = Path(BASE, rel).read_bytes()
+            if b"\0" in raw[:8192]:
+                continue  # ملف ثنائي (صور/أصول): بايتاته تصادف أنماط البريد — لا نصّ فيه
+            text = raw.decode("utf-8", "ignore")
             checked += 1
             for m in EMAIL_RE.finditer(text):
                 v = m.group(0)
