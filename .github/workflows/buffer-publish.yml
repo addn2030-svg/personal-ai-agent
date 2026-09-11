@@ -29,6 +29,10 @@ on:
         description: 'رابط الصورة العام (افتراضي: غلاف الكتاب من assets/ في نفس الفرع)'
         required: false
         type: string
+  pull_request:
+    branches: [main]
+    paths:
+      - 'posts/buffer/**'
 
 permissions:
   contents: read
@@ -44,6 +48,7 @@ jobs:
     env:
       PYTHONPATH: ${{ github.workspace }}
       BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
+      EVENT: ${{ github.event_name }}
       TEXT: ${{ inputs.text }}
       SERVICE: ${{ inputs.service }}
       CHANNEL_ID: ${{ inputs.channel_id }}
@@ -55,26 +60,46 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Resolve post payload (pull_request mode)
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          FILE=$(ls posts/buffer/*.json 2>/dev/null | head -1)
+          if [ -z "$FILE" ]; then
+            echo "::error::No post payload found in posts/buffer/."
+            exit 1
+          fi
+          echo "Publishing from payload: $FILE"
+          {
+            echo "TEXT=$(jq -r '.text' "$FILE")"
+            echo "SERVICE=$(jq -r '.service // ""' "$FILE")"
+            echo "CHANNEL_ID=$(jq -r '.channel_id // ""' "$FILE")"
+            echo "MODE=$(jq -r '.mode // "queue"' "$FILE")"
+            echo "DUE_AT=$(jq -r '.due_at // ""' "$FILE")"
+            echo "IMAGE_URL=$(jq -r '.image_url // ""' "$FILE")"
+          } >> "$GITHUB_ENV"
       - name: Publish to Buffer
         run: |
           if [ -z "$BUFFER_API_KEY" ]; then
             echo "::error::BUFFER_API_KEY secret is not configured on this repository."
             exit 1
           fi
-          ARGS=(--text "$TEXT" --image-url "$IMAGE_URL")
+          ARGS=(--text "$TEXT")
+          if [ -n "$IMAGE_URL" ]; then
+            ARGS+=(--image-url "$IMAGE_URL")
+          fi
           if [ -n "$CHANNEL_ID" ]; then
             ARGS+=(--channel-id "$CHANNEL_ID")
           elif [ -n "$SERVICE" ]; then
             ARGS+=(--service "$SERVICE")
           else
-            echo "::error::Provide either service or channel_id input."
+            echo "::error::Provide either service or channel_id."
             exit 1
           fi
           case "$MODE" in
             draft) ARGS+=(--draft) ;;
             schedule)
               if [ -z "$DUE_AT" ]; then
-                echo "::error::schedule mode requires due_at input."
+                echo "::error::schedule mode requires due_at."
                 exit 1
               fi
               ARGS+=(--due-at "$DUE_AT") ;;
