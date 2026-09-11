@@ -21,3 +21,6 @@ __pycache__/
 *.pyc
 .DS_Store
 data/.telegram*
+
+# معرفة خاصة غير منشورة — حقول الاتصال الحقيقية (لا تُرفع أبدًا)
+knowledge.private/

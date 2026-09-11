@@ -21,7 +21,9 @@ def _tokens(text):
 
 def _safe(text):
     text = re.sub(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", "[PRIVATE_EMAIL]", text or "", flags=re.I)
-    text = re.sub(r"(?<!\d)(?:\+?966|0)?5\d{8}(?!\d)", "[PRIVATE_PHONE]", text)
+    # أرقام التنقل السعودية: متصلة أو منسّقة بمسافات/شرطات (+966 55 123 4567)
+    text = re.sub(r"(?<![\dA-Za-z])(?:\+?966|0)[\s-]?5\d(?:[\s-]?\d){7,8}(?![\d])",
+                  "[PRIVATE_PHONE]", text)
     text = re.sub(
         r"(?i)(mrn|medical record|رقم الملف|رقم الهوية|id number)\s*[:#-]?\s*[A-Z0-9-]+",
         r"\1: [PRIVATE_IDENTIFIER]",
@@ -78,14 +80,53 @@ def _state_context():
     return "\n".join(chunks)
 
 
+PROFILE_NAME = "master-professional-profile.yaml"
+# نسخة المعرفة الخاصة — خارج تتبّع Git (مستثناة في .gitignore).
+# تُقرأ من AI_OS_KNOWLEDGE_DIR على صندوق الإنتاج فقط؛ النسخة العامة في
+# knowledge/ تحمل الحقول الحساسة مُخْتَّمة بـ [PUBLIC_REPO_REDACTED].
+PRIVATE_DIRNAME = "knowledge.private"
+
+
+def profile_path():
+    """مسار ملف الملف المهني: الخاص إن وُجد، وإلا النسخة العامة.
+
+    `AI_OS_KNOWLEDGE_DIR` يعيد التوجيه صراحةً (للاختبارات أو لتخطيط الأقراص).
+    """
+    override = os.environ.get("AI_OS_KNOWLEDGE_DIR", "").strip()
+    roots = [Path(override).expanduser()] if override else []
+    roots.append(BASE / PRIVATE_DIRNAME)
+    roots.append(BASE / "knowledge")
+    for root in roots:
+        candidate = root / PROFILE_NAME
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def profile_is_private(path=None):
+    """True إذا كان الملف خارج الشجرة المتتبَّعة — عندها لا نكمّم بياناته."""
+    path = path if path is not None else profile_path()
+    if not path:
+        return False
+    try:
+        path.resolve().relative_to(BASE.resolve())
+    except ValueError:
+        return True
+    return PRIVATE_DIRNAME in path.parts
+
+
 def _knowledge_context(query):
     wanted = _tokens(query)
     scored = []
-    profile = BASE / "knowledge" / "master-professional-profile.yaml"
-    if profile.exists():
+    seen = set()
+    profile = profile_path()
+    if profile and profile.exists():
         try:
             text = profile.read_text(encoding="utf-8")[:24000]
-            scored.append((1000000, str(profile.relative_to(BASE)), _safe(text)))
+            private = profile_is_private(profile)
+            name = f"{PRIVATE_DIRNAME}/{PROFILE_NAME}" if private else str(profile.relative_to(BASE))
+            scored.append((1000000, name, text if private else _safe(text)))
+            seen.add(profile.resolve())  # لا تُحقن النسخة العامة المكرّرة خلفه
         except OSError:
             pass
     for folder in (BASE / "knowledge", BASE / "prompts", BASE / "materials"):
@@ -94,6 +135,11 @@ def _knowledge_context(query):
         for path in folder.rglob("*"):
             if not path.is_file() or path.suffix.lower() not in ALLOWED_EXT:
                 continue
+            try:
+                if path.resolve() in seen:
+                    continue
+            except OSError:
+                pass
             try:
                 text = path.read_text(encoding="utf-8")[:24000]
             except OSError:

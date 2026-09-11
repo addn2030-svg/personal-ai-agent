@@ -57,3 +57,17 @@ NEW → TRIAGED → IN_PROGRESS or WAITING → OVERDUE/BLOCKED when applicable �
 - Google Forms links are link-access forms, not per-patient authenticated secure
   portals. Use an approved authenticated clinical platform when identity-bound
   secure links are required.
+
+## Repository-facing boundary (public repo by design)
+- `knowledge/` is portfolio-facing. Personal contact fields (`identity.email`,
+  `identity.mobile`) carry `[PUBLIC_REPO_REDACTED]` and
+  `redacted_for_public_repo: true`; never paste real values back into a tracked file.
+- Live contact values belong in `knowledge.private/` on the production host only
+  (git-ignored), or any path exported as `AI_OS_KNOWLEDGE_DIR`. Resolution order:
+  override → `knowledge.private/` → `knowledge/`.
+- Context injection masks the public copy (`_safe()`: emails, Saudi mobile formats
+  including spaced/dashed ones, MRN/id patterns) and passes the private copy
+  unsanitized, exactly once — the tracked duplicate is never appended behind it.
+- `tests/test_knowledge_privacy.py` fails CI if a contact pattern reappears anywhere
+  under `knowledge/`. Removing a value from HEAD does not remove it from history;
+  treat previously published values as exposed and rotate them.

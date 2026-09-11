@@ -2,6 +2,18 @@
 
 نظام تشغيل شخصي بالذكاء الاصطناعي: وكيل رئيسي (Chief of Staff) + 6 مهارات، يقرأ من **مخزن حالة موحد** ويخرج بريفًا يوميًا ومراجعة أسبوعية وكشف أنماط، وكل إجراء خارجي يمر بـ**طابور اعتماد** مرتبط ببصمة المحتوى.
 
+## الجديد في v1.1.2 (حدود النشر — ملفك المهني آمن للنشر بلا فقدان وظيفة)
+- **لا بيانات اتصال في المستودع العام:** `identity.email` و`identity.mobile` في
+  `knowledge/master-professional-profile.yaml` صارا `[PUBLIC_REPO_REDACTED]` مع
+  `redacted_for_public_repo: true` — والوكيل لم يعد يبني سياقًا يعرضهما للنموذج.
+- **مسار خاص للاستمالة على الإنتاج:** `agent_runtime.profile_path()` يقرأ من
+  `AI_OS_KNOWLEDGE_DIR` ← `knowledge.private/` (مُستثنى في `.gitignore`) ← `knowledge/`.
+  النسخة العامة تُكمَّم، والخاصة تمرّ كما هي.
+- **إصلاحا أثر جانبي:** `_safe()` كان يفلت من الأرقام المنسّقة بمسافات
+  (`+966 55 123 4567`)؛ والملف كان **يُحقن مرتين** (كاملة ومكمّمة) — الآن مرة واحدة.
+- **حارس في CI:** `tests/test_knowledge_privacy.py` يفشل لو ظهر بريد أو نمط جوال في
+  `knowledge/`، ويثبت أولوية المسارات والتكميم. التفاصيل: *ما يُنشر وما لا يُنشر* في README.
+
 ## الجديد في v1.1 (التوقيت التلقائي — الجدولة تعمل وحدها على الخادم)
 - **محرّك جدولة واحد يقرّر المستحق:** `engine/timing.py` — ☀️ بريف الصباح **06:30**
   (دورة استباقية ← `reports/proactive-brief-YYYY-MM-DD.md` ← رسالة للمحادثة
@@ -173,6 +185,39 @@ python3 engine/chief_of_staff.py
 ## ملاحظات خصوصية
 - تبويب «متابعة مرضى» **برموز مجهلة فقط** (P-10X) — لا أسماء ولا هويات.
 - كل مخرج سريري = فرضية للمراجعة البشرية؛ القرار النهائي للممارس.
+
+### ما يُنشر وما لا يُنشر (المستودع عامٌّ عن قصد — واجهة معرض)
+
+| المسار | الوضع | القاعدة |
+|---|---|---|
+| `knowledge/` | **عام** | حقلَا `identity.email` و`identity.mobile` مختَّمان بـ `[PUBLIC_REPO_REDACTED]` مع `redacted_for_public_repo: true` |
+| `knowledge.private/` | **خاصّ** | مُستثنى في `.gitignore`؛ يحمل القيم الحقيقية على صندوق الإنتاج |
+| `data/`, `reports/`, `logs/`, `secrets/`, `.env` | **خاصّ** | مُستثناة؛ لا تُرفع ولا تُنسخ إلى مسار متتبَّع |
+
+الوكيْل يقرأ الملف المهني بهذا الترتيب: `AI_OS_KNOWLEDGE_DIR` ← `knowledge.private/` ← `knowledge/`.
+من النسخة العامة تُكمَّم بيانات الاتصال تلقائيًا (`_safe()`: بريد/جوال/معرّفات) قبل دخولها سياق النموذج؛
+ومن `knowledge.private/` تمرّ كما هي لأنك أنت صاحبها.
+
+لنقل بيانات الاتصال إلى المسار الخاص على الخادم:
+```bash
+umask 077 && mkdir -p knowledge.private
+cp knowledge/master-professional-profile.yaml knowledge.private/   # لا يُتتبَّع
+python3 - <<'PY'
+import re, pathlib
+p = pathlib.Path("knowledge.private/master-professional-profile.yaml")
+t = p.read_text(encoding="utf-8")
+for key, val in (("email", "you@example.com"), ("mobile", "+966 5X XXX XXXX")):
+    t = re.sub(r'(  %s:\n    value: )"[^"]*"' % key, lambda m: m.group(1) + '"%s"' % val, t, count=1)
+p.write_text(t, encoding="utf-8")
+print("تمت الاستعانة بالنسخة الخاصة — تحقق:")
+PY
+python3 -c "import sys; sys.path.insert(0,'engine'); import agent_runtime as a; print(a.profile_path(), '| private:', a.profile_is_private())"
+```
+
+> ⚠️ حذف القيم من HEAD **لا يمحوها من تاريخ** `origin/main`. أي قيمة نُشرت سابقًا تُعتبر مكشوفة:
+> غيّرها (بريد/جوال) أو استخدم `git filter-repo` + force-push إن أردت تاريخًا نظيفًا.
+> حارس آلي: `tests/test_knowledge_privacy.py` يفشل في CI لو ظهر بريد أو نمط جوال في `knowledge/`.
+
 
 
 ## Telegram Bot — أوامر الجوال
