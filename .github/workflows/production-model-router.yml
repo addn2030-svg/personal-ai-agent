@@ -1,6 +1,8 @@
 name: Production Model Router
 
 on:
+  push:
+    branches: [main]
   pull_request:
     branches: [main, state-safety-manager-foundation, wo8-linked-multi-intent, feature/super-manager-v1-after-wo8, manager-fast-canary-after-super-manager, capability-truth-action-sync, natural-action-executor-v1]
     paths:
@@ -42,6 +44,11 @@ on:
       - 'engine/store.py'
       - 'engine/manager.py'
       - 'engine/proactive.py'
+      - 'engine/timing.py'
+      - 'connectors/timing_worker.py'
+      - 'scripts/aios-timing.sh'
+      - 'autostart/cron/**'
+      - 'docs/automatic-timing.md'
       - 'engine/telegram_bot.py'
       - 'engine/master_os.py'
       - 'engine/drive_tree.py'
@@ -55,6 +62,15 @@ on:
       - 'tests/test_v09_audio_digest.py'
       - 'tests/test_v09_scheduler.py'
       - 'tests/test_proactive.py'
+      - 'tests/test_timing.py'
+      - 'tests/test_approve_draft.py'
+      - 'engine/approve.py'
+      - 'engine/agent_runtime.py'
+      - 'engine/research_goals.py'
+      - 'tests/test_research_goals.py'
+      - 'docs/research-goals.md'
+      - 'tests/test_knowledge_privacy.py'
+      - 'knowledge/**'
       - 'research_capsules/**'
       - 'tests/test_production_model_gateway.py'
       - 'tests/test_telegram_bot.py'
@@ -82,6 +98,20 @@ on:
       - '.github/workflows/production-model-router.yml'
 
 jobs:
+  # Publish guard: runs on every push to main with no path filter, so a direct
+  # push (or a file outside the watchlist) cannot skip the contact-data check.
+  privacy-guard:
+    runs-on: ubuntu-latest
+    # يركض على كل push إلى main وعلى أي PR لا يجرّي حزمة الاختبار الكاملة
+    # (وظيفة privacy-guard رخيصة: 14 اختبارًا في <1 ثانية).
+    if: github.event_name == 'push' || !contains('[main, state-safety-manager-foundation, wo8-linked-multi-intent, feature/super-manager-v1-after-wo8, manager-fast-canary-after-super-manager, capability-truth-action-sync, natural-action-executor-v1]', github.base_ref)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Contact-data guard (every tracked file)
+        run: python3 -m unittest tests.test_knowledge_privacy
   test:
     runs-on: ubuntu-latest
     steps:
@@ -120,6 +150,19 @@ jobs:
           tests.test_v09_audio_digest
           tests.test_v09_scheduler
           tests.test_proactive
+          tests.test_timing
+          tests.test_approve_draft
+          tests.test_knowledge_privacy
+          tests.test_research_goals
+      - name: Check cron wrapper and templates
+        run: >-
+          bash -n scripts/aios-timing.sh &&
+          bash -n autostart/cron/install.sh &&
+          bash -n autostart/cron/remove.sh &&
+          grep -q '__REPO__' autostart/cron/aios-timing.crontab.template &&
+          grep -q 'AIOS-TIMING' autostart/cron/aios-timing.crontab.template &&
+          grep -q 'AIOS-TIMING' autostart/cron/aios-timing.timer.template &&
+          python3 engine/timing.py install-cron
       - name: Compile production entrypoints
         run: >-
           python -m py_compile
@@ -132,6 +175,7 @@ jobs:
           connectors/ops_context.py
           connectors/super_manager.py
           connectors/manager_fast_canary.py
+          connectors/timing_worker.py
           connectors/capability_truth.py
           connectors/capability_runtime.py
           connectors/action_executor.py
@@ -160,6 +204,10 @@ jobs:
           engine/store.py
           engine/manager.py
           engine/proactive.py
+          engine/timing.py
+          engine/approve.py
+          engine/agent_runtime.py
+          engine/research_goals.py
           engine/telegram_bot.py
           engine/master_os.py
           engine/drive_tree.py

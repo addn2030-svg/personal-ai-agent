@@ -1,0 +1,17 @@
+# AIOS-TIMING — Abdulrahman AI OS · التوقيت التلقائي (cron)
+# يولّده/يركّبه autostart/cron/install.sh — للتحديث: أعِد تشغيل المثبّت (يستبدل السطور الموسومة).
+#
+# الوضع الموصى به: نبضة كل 5 دقائق والمحرّك يقرّر ما المستحق — catch-up مدمج،
+# idempotent بمفتاح الدورة، وقفل عملية يمنع تراكب نسختين — فلا يُفوّت البريف لو
+# كان الخادم نائمًا وقت 06:30، ولا يكرّره لو تأخرت النبضة أو تكررت.
+*/5 * * * * __REPO__/scripts/aios-timing.sh tick
+@reboot sleep 30 && __REPO__/scripts/aios-timing.sh tick
+
+# === بديل: سطر لكل وظيفة (دقّة cron الأصلية) — عطّل النبضتين أعلاه أولًا ===
+# تنبيه: cron يقرأ المواقيت بتوقيت الخادم، بينما الجدولة الأصلية بتوقيت الرياض
+# (MANAGER_TIMEZONE). للتحقق من الفارق أو توليد السطور بمساراتك:
+#   python3 engine/timing.py install-cron --mode native
+# 30 6 * * *   __REPO__/scripts/aios-timing.sh run brief    # بريف الصباح 06:30
+# 15 */3 * * * __REPO__/scripts/aios-timing.sh run sweep    # مسح دوري كل 3 ساعات
+# 40 5 * * *  __REPO__/scripts/aios-timing.sh run research # أهداف البحث (تُتخطى إن لا أهداف)
+# 0 7 * * 0    __REPO__/scripts/aios-timing.sh run review   # مراجعة الأسبوع (الأحد)

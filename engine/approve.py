@@ -7,6 +7,9 @@
   python3 engine/approve.py reject   A-001 --reason "..."
   python3 engine/approve.py executed A-001          # تأكيد التنفيذ (يدويًا حتى تتصل أدوات الإرسال)
   python3 engine/approve.py expire                    # إنهاء صلاحية المتقادم
+  python3 engine/approve.py draft رسالة.md [--type note] [--channel email] [--expires 2]
+                                                    # أي نص → مسودة في الطابور (لا إرسال)
+  python3 engine/approve.py draft -                   # من stdin / أنبوب
 
 القواعد:
 - الاعتماد مرتبط ببصمة محتوى الإجراء (content_hash) — أي تغيير في النص يُبطل الأمر.
@@ -15,6 +18,7 @@
 """
 import argparse
 import datetime as dt
+import hashlib
 import os
 import sys
 
@@ -33,15 +37,67 @@ def fmt(a):
             f"   البصمة: {a['content_hash']}\n"
             f"   المحتوى: {a['content'][:90].replace(chr(10), ' ')}...")
 
+def _enqueue_draft(store, body, a_type, channel, expires_days, origin):
+    """إدراج مسودة بالبصمة نفسها التي تعتمد عليها بوابة C2 (idempotent)."""
+    h = hashlib.sha256(body.encode("utf-8")).hexdigest()[:16]
+
+    def mutate(S):
+        queue = S.get("action_queue", [])
+        hit = next((a for a in queue if a.get("content_hash") == h), None)
+        if hit:
+            return False, ("exists", hit)
+        today = dt.date.today()
+        row = {"action_id": f"A-{len(queue) + 1:03d}", "type": a_type, "channel": channel,
+               "content": body, "content_hash": h, "status": "PENDING_APPROVAL",
+               "created_at": today.isoformat(),
+               "expires_at": (today + dt.timedelta(days=max(1, int(expires_days)))).isoformat(),
+               "approved_at": None, "executed_at": None, "origin": origin}
+        S["action_queue"] = queue + [row]
+        return True, ("created", row)
+
+    return store.transaction(mutate, "action_draft_enqueued", hash=h, type=a_type)
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["list", "approve", "reject", "executed", "expire"])
+    ap.add_argument("cmd", choices=["list", "approve", "reject", "executed", "expire", "draft"])
     ap.add_argument("id", nargs="?")
     ap.add_argument("--hash", dest="chash")
     ap.add_argument("--reason", default="")
+    ap.add_argument("--type", dest="a_type", default="manual_note")
+    ap.add_argument("--channel", default="internal")
+    ap.add_argument("--expires", type=int, default=2)
+    ap.add_argument("--origin", default="manual:approve.py")
     args = ap.parse_args()
 
     store = Store()
+
+    if args.cmd == "draft":
+        if not args.id:
+            print("❌ صيغة: python3 engine/approve.py draft <ملف|-> …")
+            sys.exit(1)
+        if args.id == "-":
+            body = sys.stdin.read()
+        else:
+            path = args.id if os.path.exists(args.id) else os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))), args.id)
+            with open(path, encoding="utf-8") as fh:
+                body = fh.read()
+        body = body.strip()
+        if not body:
+            print("❌ المسودة فارغة.")
+            sys.exit(1)
+        state, row = _enqueue_draft(store, body, args.a_type, args.channel,
+                                   args.expires, args.origin)
+        if state == "exists":
+            print(f"🔁 المسودة موجودة في الطابور: {row['action_id']} "
+                  f"[{row['status']}] — بصمة {row['content_hash']}")
+        else:
+            print(f"✅ أُدرجت مسودة: {row['action_id']} [{args.a_type} → {args.channel}] "
+                  f"بانتظار اعتمادك — لا إرسال تلقائي.")
+            print(f"   للاعتماد: python3 engine/approve.py approve {row['action_id']} "
+                  f"--hash {row['content_hash']}")
+        return
     S = store.rows_all()
     q = S.get("action_queue", [])
     today = dt.date.today()

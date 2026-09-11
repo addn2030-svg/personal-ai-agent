@@ -2,6 +2,54 @@
 
 نظام تشغيل شخصي بالذكاء الاصطناعي: وكيل رئيسي (Chief of Staff) + 6 مهارات، يقرأ من **مخزن حالة موحد** ويخرج بريفًا يوميًا ومراجعة أسبوعية وكشف أنماط، وكل إجراء خارجي يمر بـ**طابور اعتماد** مرتبط ببصمة المحتوى.
 
+## الجديد في v1.2 (أهداف البحث الدورية — أنبوب واحد، GOAL يتبدّل)
+- **سجل أهداف في الحالة:** `engine/research_goals.py` (`add/attach/run/due/enable/remove`)
+  ووظيفة توقيت رابعة `timing.research_goals` عند **05:40 يوميًا** — قبل البريف ليُذكر فيه.
+- **المحرك لا يتصفّح:** يولّد هياكل كبسولات بالقالب الميزانّية (500–1,200 توكن)، ويروّج
+  مصدرًا تلحقه من جلسة بحث خارجية إلى `READY`؛ أضخم من الميزانية ⇒ `READY_TRIM_ME`.
+- **قفلان مستقلان:** الوظيفة تُقفل بيومها، والهدف بدورته (أسبوعية/يومية/يدوية) ولا يُقفل
+  إلا عند `READY` — كبسولة فارغة تبقى مستحقة حتى تُمْلأ.
+- **البطالة ليست عطلًا:** `has_goals()` تُسقط الاستحقاق عند صفر أهداف، فلا يشتكي `verify`
+  على صندوق فارغ. من الجوال: `/goals` و`/goal_add <نص>`. التفاصيل: `docs/research-goals.md`.
+
+## الجديد في v1.1.2 (حدود النشر — ملفك المهني آمن للنشر بلا فقدان وظيفة)
+- **لا بيانات اتصال في المستودع العام:** `identity.email` و`identity.mobile` في
+  `knowledge/master-professional-profile.yaml` صارا `[PUBLIC_REPO_REDACTED]` مع
+  `redacted_for_public_repo: true` — والوكيل لم يعد يبني سياقًا يعرضهما للنموذج.
+- **مسار خاص للاستمالة على الإنتاج:** `agent_runtime.profile_path()` يقرأ من
+  `AI_OS_KNOWLEDGE_DIR` ← `knowledge.private/` (مُستثنى في `.gitignore`) ← `knowledge/`.
+  النسخة العامة تُكمَّم، والخاصة تمرّ كما هي.
+- **إصلاحا أثر جانبي:** `_safe()` كان يفلت من الأرقام المنسّقة بمسافات
+  (`+966 50 000 0009`)؛ والملف كان **يُحقن مرتين** (كاملة ومكمّمة) — الآن مرة واحدة.
+- **حارس في CI:** `tests/test_knowledge_privacy.py` يفشل لو ظهر بريد أو نمط جوال في
+  `knowledge/`، ويثبت أولوية المسارات والتكميم. التفاصيل: *ما يُنشر وما لا يُنشر* في README.
+
+## الجديد في v1.1 (التوقيت التلقائي — الجدولة تعمل وحدها على الخادم)
+- **محرّك جدولة واحد يقرّر المستحق:** `engine/timing.py` — ☀️ بريف الصباح **06:30**
+  (دورة استباقية ← `reports/proactive-brief-YYYY-MM-DD.md` ← رسالة للمحادثة
+  المالكة) · 🛰️ مسح دوري **كل 3 ساعات** (`manager.fast_cycle` +
+  `scheduler.dispatch_due` + `proactive.sweep`) · 📊 **مراجعة الأسبوع** أحد 07:00
+  (معدل القبول + ضبط العتبات عند `TIMING_REVIEW_APPLY=1`). الكل بتوقيت
+  `MANAGER_TIMEZONE` لا بتوقيت الخادم.
+- **سطر cron واحد يكفي:** `*/5 * * * * scripts/aios-timing.sh tick` —
+  المحرّك يلحق الفائت (خادم مطفأ وقت 06:30 ← بريف اليوم يولّد مرة واحدة بعد
+  الإقلاع)، ويمنع التكرار بمفتاح الدورة، ويمنع التراكب بقفل `data/.timing.lock`،
+  ويتراجع أُسّيًا عند الفشل. للتركيب: `bash autostart/cron/install.sh`
+  (أو `--native` لسطر لكل وظيفة، أو `--timer` لـ systemd timer)، للإزالة:
+  `bash autostart/cron/remove.sh`.
+- **حاوية بلا cron (Railway):** خيط `connectors/timing_worker.py` داخل عملية
+  الـ webhook نفسه (يعمل افتراضيًا؛ `AIOS_TIMING_WORKER=0` للإيقاف)، fail-soft
+  كبقية الخيوط، وحالته في `GET /health` تحت `automatic_timing`.
+- **دفتر تشغيل الجدولة:** قسم `timing_runs` جديد في مخزن الحالة (من جرى/متى/لماذا
+  فشل) + نبض يومي `timing_heartbeat_day` للتدقيق — والحالة لا تُكتب إن لم يتغيّر
+  شيء. للتشغيل اليدوي/الاختبار: `python3 engine/timing.py tick` (المستحق الآن)
+  أو `run brief|sweep --force`، وللقراءة: `status` / `list` / `next`.
+- **من الجوال:** `/timing` بطاقة الجدولة (المواعيد · آخر تشغيل · القادم) ·
+  `/timing_run [brief|sweep|review]` تشغيل المستحق فورًا · `/review [days]`
+  مراجعة الأسبوع الاستباقية — وكل ما ينتجه الجدول مسودات `PENDING_APPROVAL`
+  خلف `engine/approve.py`؛ **لم تتغير قاعدة الحوكمة: لا إرسال خارجي من المحركات.**
+- المرجع: `docs/automatic-timing.md` · الاختبارات: `tests/test_timing.py` (25).
+
 ## الجديد في v1.0 (رئيس المكتب الاستباقي — Proactive Chief of Staff)
 - **حلقة استباقية كاملة** (`engine/proactive.py`): رصد ← تذكّر ← توقّع ← تسجيل نقاط ←
   قرار ← **تنفيذ/تجهيز/تنبيه** ← تعلّم، تعمل داخل معاملة Store واحدة وتُنادى تلقائيًا من
@@ -24,7 +72,11 @@
   يحسب معدل القبول والتراجع وامتلاء السقف وإشارات التغذية، ويقترح بقواعد تحفظية
   محدودة تعديل `PROACTIVE_CONFIDENCE_THRESHOLD/PROACTIVE_MAX_ALERTS`، و`--apply`
   يخزّن التعديل في الحالة ليسري على الحلقة دون لمس متغيرات المنصة
-  (حارس: لا تعديل قبل 5 قرارات فعلية).
+  (حارس: لا تعديل قبل 5 قرارات فعلية). ومن v1.1 تُخزَّن **ساعات الصمت وسقف التنبيهات**
+  أيضًا في الحالة: `python3 engine/proactive.py config --quiet 22:00-06:30 --max-alerts 6`
+  و`config-clear` للرجوع إلى البيئة، و`verify` برهان حياة واحد للجدولة
+  (`python3 engine/timing.py verify [--json]`). تتحقّق القيم: لا نافذة صفرية، ولا
+  ساعات معكوسة >12 س بلا `--force`، ولا إسكات >22 ساعة إطلاقًا.
 - **قناة تنبيه تيليجرام المستعجلة**: بمجرد ضبط `TELEGRAM_BOT_TOKEN` (ومعرّف المحادثة
   كما في البوت القائم) تصلك تنبيهات `proactive_alert` فورًا للجوال — فقط ما اجتاز سقف
   اليوم وساعات الهدوء، وفشل الشبكة موثَّق ولا يُسقط الدورة. تحقق بضغطة واحدة:
@@ -143,6 +195,39 @@ python3 engine/chief_of_staff.py
 ## ملاحظات خصوصية
 - تبويب «متابعة مرضى» **برموز مجهلة فقط** (P-10X) — لا أسماء ولا هويات.
 - كل مخرج سريري = فرضية للمراجعة البشرية؛ القرار النهائي للممارس.
+
+### ما يُنشر وما لا يُنشر (المستودع عامٌّ عن قصد — واجهة معرض)
+
+| المسار | الوضع | القاعدة |
+|---|---|---|
+| `knowledge/` | **عام** | حقلَا `identity.email` و`identity.mobile` مختَّمان بـ `[PUBLIC_REPO_REDACTED]` مع `redacted_for_public_repo: true` |
+| `knowledge.private/` | **خاصّ** | مُستثنى في `.gitignore`؛ يحمل القيم الحقيقية على صندوق الإنتاج |
+| `data/`, `reports/`, `logs/`, `secrets/`, `.env` | **خاصّ** | مُستثناة؛ لا تُرفع ولا تُنسخ إلى مسار متتبَّع |
+
+الوكيْل يقرأ الملف المهني بهذا الترتيب: `AI_OS_KNOWLEDGE_DIR` ← `knowledge.private/` ← `knowledge/`.
+من النسخة العامة تُكمَّم بيانات الاتصال تلقائيًا (`_safe()`: بريد/جوال/معرّفات) قبل دخولها سياق النموذج؛
+ومن `knowledge.private/` تمرّ كما هي لأنك أنت صاحبها.
+
+لنقل بيانات الاتصال إلى المسار الخاص على الخادم:
+```bash
+umask 077 && mkdir -p knowledge.private
+cp knowledge/master-professional-profile.yaml knowledge.private/   # لا يُتتبَّع
+python3 - <<'PY'
+import re, pathlib
+p = pathlib.Path("knowledge.private/master-professional-profile.yaml")
+t = p.read_text(encoding="utf-8")
+for key, val in (("email", "you@example.com"), ("mobile", "+966 5X XXX XXXX")):
+    t = re.sub(r'(  %s:\n    value: )"[^"]*"' % key, lambda m: m.group(1) + '"%s"' % val, t, count=1)
+p.write_text(t, encoding="utf-8")
+print("تمت الاستعانة بالنسخة الخاصة — تحقق:")
+PY
+python3 -c "import sys; sys.path.insert(0,'engine'); import agent_runtime as a; print(a.profile_path(), '| private:', a.profile_is_private())"
+```
+
+> ⚠️ حذف القيم من HEAD **لا يمحوها من تاريخ** `origin/main`. أي قيمة نُشرت سابقًا تُعتبر مكشوفة:
+> غيّرها (بريد/جوال) أو استخدم `git filter-repo` + force-push إن أردت تاريخًا نظيفًا.
+> حارس آلي: `tests/test_knowledge_privacy.py` يفشل في CI لو ظهر بريد أو نمط جوال في `knowledge/`.
+
 
 
 ## Telegram Bot — أوامر الجوال

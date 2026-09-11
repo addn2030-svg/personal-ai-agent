@@ -3,6 +3,8 @@ data/state.json
 data/audit.jsonl
 data/backups/
 data/.state.lock
+data/.timing.lock
+logs/
 data/inbox.csv
 data/inbox-imported-*.csv
 data/.manager-markers.json
@@ -19,3 +21,6 @@ __pycache__/
 *.pyc
 .DS_Store
 data/.telegram*
+
+# معرفة خاصة غير منشورة — حقول الاتصال الحقيقية (لا تُرفع أبدًا)
+knowledge.private/

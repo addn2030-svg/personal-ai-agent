@@ -17,11 +17,13 @@ identity:
     location: "Jubail, Eastern Province, Saudi Arabia"
     status: CONFIRMED
   email:
-    value: "abdul200200@gmail.com"
+    value: "[PUBLIC_REPO_REDACTED]"
+    redacted_for_public_repo: true
     status: CONFIRMED
     privacy: PRIVATE_CONTACT
   mobile:
-    value: "+966 54 568 4917"
+    value: "[PUBLIC_REPO_REDACTED]"
+    redacted_for_public_repo: true
     status: CONFIRMED
     privacy: PRIVATE_CONTACT
   career_start:

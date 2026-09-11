@@ -29,6 +29,7 @@ sys.path.insert(0, str(BASE / "engine"))
 from connectors import bridge_api
 from connectors import telegram_bot as bot
 from connectors import manager_fast_canary
+from connectors import timing_worker
 from connectors.brief_runtime import install as install_brief_runtime
 from connectors.mobile_calendar_confirm import install as install_mobile_calendar_confirm
 
@@ -244,6 +245,7 @@ class Handler(BaseHTTPRequestHandler):
                     "telegram_mode": "webhook",
                     "calendar_reminders": True,
                     "manager_fast_canary": manager_fast_canary.enabled(),
+                    "automatic_timing": timing_worker.health(),
                 },
             )
             return
@@ -256,6 +258,8 @@ class Handler(BaseHTTPRequestHandler):
                     "telegram_mode": "webhook",
                     "sheets": detail,
                     "manager_fast_canary": manager_fast_canary.enabled(),
+                    "automatic_timing": {k: timing_worker.health()[k] for k in
+                                         ("worker", "engine", "ticks", "jobs_run", "last_error")},
                 },
             )
             return
@@ -318,6 +322,7 @@ def run():
         flush=True,
     )
     manager_fast_canary.start_if_enabled()
+    timing_worker.start_if_enabled()
     server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     print(f"HTTP webhook server listening on :{PORT}{WEBHOOK_PATH}", flush=True)
     server.serve_forever()

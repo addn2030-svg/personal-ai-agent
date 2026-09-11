@@ -1,0 +1,18 @@
+# AIOS-TIMING — وسم installer للإزالة/التحديث (autostart/cron/remove.sh)
+[Unit]
+Description=Abdulrahman AI OS — التوقيت التلقائي (بريف 06:30 · مسح كل 3 ساعات · مراجعة أسبوعية)
+Documentation=file://__REPO__/docs/automatic-timing.md
+
+[Service]
+Type=oneshot
+WorkingDirectory=__REPO__
+# المحرك يقرّر ما المستحق (idempotent + catch-up) — لا يحتاج توقيتًا دقيقًا هنا
+ExecStart=/usr/bin/python3 -u __REPO__/engine/timing.py tick
+# الأسرار والمسارات (TELEGRAM_BOT_TOKEN, AI_OS_DATA_DIR, MANAGER_TIMEZONE...) — اختياري
+EnvironmentFile=-__REPO__/.env
+StandardOutput=append:__REPO__/logs/timing.log
+StandardError=append:__REPO__/logs/timing.log
+Nice=10
+
+[Install]
+WantedBy=default.target

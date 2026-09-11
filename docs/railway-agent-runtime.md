@@ -43,6 +43,28 @@ Calendar safety:
 - The polling runtime checks due reminders every minute and records sent alerts
   in the persistent data directory to prevent duplicates.
 
+### Automatic timing (morning brief + periodic sweeps)
+
+The image has no cron daemon, so the schedule runs as a worker thread inside the
+webhook process. Defaults are already correct; only tune these when needed:
+- `AIOS_TIMING_ENABLED` (default `1`) — master switch for the whole timing engine.
+- `AIOS_TIMING_WORKER` (default `1`) — the in-container thread only.
+- `TIMING_BRIEF_AT` (06:30), `TIMING_SWEEP_INTERVAL_HOURS` (3),
+  `TIMING_REVIEW_AT` (07:00), `TIMING_REVIEW_WEEKDAY` (6 = Sunday),
+  `TIMING_TICK_SECONDS` (300), `TIMING_PUSH` (1), `TIMING_RETRY_MINUTES` (20).
+- Keep `MANAGER_TIMEZONE=Asia/Riyadh`: due times are computed in that zone, not in
+  the container clock.
+
+Timing output stays drafts: the proactive sweep and the automation scheduler only
+enqueue `PENDING_APPROVAL` rows; the single external channel is the same proactive
+alert chat. Verify with `GET /health` -> `automatic_timing`, or from the phone:
+`/timing` (schedule card), `/timing_run brief` (run one job now), `/review`
+(weekly acceptance review). Full reference: `docs/automatic-timing.md`.
+
+If you deploy on a host that has cron, prefer the crontab entry instead:
+`bash autostart/cron/install.sh` (writes a `*/5 * * * * .../scripts/aios-timing.sh tick`
+line plus an `@reboot` catch-up tick).
+
 ### Voice transcription
 The Bedrock bearer key does not authorize S3 or Transcribe. Use a dedicated
 least-privilege IAM principal:
@@ -75,6 +97,11 @@ Transcribe -> delete temporary objects -> normal text flow.
 - /selftest
 - /ai_status
 - /storage_status
+- /timing (automatic-timing card), /timing_run [brief|sweep|review], /review [days]
+- `python3 engine/timing.py verify` on the container prints a 13-point proof of life
+  (flags, clock vs schedule, today's pulse, push channel, installer, data dir).
+- Proactive guardrails are tunable from state without redeploying:
+  `python3 engine/proactive.py config --quiet 22:00-06:30 --max-alerts 6`.
 
 Clinical content is tagged CLINICAL_PRIVATE; email, Saudi mobile, MRN and similar
 identifiers are redacted before Sheets logging. Human review remains required.
