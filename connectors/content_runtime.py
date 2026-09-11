@@ -48,7 +48,24 @@ def install():
 
     def model_call(role: str, prompt: str) -> str:
         agent = {"researcher": "gemini", "critic": "gpt", "creator": "claude"}[role]
-        return team._openrouter_agent(agent, prompt, max_tokens=1200, temperature=0.15).answer
+        # Content calls are intentionally compact.  Besides reducing cost, these
+        # ceilings keep a low OpenRouter balance from rejecting the whole workflow
+        # merely because the requested completion limit is larger than affordable.
+        budgets = {"researcher": 300, "critic": 250, "creator": 600}
+        budget = budgets[role]
+        try:
+            return team._openrouter_agent(
+                agent, prompt, max_tokens=budget, temperature=0.15
+            ).answer
+        except RuntimeError as exc:
+            if "HTTP 402" not in str(exc):
+                raise
+            # One smaller retry is useful when the remaining credit changes between
+            # the three orchestra calls.  If it also fails, surface the real 402.
+            retry_budget = {"researcher": 180, "critic": 160, "creator": 350}[role]
+            return team._openrouter_agent(
+                agent, prompt, max_tokens=retry_budget, temperature=0.1
+            ).answer
 
     def handle_message(message: dict):
         raw = (message.get("text") or message.get("caption") or "").strip()
