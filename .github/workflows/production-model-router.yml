@@ -123,10 +123,10 @@ jobs:
         shell: bash
         run: |
           set +e
-          one() { python -m unittest "$1" 2>&1 | tr '\n' ';' | sed -e 's/%/%25/g' -e 's/:/%3A/g' -e "s/'//g" | cut -c1-240; }
-          echo "::error title=py::$(python -V 2>&1) / $(python3 -V 2>&1)"
-          echo "::error title=research::$(one tests.test_research_goals)"
-          echo "::error title=timing::$(one tests.test_timing)"
+          both() { python -m unittest $* 2>&1 | tr '\n' ';' | sed -e 's/%/%25/g' -e 's/:/%3A/g' | rev | cut -c1-700 | rev; }
+          echo "::error title=tail-research::$(both tests.test_research_goals)"
+          echo "::error title=tail-both::$(both tests.test_research_goals tests.test_timing)"
+          echo "::error title=tail-list::$(python -m unittest $(ls tests/test_*.py | sed 's#tests/##;s#.py$##;s#^#tests.#' | tr '\n' ' ') 2>&1 | tr '\n' ';' | sed -e 's/%/%25/g' -e 's/:/%3A/g' | rev | cut -c1-700 | rev)"
           exit 0
 
       - name: Test production model routing
