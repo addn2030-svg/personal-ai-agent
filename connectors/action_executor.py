@@ -361,7 +361,9 @@ def execute(action_id: str, approval_code: str) -> dict:
                     raise RuntimeError(
                         f"STALE_PREVIEW {item['sheet']}!{item['cell']}: expected {item['before']!r}, current {current!r}"
                     )
-                receipt = sheets.update_cell(item["sheet"], item["cell"], item["after"])
+                receipt = sheets.update_cell(
+                    item["sheet"], item["cell"], item["after"], approval_ref=action_id
+                )
                 receipts.append({
                     "kind": "sheet_cell",
                     "destination": f"{item['sheet']}!{item['cell']}",

@@ -365,6 +365,157 @@ def command_find(chat_id: int, query: str):
     send(chat_id, "\n".join(lines))
 
 
+def command_proactive(chat_id: int, raw: str = ""):
+    """Dedicated proactive control plane; never routes through Calendar intent."""
+    from engine import proactive_controller as pc
+    from engine.store import Store
+
+    text = (raw or "").strip()
+    parts = text.split(maxsplit=1)
+    subcommand = (parts[0].lower() if parts else "status")
+    argument = parts[1].strip() if len(parts) > 1 else ""
+    store = Store()
+
+    if subcommand in {"help", "مساعدة"}:
+        send(
+            chat_id,
+            "🧭 أوامر الطبقة الاستباقية:\n"
+            "/proactive status — الحالة والحدود\n"
+            "/proactive suggest — اقتراح واحد مبني على السجلات\n"
+            "/proactive run — محاكاة دورة دون إرسال\n"
+            "/proactive log exercise done\n"
+            "/proactive log reading done\n"
+            "/proactive log book عنوان\n"
+            "/proactive log youtube عنوان\n"
+            "/proactive log contact اسم\n"
+            "/proactive respond ALERT_ID تم|أجّل|تجاهل\n"
+            "/proactive config — الإعدادات الحالية\n"
+            "/proactive config reading_time=07:00\n"
+            "/proactive config exercise_days=0,2,4,6\n"
+            "/proactive config quiet=22:00-05:15\n\n"
+            "الإرسال التلقائي لا يُفعّل من رسالة عادية ولا يرسل لطرف آخر.",
+        )
+        return
+
+    if subcommand in {"status", "الحالة"}:
+        send(chat_id, pc.render_status(pc.status(store)))
+        return
+
+    if subcommand in {"config", "الإعدادات"}:
+        if argument:
+            normalized = argument.strip().lower()
+            if normalized in {"off", "disable", "تعطيل"}:
+                pc.configure({"enabled": False}, store=store)
+                send(chat_id, "🛑 أُوقفت حالة Pilot في StateStore. العامل نفسه يبقى محكومًا بمتغيرات البيئة.")
+                return
+            aliases = {
+                "max_alerts": "max_alerts_per_day",
+                "pilot_start": "pilot_start",
+                "pilot_days": "pilot_days",
+                "reading_time": "reading_time",
+                "exercise_time": "exercise_time",
+                "weekly_review_time": "weekly_review_time",
+                "relationship_time": "relationship_check_time",
+                "relationship_threshold": "relationship_threshold_days",
+            }
+            if "=" in argument:
+                key, value = [part.strip() for part in argument.split("=", 1)]
+                if key == "quiet":
+                    try:
+                        quiet_start, quiet_end = [part.strip() for part in value.split("-", 1)]
+                        pc.configure({"quiet_start": quiet_start, "quiet_end": quiet_end}, store=store)
+                        send(chat_id, "✅ حُفظت ساعات الهدوء في StateStore.")
+                    except (TypeError, ValueError) as exc:
+                        send(chat_id, "⚠️ ساعات الهدوء غير صالحة: " + str(exc)[:180])
+                    return
+                if key in {"exercise_days", "reading_days"}:
+                    try:
+                        parsed = [int(item) for item in value.split(",") if item.strip() != ""]
+                        if any(day < 0 or day > 6 for day in parsed):
+                            raise ValueError
+                        pc.configure({("exercise_weekdays" if key == "exercise_days" else "reading_weekdays"): parsed}, store=store)
+                        send(chat_id, "✅ حُفظت أيام Pilot في StateStore.")
+                        return
+                    except ValueError:
+                        send(chat_id, "الأيام يجب أن تكون أرقامًا من 0 إلى 6 مفصولة بفواصل.")
+                        return
+                if key in aliases:
+                    try:
+                        parsed_value = int(value) if key in {"max_alerts", "pilot_days", "relationship_threshold"} else value
+                        pc.configure({aliases[key]: parsed_value}, store=store)
+                        send(chat_id, f"✅ حُفظ الإعداد {key} في StateStore.")
+                    except (TypeError, ValueError) as exc:
+                        send(chat_id, "⚠️ إعداد غير صالح: " + str(exc)[:180])
+                    return
+            send(chat_id, "الصيغة: /proactive config reading_time=07:00 أو exercise_days=0,2,4,6 أو off")
+            return
+        config = pc.get_config(store)
+        send(
+            chat_id,
+            "⚙️ إعدادات الطبقة الاستباقية:\n"
+            + json.dumps(config, ensure_ascii=False, indent=2)
+            + "\n\nالتشغيل الحي يحتاج إعداد Railway ومراجعة DEV.",
+        )
+        return
+
+    if subcommand in {"suggest", "اقتراح"}:
+        from engine.proactive_worker import _load_external_evidence
+        alerts = pc.collect(
+            store=store, include_context=True, respect_quiet=False,
+            external_evidence=_load_external_evidence(),
+        )
+        send(chat_id, pc.render_proposals(alerts[:1]))
+        return
+
+    if subcommand in {"run", "تشغيل", "محاكاة"}:
+        from engine.proactive_worker import _load_external_evidence
+        alerts = pc.collect(
+            store=store, include_context=True, respect_quiet=False,
+            external_evidence=_load_external_evidence(),
+        )
+        if not alerts:
+            send(chat_id, "🧪 لا توجد قاعدة مستحقة الآن؛ لم يتم إرسال شيء.")
+        else:
+            send(chat_id, "🧪 محاكاة فقط — لم يتم إرسال شيء:\n\n" + pc.render_proposals(alerts[:3]))
+        return
+
+    if subcommand in {"log", "سجل", "سجّل"}:
+        log_parts = argument.split(maxsplit=1)
+        kind = (log_parts[0].lower() if log_parts else "")
+        detail = log_parts[1].strip() if len(log_parts) > 1 else ""
+        aliases = {
+            "exercise": "exercise", "تمرين": "exercise",
+            "reading": "reading", "قراءة": "reading",
+            "book": "learning", "books": "learning", "كتاب": "learning",
+            "article": "learning", "مقال": "learning",
+            "youtube": "learning", "video": "learning", "فيديو": "learning",
+            "contact": "contact", "تواصل": "contact",
+        }
+        if kind not in aliases:
+            send(chat_id, "الصيغة: /proactive log exercise done أو /proactive log reading done أو /proactive log book عنوان أو /proactive log contact اسم")
+            return
+        person = detail if aliases[kind] == "contact" else ""
+        event = pc.record_event(aliases[kind], person=person, detail=detail, store=store)
+        send(chat_id, f"✅ سُجل الحدث محليًا: {event['event_id']} — {aliases[kind]}")
+        return
+
+    if subcommand in {"respond", "response", "استجابة"}:
+        response_parts = argument.split(maxsplit=1)
+        if len(response_parts) != 2:
+            send(chat_id, "الصيغة: /proactive respond ALERT_ID تم|أجّل|تجاهل")
+            return
+        alert_id, response = response_parts
+        try:
+            from engine.proactive_worker import record_owner_response
+            result = record_owner_response(alert_id, response, store=store)
+            send(chat_id, f"✅ سُجلت الاستجابة: {result['response']['response']}")
+        except Exception as exc:
+            send(chat_id, "⚠️ حُفظت المحاولة محليًا، لكن تعذر تسجيلها في FollowUp_Log: " + str(exc)[:220])
+        return
+
+    send(chat_id, "أمر استباقي غير معروف. استخدم /proactive help")
+
+
 def command_pending(chat_id: int):
     send(chat_id, "🧠 أراجع الآن: ما القادم، ما غير مكتمل، السبب، والحل...")
     prompt = (
@@ -743,7 +894,10 @@ def command_confirm(chat_id: int, token: str):
         send(chat_id, "❌ رمز التأكيد غير صالح أو انتهت مدته.")
         return
     from connectors.sheet_intelligence import update_cell
-    result = update_cell(item["sheet"], item["a1"], item["value"])
+    result = update_cell(
+        item["sheet"], item["a1"], item["value"],
+        approved_by=f"telegram:{chat_id}", approval_ref=f"tg-{token.strip()}"
+    )
     send(
         chat_id,
         f"✅ تم التحديث\n{item['sheet']}!{item['a1']}"
@@ -802,6 +956,7 @@ def command_start(chat_id: int):
         "المدخلات والإجابات تُحفظ في Google Sheets بعد فحص الخصوصية.\n\n"
         "/profile — الملف المهني\n/sources — المصادر\n/selftest — فحص كامل\n"
         "/ai_status — فحص Claude\n/storage_status — فحص الحفظ\n"
+        "/proactive status — حالة الطبقة الاستباقية\n/proactive suggest — اقتراح واحد\n"
         "/sheet — الشيتات المتصلة\n/find كلمة — البحث\n/pending — القادم والناقص والحل\n"
         "/today — مواعيد اليوم\n/calendar — المواعيد القادمة\n"
         "/remind — اقتراح موعد أو تذكير\n/cancel_event — اقتراح حذف موعد\n"
@@ -939,6 +1094,10 @@ def handle_message(message: dict):
     handler = handlers.get(command)
     if handler:
         handler(chat_id)
+        _save_intake(iid, message, text, kind, attachment, "COMPLETED")
+        return
+    if command == "/proactive":
+        command_proactive(chat_id, text.split(maxsplit=1)[1] if len(text.split(maxsplit=1)) > 1 else "")
         _save_intake(iid, message, text, kind, attachment, "COMPLETED")
         return
     if command == "/today":
@@ -1147,6 +1306,7 @@ def configure_commands():
         {"command":"selftest","description":"فحص المكونات"},
         {"command":"ai_status","description":"فحص Claude على AWS"},
         {"command":"storage_status","description":"فحص حفظ Google Sheets"},
+        {"command":"proactive","description":"الطبقة الاستباقية: حالة واقتراح ومحاكاة"},
         {"command":"sheet","description":"عرض الشيتات المتصلة"},
         {"command":"today","description":"مواعيد اليوم"},
         {"command":"calendar","description":"المواعيد القادمة"},

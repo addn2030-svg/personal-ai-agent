@@ -20,6 +20,15 @@
   `engine/approve.py`.
 - المرجع: `docs/v0.9-master-os.md` · التقييم: `evaluation/master-os-adoption-v0.9.md`.
 
+## Proactive Chief of Staff Pilot — Option B (fail-closed)
+
+- مسار مستقل `/proactive status|suggest|run|config|log|respond`؛ لا يمر عبر Calendar.
+- عامل مستقل `python3 engine/proactive_worker.py`، مع `PROACTIVE_ENABLED=0` و`PROACTIVE_DRY_RUN=1` افتراضيًا.
+- يقرأ السجلات المؤكدة في `StateStore` (المهام، الاجتماعات، القرارات، الانتظار/العوائق، التعلم، المصادر، وسجل الأحداث) ويعرض بطاقة فيها الإشارة، الدليل المؤرخ، المصدر، إجراء واحد، و`تم / أجّل / تجاهل`.
+- حد Pilot ثلاثة تنبيهات يوميًا، وساعات هدوء 22:00–05:15 بتوقيت الرياض، والمالك فقط للتنبيه التلقائي. الأطراف الأخرى تبقى `PROPOSE`.
+- التشغيل الحي يتطلب تفعيلًا مزدوجًا: إعداد `proactive_config.enabled=true` و`proactive_config.t3_approved=true` بعد مراجعة T3، ومتغيرات العامل، و`TELEGRAM_ALLOWED_CHAT_ID`، وGateway append-only لـ`FollowUp_Log`. Dry Run لا يكتب خارجيًا ولا محليًا.
+- الدليل التشغيلي: `docs/proactive-pilot-v1.md`.
+
 ## الجديد في v0.4.1 (منهجية ILPC — Bob Pike Group)
 - **منهجية تصميم مواد إلزامية** مدمجة في `prompts/personal-training.md`: EAT (تجربة←وعي←نظرية) · CPR (≤20 دقيقة/مشاركة كل 8 دقائق/مراجعة يقودها المتعلم) · 90/20/8 · أهداف قابلة للقياس وإستراتيجية تقييم قبل أي محتوى.
 - **أمر الهيكل**: `python3 engine/learning_engine.py outline LP-001` يولّد هيكل ILPC لأي خطة.
