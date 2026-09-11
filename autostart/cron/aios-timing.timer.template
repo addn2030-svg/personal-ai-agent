@@ -1,0 +1,13 @@
+# AIOS-TIMING — وسم installer للإزالة/التحديث (autostart/cron/remove.sh)
+[Unit]
+Description=Abdulrahman AI OS — نبضة التوقيت التلقائي (كل 5 دقائق · المحرك يقرّر)
+Documentation=file://__REPO__/docs/automatic-timing.md
+
+[Timer]
+OnCalendar=*:0/5
+Persistent=true
+AccuracySec=30s
+RandomizedDelaySec=45
+
+[Install]
+WantedBy=timers.target

@@ -327,6 +327,65 @@ def proactive_test_text():
     return "❌ القناة غير جاهزة: " + reasons.get(why, why)
 
 
+# ---------------------------------------------------------------- التوقيت التلقائي v1.1
+def _args(text, index=1):
+    """الوسيط رقم index من رسالة الأمر ("" عند الغياب)."""
+    parts = (text or "").split()
+    return parts[index] if len(parts) > index else ""
+
+
+def timing_text():
+    """🕰️ بطاقة التوقيت التلقائي: ما المجدول، متى جرى آخر مرة، والقادم."""
+    try:
+        import timing
+        return timing.status_text()
+    except Exception as exc:  # noqa: BLE001
+        return f"❌ تعذر جمع حالة التوقيت: {str(exc)[:200]}"
+
+
+def timing_run_text(which=""):
+    """يشغّل ما استحق الآن (أو وظيفة بعينها) من الجوال — مسودات وقاية، لا إرسال."""
+    try:
+        import timing
+    except Exception as exc:  # noqa: BLE001
+        return f"❌ محرك التوقيت غير متاح: {str(exc)[:200]}"
+    which = (which or "").strip().lower()
+    try:
+        if which in ("", "tick", "now"):
+            out = timing.tick(verbose=False, trigger="telegram")
+            if out["status"] == "idle":
+                return "⏰ لا شيء مستحق الآن — الجدول يعمل. الحالة: /timing"
+            if out["status"] == "busy":
+                return "🔒 دورة توقيت أخرى تعمل الآن — أعد المحاولة بعد لحظة."
+            if out["status"] == "disabled":
+                return "⏸️ التوقيت التلقائي معطّل (AIOS_TIMING_ENABLED=0)."
+            lines = [f"🕰️ نُفّذ {len(out.get('ran', []))} من وظائف الجدولة الآن:"]
+            for res in out.get("ran", []):
+                lines.append(f"{'✅' if res['status'] == 'ok' else '❌'} {res['job_id']}"
+                             f" — {res.get('reason', '—')}")
+            return "\n".join(lines) + "\nالمسودات: /approve"
+        if which not in ("brief", "sweep", "review"):
+            return "صيغة: /timing_run [brief|sweep|review] — أو /timing_run وحدها للمستحق الآن"
+        res = timing.run_job(which, force=True, verbose=False, trigger="telegram")
+        icon = "✅" if res["status"] == "ok" else "❌"
+        return (f"{icon} {res['job_id']} → {res['status']}\n"
+                "المسودات: /approve · البريف: reports/proactive-brief-*.md")
+    except ValueError as exc:
+        return f"❌ {exc}"
+    except Exception as exc:  # noqa: BLE001
+        return f"❌ تعذر التنفيذ: {str(exc)[:200]}"
+
+
+def weekly_review_text(days=7):
+    """📊 مراجعة الأسبوع الاستباقية: قبولك/رفضك الحقيقي + التوصية بالعتبات."""
+    try:
+        import proactive
+        return proactive.review_text(days=days) + \
+            "\n\nللتطبيق التلقائي من الطرفية: python3 engine/proactive.py review --apply"
+    except Exception as exc:  # noqa: BLE001
+        return f"❌ تعذرت المراجعة الأسبوعية: {str(exc)[:200]}"
+
+
 # ---------------------------------------------------------------- معالجات
 def handle(msg):
     chat = str(msg["chat"]["id"])
@@ -374,6 +433,17 @@ def handle(msg):
         api("sendMessage", chat_id=chat, text=proactive_text())
     elif text.startswith("/sweep"):
         api("sendMessage", chat_id=chat, text=sweep_text())
+    elif text.startswith("/timing_run"):
+        api("sendMessage", chat_id=chat, text=timing_run_text(_args(text)))
+    elif text.startswith("/timing"):
+        api("sendMessage", chat_id=chat, text=timing_text())
+    elif text.startswith("/review") and not text.startswith("/reviews"):
+        parts = text.split()
+        try:
+            days = max(1, int(parts[1]))
+        except (IndexError, ValueError):
+            days = 7
+        api("sendMessage", chat_id=chat, text=weekly_review_text(days))
     elif text.startswith("/mastery"):
         import subprocess
         r = subprocess.run([sys.executable, os.path.join(BASE, "engine", "learning_engine.py"), "mastery"],
@@ -398,6 +468,9 @@ def handle(msg):
                                                "/masteros ملخص البنية • /schedule الجدول • /mindmaps الخرائط\n"
                                                "/digests الملخصات الصوتية • /run تنفيذ المستحق الآن • /today-actions إجراءات اليوم\n"
                                                "/diag حالة قنوات الربط\n"
+                                               "🛰️ v1.1 (الاستباقي + التوقيت التلقائي):\n"
+                                               "/proactive حالة المحرك • /sweep دورة فورية • /timing حالة الجدولة\n"
+                                               "/timing_run [brief|sweep|review] تشغيل المستحق الآن • /review مراجعة الأسبوع\n"
                                                "وأي نص ترسله = يُلتقط في صندوق يومك تلقائيًا 📥"))
     elif text and re.match(r"^طاق[هة]?\s*(\d{1,2}).*ارهاق", text.replace("إرهاق", "ارهاق")):
         m = re.match(r"^طاق[هة]?\s*(\d{1,2}).*ارهاق\s*(\d{1,2})", text.replace("إرهاق", "ارهاق"))

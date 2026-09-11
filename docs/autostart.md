@@ -42,11 +42,27 @@ journalctl --user -u aios-manager -f
 
 ---
 
+## 🖥️ الخادم (VPS أو حاوية) — جدول التوقيت التلقائي
+
+على الخادم لا تحتاج حلقة مدير دائمة؛ يكفي سطر cron واحد يقرّر فيه المحرك ما المستحق
+(بريف 06:30 · مسح كل 3 ساعات · مراجعة أسبوع):
+
+```bash
+bash autostart/cron/install.sh          # نبضة كل 5 دقائق + نبضة عند الإقلاع (موصى به)
+bash autostart/cron/install.sh --timer  # بديل: systemd user timer
+crontab -l | grep AIOS-TIMING           # تحقق
+python3 engine/timing.py status         # الجدول + آخر تشغيل + لماذا لم يستحق
+```
+
+ولحاوية إنتاج بلا cron (Railway) يعمل نفس الجدول كخيط داخل عملية الـ webhook
+افتراضيًا (`AIOS_TIMING_WORKER=1`). المرجع الكامل: `docs/automatic-timing.md`.
+للإزالة: `bash autostart/cron/remove.sh`.
+
 ## 📖 كيف تتأكد يوميًا أنه حي؟ (3 نظرات)
 
 | أين | ماذا ترى | المعنى |
 |---|---|---|
-| `data/audit.jsonl` | حدث `manager_loop_alive` بتاريخ اليوم | ✅ الحلقة تنفّس اليوم |
+| `data/audit.jsonl` | حدث `manager_loop_alive` بتاريخ اليوم (أو `timing_run` على الخادم) | ✅ الحلقة/الجدولة تنفّس اليوم |
 | `logs/manager-loop.log` (أو Logs في ماك) | أسطر الدورات | ✅ تعمل الآن |
 | `reports/dashboard-latest.html` | تاريخ اللوحة اليوم | ✅ البريف الصباحي وصل |
 

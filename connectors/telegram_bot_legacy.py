@@ -805,6 +805,7 @@ def command_start(chat_id: int):
         "/sheet — الشيتات المتصلة\n/find كلمة — البحث\n/pending — القادم والناقص والحل\n"
         "/today — مواعيد اليوم\n/calendar — المواعيد القادمة\n"
         "/proactive — حالة الاستباقية\n/sweep — دورة فورية\n/proactive_test — تجربة قناة التنبيه\n"
+        "/timing — حالة التوقيت التلقائي\n/timing_run — تشغيل المستحق الآن\n/review — مراجعة الأسبوع\n"
         "/remind — اقتراح موعد أو تذكير\n/cancel_event — اقتراح حذف موعد\n"
         "/previsit — مسودة أسئلة سريرية للمعالج\n"
         "/previsitlink — إنشاء رابط ورسالة للمريض\n"

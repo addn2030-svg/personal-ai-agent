@@ -34,6 +34,7 @@ _MASTEROS_COMMANDS = {
     "/run", "/diag", "/tasks", "/decisions", "/approve",
     "/reviews", "/door", "/mastery", "/answer", "/okr",
     "/proactive", "/proactive_test", "/sweep",
+    "/timing", "/timing_run", "/review",
 }
 
 
@@ -124,6 +125,13 @@ def _command_start(chat_id: int):
         "/door — باب اليوم الأسبوعي\n"
         "/reviews — مراجعات اليوم من محرك التعلم\n"
         "/okr — متابعة الأهداف والنتائج الرئيسية\n\n"
+        "🛰️ الاستباقي + التوقيت التلقائي (v1.1):\n"
+        "/proactive — حالة محرك الاستباقية\n"
+        "/sweep — دورة استباقية فورية\n"
+        "/proactive_test — تجربة قناة التنبيه المستعجل\n"
+        "/timing — حالة الجدولة التلقائية (بريف 06:30 · مسح كل 3 س)\n"
+        "/timing_run [brief|sweep|review] — تشغيل المستحق الآن\n"
+        "/review [days] — مراجعة الأسبوع وضبط العتبات\n\n"
         "أي أثر خارجي يبقى خلف الاقتراح/المعاينة/الموافقة/التنفيذ.",
     )
 
@@ -312,6 +320,18 @@ def _delegated_handle_message(message: dict):
                 _impl.send(chat_id, etb.sweep_text())
             elif command == "/proactive_test":
                 _impl.send(chat_id, etb.proactive_test_text())
+            elif command == "/timing":
+                _impl.send(chat_id, etb.timing_text())
+            elif command == "/timing_run":
+                parts = text.split()
+                _impl.send(chat_id, etb.timing_run_text(parts[1] if len(parts) > 1 else ""))
+            elif command == "/review":
+                parts = text.split()
+                try:
+                    days = max(1, int(parts[1]))
+                except (IndexError, ValueError):
+                    days = 7
+                _impl.send(chat_id, etb.weekly_review_text(days))
             elif command == "/tasks":
                 _impl.send(chat_id, etb.tasks_text())
             elif command == "/decisions":
@@ -493,6 +513,9 @@ def _configure_commands():
             {"command": "proactive", "description": "حالة محرك الاستباقية"},
             {"command": "sweep", "description": "تشغيل دورة استباقية فورية"},
             {"command": "proactive_test", "description": "تجربة قناة التنبيه المستعجل"},
+            {"command": "timing", "description": "حالة التوقيت التلقائي (cron) وجدوله"},
+            {"command": "timing_run", "description": "تشغيل المستحق الآن من الجدولة"},
+            {"command": "review", "description": "مراجعة الأسبوع الاستباقية والعتبات"},
             {"command": "approve", "description": "طابور الاعتماد بأزرار"},
             {"command": "decisions", "description": "طلبات القرارات المفتوحة"},
             {"command": "tasks", "description": "أهم المهام المفتوحة"},

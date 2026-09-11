@@ -42,6 +42,11 @@ on:
       - 'engine/store.py'
       - 'engine/manager.py'
       - 'engine/proactive.py'
+      - 'engine/timing.py'
+      - 'connectors/timing_worker.py'
+      - 'scripts/aios-timing.sh'
+      - 'autostart/cron/**'
+      - 'docs/automatic-timing.md'
       - 'engine/telegram_bot.py'
       - 'engine/master_os.py'
       - 'engine/drive_tree.py'
@@ -55,6 +60,7 @@ on:
       - 'tests/test_v09_audio_digest.py'
       - 'tests/test_v09_scheduler.py'
       - 'tests/test_proactive.py'
+      - 'tests/test_timing.py'
       - 'research_capsules/**'
       - 'tests/test_production_model_gateway.py'
       - 'tests/test_telegram_bot.py'
@@ -120,6 +126,16 @@ jobs:
           tests.test_v09_audio_digest
           tests.test_v09_scheduler
           tests.test_proactive
+          tests.test_timing
+      - name: Check cron wrapper and templates
+        run: >-
+          bash -n scripts/aios-timing.sh &&
+          bash -n autostart/cron/install.sh &&
+          bash -n autostart/cron/remove.sh &&
+          grep -q '__REPO__' autostart/cron/aios-timing.crontab.template &&
+          grep -q 'AIOS-TIMING' autostart/cron/aios-timing.crontab.template &&
+          grep -q 'AIOS-TIMING' autostart/cron/aios-timing.timer.template &&
+          python3 engine/timing.py install-cron
       - name: Compile production entrypoints
         run: >-
           python -m py_compile
@@ -132,6 +148,7 @@ jobs:
           connectors/ops_context.py
           connectors/super_manager.py
           connectors/manager_fast_canary.py
+          connectors/timing_worker.py
           connectors/capability_truth.py
           connectors/capability_runtime.py
           connectors/action_executor.py
@@ -160,6 +177,7 @@ jobs:
           engine/store.py
           engine/manager.py
           engine/proactive.py
+          engine/timing.py
           engine/telegram_bot.py
           engine/master_os.py
           engine/drive_tree.py

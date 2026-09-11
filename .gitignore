@@ -3,6 +3,8 @@ data/state.json
 data/audit.jsonl
 data/backups/
 data/.state.lock
+data/.timing.lock
+logs/
 data/inbox.csv
 data/inbox-imported-*.csv
 data/.manager-markers.json
