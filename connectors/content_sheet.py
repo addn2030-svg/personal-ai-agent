@@ -105,7 +105,7 @@ def _queue_row_number(queue_id: str) -> tuple[int, dict[str, int]]:
 
 def update_queue(queue_id: str, **fields) -> dict:
     row_number, columns = _queue_row_number(queue_id)
-    allowed = {"Buffer_Post_Text", "Status", "Internal_Notes"}
+    allowed = {"Buffer_Post_Text", "Media_URL", "Status", "Internal_Notes"}
     updates = []
     for name, value in fields.items():
         if name not in allowed or name not in columns:
