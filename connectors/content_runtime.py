@@ -54,18 +54,20 @@ def install():
         budgets = {"researcher": 300, "critic": 250, "creator": 600}
         budget = budgets[role]
         try:
-            return team._openrouter_agent(
-                agent, prompt, max_tokens=budget, temperature=0.15
-            ).answer
+            kwargs = {"max_tokens": budget, "temperature": 0.15}
+            if role == "creator":
+                kwargs["response_format"] = {"type": "json_object"}
+            return team._openrouter_agent(agent, prompt, **kwargs).answer
         except RuntimeError as exc:
             if "HTTP 402" not in str(exc):
                 raise
             # One smaller retry is useful when the remaining credit changes between
             # the three orchestra calls.  If it also fails, surface the real 402.
             retry_budget = {"researcher": 180, "critic": 160, "creator": 350}[role]
-            return team._openrouter_agent(
-                agent, prompt, max_tokens=retry_budget, temperature=0.1
-            ).answer
+            kwargs = {"max_tokens": retry_budget, "temperature": 0.1}
+            if role == "creator":
+                kwargs["response_format"] = {"type": "json_object"}
+            return team._openrouter_agent(agent, prompt, **kwargs).answer
 
     def handle_message(message: dict):
         raw = (message.get("text") or message.get("caption") or "").strip()
