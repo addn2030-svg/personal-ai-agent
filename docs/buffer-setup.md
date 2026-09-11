@@ -3,6 +3,14 @@
 موصل `connectors/buffer_publisher.py` ينشر أو يجدول منشورًا (نص + صورة) في Buffer
 عبر واجهة **GraphQL API** الرسمية (`https://api.buffer.com`).
 
+## الطريقة الموصى بها — Telegram Content Creator على Railway
+
+اضبط في Railway: `BUFFER_API_KEY` و`CONTENT_DEFAULT_PLATFORM=linkedin` و
+`BUFFER_DEFAULT_MODE=draft`. ثم استخدم `/content linkedin الفكرة`. يمر الطلب عبر
+Researcher → Critic → Creator ويعود Preview فقط. لا يتصل Buffer حتى ترسل
+`/approve_content ID CODE`؛ عند النجاح يُحفظ `post_id` وحالة Buffer كإيصال في
+`action_queue`. استخدم `/content_status` لفحص الإعداد دون نشر.
+
 ## الطريقة (أ) — GitHub Actions دون تثبيت أي شيء
 
 انشر مباشرة من المستودع دون تشغيل أي شيء محليًا:
