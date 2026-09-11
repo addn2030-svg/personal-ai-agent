@@ -19,6 +19,9 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
 from store import Store, log_event
 
 STATUS_AR = {"PENDING_APPROVAL": "⏳ بانتظار الاعتماد", "APPROVED": "✅ معتمد — جاهز للتنفيذ",
@@ -94,6 +97,13 @@ def main():
 
     store.commit(S, f"action_{args.cmd}", action_id=act["action_id"])
     print(f"✅ {act['action_id']} → {STATUS_AR[act['status']]}")
+
+    # منشورات Buffer تُنفَّذ فور الاعتماد (ما زالت خلف البوابة) — إيصال فوري
+    if args.cmd == "approve" and act.get("type") == "BUFFER_POST":
+        from connectors import buffer_actions
+        outcome = buffer_actions.maybe_execute(act["action_id"])
+        if outcome is not None:
+            print(buffer_actions.receipt_text(outcome))
 
 if __name__ == "__main__":
     main()

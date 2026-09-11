@@ -449,7 +449,19 @@ def _handle_callback(cb: dict):
             _impl.api("answerCallbackQuery", {"callback_query_id": cb_id, "text": f"✅ {aid} اعتُمد"})
         except Exception:
             pass
-        _impl.send(chat_id, f"✅ {aid} معتمد — نفّذ المحتوى من صفحة الاعتماد ثم: python3 engine/approve.py executed {aid}")
+        # Buffer posts execute immediately on approval (still behind the gate):
+        # everything else keeps the manual execution confirmation flow.
+        outcome = None
+        try:
+            from connectors import buffer_actions
+            outcome = buffer_actions.maybe_execute(aid)
+        except Exception as exc:  # noqa: BLE001
+            _impl.send(chat_id, f"⚠️ {aid} معتمد لكن تعذر التنفيذ التلقائي: {str(exc)[:250]}")
+            return
+        if outcome is None:
+            _impl.send(chat_id, f"✅ {aid} معتمد — نفّذ المحتوى من صفحة الاعتماد ثم: python3 engine/approve.py executed {aid}")
+        else:
+            _impl.send(chat_id, buffer_actions.receipt_text(outcome))
     elif data.startswith("rj:"):
         _, aid = data.split(":", 1)
         from store import Store, log_event
@@ -508,6 +520,8 @@ def _configure_commands():
             {"command": "mission", "description": "مهمة مشتركة بميزانية tokens"},
             {"command": "newtab", "description": "إنشاء تبويب جديد في الشيت (معاينة ثم اعتماد)"},
             {"command": "doc", "description": "إنشاء مستند Google Docs كمسودة (معاينة ثم اعتماد)"},
+            {"command": "buffer_post", "description": "مسودة منشور Buffer خلف بوابة الاعتماد"},
+            {"command": "buffer_channels", "description": "قنوات Buffer المتصلة"},
         ]
         commands.extend(item for item in additions if item["command"] not in existing)
         _impl.api("setMyCommands", {"commands": json.dumps(commands, ensure_ascii=False)})

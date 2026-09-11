@@ -669,6 +669,57 @@ def command_confirm_doc(chat_id: int, token: str):
     send(chat_id, message)
 
 
+def command_buffer_post(chat_id: int, raw: str):
+    """/buffer_post — مسودة منشور Buffer خلف بوابة الاعتماد (C2)."""
+    import os as _os
+    from connectors import buffer_actions
+    if not _os.environ.get("BUFFER_API_KEY", "").strip():
+        send(
+            chat_id,
+            "❌ BUFFER_API_KEY غير مضبوط في بيئة التشغيل.\n"
+            "احصل على مفتاح من publish.buffer.com/settings/api وضعه في متغيرات البيئة "
+            "(انظر docs/buffer-setup.md) — لا يُرسل أي شيء قبل ضبطه.",
+        )
+        return
+    try:
+        payload = buffer_actions.parse_request(raw)
+    except ValueError as exc:
+        send(chat_id, "❌ " + str(exc)[:900])
+        return
+    record = buffer_actions.create_action(payload, chat_id=chat_id)
+    send(chat_id, buffer_actions.preview_text(record),
+         reply_markup=buffer_actions.preview_keyboard(record))
+
+
+def command_buffer_channels(chat_id: int):
+    """/buffer_channels — القنوات المتصلة في Buffer (قراءة فقط)."""
+    import os as _os
+    from connectors import buffer_publisher
+    if not _os.environ.get("BUFFER_API_KEY", "").strip():
+        send(chat_id, "❌ BUFFER_API_KEY غير مضبوط — راجع docs/buffer-setup.md")
+        return
+    try:
+        channels = buffer_publisher.get_channels()
+    except SystemExit as exc:
+        send(chat_id, "❌ تعذر جلب القنوات: " + str(exc)[:300])
+        return
+    except Exception as exc:  # noqa: BLE001
+        send(chat_id, "❌ تعذر جلب القنوات: " + str(exc)[:300])
+        return
+    if not channels:
+        send(chat_id, "لا توجد قنوات مرتبطة بهذا المفتاح — اربط قناة من publish.buffer.com")
+        return
+    lines = ["📣 قنوات Buffer المتصلة:"]
+    for ch in channels:
+        paused = " [متوقف]" if ch.get("isQueuePaused") else ""
+        lines.append(
+            f"• {ch.get('displayName') or ch.get('name')} ({ch.get('service')}) — "
+            f"channel id: {ch.get('id')}{paused}"
+        )
+    lines.append("\nاستخدم اسم الشبكة أو المعرف في: /buffer_post القناة | النص")
+    send(chat_id, "\n".join(lines))
+
+
 def command_cancel_event(chat_id: int, event_id: str):
     event_id = event_id.strip()
     if not event_id:
@@ -808,7 +859,9 @@ def command_start(chat_id: int):
         "/remind — اقتراح موعد أو تذكير\n/cancel_event — اقتراح حذف موعد\n"
         "/previsit — مسودة أسئلة سريرية للمعالج\n"
         "/previsitlink — إنشاء رابط ورسالة للمريض\n"
-        "/update — اقتراح تحديث\n/help — المساعدة",
+        "/update — اقتراح تحديث\n"
+        "/buffer_post — مسودة منشور Buffer خلف بوابة الاعتماد\n"
+        "/buffer_channels — قنوات Buffer المتصلة\n/help — المساعدة",
     )
 
 
@@ -1016,6 +1069,14 @@ def handle_message(message: dict):
         return
     if command == "/confirm_doc":
         command_confirm_doc(chat_id, text[len(command):].strip())
+        _save_intake(iid, message, text, kind, attachment, "COMPLETED")
+        return
+    if command == "/buffer_post":
+        command_buffer_post(chat_id, text[len(command):].strip())
+        _save_intake(iid, message, text, kind, attachment, "REVIEW_REQUIRED")
+        return
+    if command == "/buffer_channels":
+        command_buffer_channels(chat_id)
         _save_intake(iid, message, text, kind, attachment, "COMPLETED")
         return
     _masteros_cmds = {

@@ -390,6 +390,43 @@ def handle(msg):
             raise
         except Exception as e:
             api("sendMessage", chat_id=chat, text=f"صيغة: /answer LR-001 85\n{e}")
+    elif text.startswith("/buffer_post"):
+        import os as _os
+        from connectors import buffer_actions as _ba
+        if not _os.environ.get("BUFFER_API_KEY", "").strip():
+            api("sendMessage", chat_id=chat, text=("❌ BUFFER_API_KEY غير مضبوط في بيئة التشغيل — "
+                                                   "راجع docs/buffer-setup.md. لا يُرسل شيء قبل ضبطه."))
+        else:
+            try:
+                payload = _ba.parse_request(text[len("/buffer_post"):].strip())
+                record = _ba.create_action(payload, chat_id=chat)
+                api("sendMessage", chat_id=chat, text=_ba.preview_text(record),
+                    reply_markup=_ba.preview_keyboard(record))
+            except ValueError as e:
+                api("sendMessage", chat_id=chat, text="❌ " + str(e)[:900])
+            except SystemExit:
+                raise
+            except Exception as e:
+                api("sendMessage", chat_id=chat, text="❌ تعذر تجهيز المسودة: " + str(e)[:300])
+    elif text.startswith("/buffer_channels"):
+        import os as _os
+        from connectors import buffer_publisher as _bp
+        if not _os.environ.get("BUFFER_API_KEY", "").strip():
+            api("sendMessage", chat_id=chat, text="❌ BUFFER_API_KEY غير مضبوط — راجع docs/buffer-setup.md")
+        else:
+            try:
+                channels = _bp.get_channels()
+                if not channels:
+                    api("sendMessage", chat_id=chat, text="لا توجد قنوات مرتبطة بهذا المفتاح — اربط قناة من publish.buffer.com")
+                else:
+                    lines = ["📣 قنوات Buffer المتصلة:"]
+                    for ch in channels:
+                        paused = " [متوقف]" if ch.get("isQueuePaused") else ""
+                        lines.append(f"• {ch.get('displayName') or ch.get('name')} ({ch.get('service')}) — channel id: {ch.get('id')}{paused}")
+                    lines.append("\nاستخدم اسم الشبكة أو المعرف في: /buffer_post القناة | النص")
+                    api("sendMessage", chat_id=chat, text="\n".join(lines))
+            except SystemExit as e:
+                api("sendMessage", chat_id=chat, text="❌ تعذر جلب القنوات: " + str(e)[:300])
     elif text.startswith("/help") or text.startswith("/start"):
         api("sendMessage", chat_id=chat, text=("الأوامر:\n/brief البريف • /tasks المهام • /decisions القرارات بأزرار\n"
                                                "/approve الاعتمادات بأزرار • /reviews مراجعات اليوم • /answer LR-001 85\n"
@@ -398,6 +435,7 @@ def handle(msg):
                                                "/masteros ملخص البنية • /schedule الجدول • /mindmaps الخرائط\n"
                                                "/digests الملخصات الصوتية • /run تنفيذ المستحق الآن • /today-actions إجراءات اليوم\n"
                                                "/diag حالة قنوات الربط\n"
+                                               "📣 Buffer: /buffer_post القناة | النص — مسودة منشور خلف بوابة الاعتماد\n"
                                                "وأي نص ترسله = يُلتقط في صندوق يومك تلقائيًا 📥"))
     elif text and re.match(r"^طاق[هة]?\s*(\d{1,2}).*ارهاق", text.replace("إرهاق", "ارهاق")):
         m = re.match(r"^طاق[هة]?\s*(\d{1,2}).*ارهاق\s*(\d{1,2})", text.replace("إرهاق", "ارهاق"))
@@ -459,7 +497,18 @@ def handle_callback(cb):
         st.commit(S, "telegram_approved", action=aid)
         log_event("action_approved", action_id=aid, via="telegram")
         api("answerCallbackQuery", callback_query_id=cb["id"], text=f"✅ {aid} اعتُمد")
-        api("sendMessage", chat_id=chat, text=f"✅ {aid} معتمد — نفّذ المحتوى من صفحة الاعتماد ثم: python3 engine/approve.py executed {aid}")
+        # منشورات Buffer تُنفَّذ فور الاعتماد (خلف البوابة) — ما عداها يبقى بالتأكيد اليدوي
+        outcome = None
+        try:
+            from connectors import buffer_actions
+            outcome = buffer_actions.maybe_execute(aid)
+        except Exception as e:
+            api("sendMessage", chat_id=chat, text=f"⚠️ {aid} معتمد لكن تعذر التنفيذ التلقائي: {str(e)[:250]}")
+            return
+        if outcome is None:
+            api("sendMessage", chat_id=chat, text=f"✅ {aid} معتمد — نفّذ المحتوى من صفحة الاعتماد ثم: python3 engine/approve.py executed {aid}")
+        else:
+            api("sendMessage", chat_id=chat, text=buffer_actions.receipt_text(outcome))
     elif data.startswith("rj:"):
         _, aid = data.split(":", 1)
         st = Store(); S = st.rows_all()
