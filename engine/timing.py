@@ -510,7 +510,9 @@ def run_research(store=None, ref=None, c=None, push_enabled=None):
     store = store or Store()
     goals = _soft("research_goals")
     if goals is None:
-        return False, "وحدة أهداف البحث غير قابلة للاستيراد"
+        # لا نفشل الوظيفة: لا شيء لتعمله، والبطالة ليست عطلًا (قياسًا على
+        # has_goals). الأعطال الحقيقية تظهر في verify لا كـ error في الدفتر.
+        return True, {"skipped": "وحدة أهداف البحث غير متاحة"}
     ok, detail = goals.run_due(store=store, ref=t, verbose=False, record=True)
     summary = {"due": detail.get("due", 0), "capsules": len(detail.get("capsules", [])),
                "errors": len(detail.get("errors", [])), "deferred": detail.get("deferred", 0)}
