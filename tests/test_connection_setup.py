@@ -24,9 +24,10 @@ FULL_ENV = {
     "GITHUB_TOKEN": "ghp_example",
     "AI_OS_GITHUB_REPO": "addn2030-svg/personal-ai-agent",
     "ELEVENLABS_API_KEY": "eleven-test",
+    "BUFFER_API_KEY": "buffer-test",
 }
 
-ALL_KEYS = ["telegram", "sheets", "drive", "docs", "calendar", "github", "voice"]
+ALL_KEYS = ["telegram", "sheets", "drive", "docs", "calendar", "github", "voice", "buffer"]
 
 
 class ConfigCheckTests(unittest.TestCase):
