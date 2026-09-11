@@ -159,6 +159,14 @@ python3 engine/chief_of_staff.py
 - `/sources`: عدّ مصادر المعرفة والمهارات والمواد.
 - `/selftest`: فحص Telegram ومكونات النظام الأساسية.
 - `/storage_status`: فحص اتصال الحفظ عند الطلب.
+- `/content [platform] الفكرة`: تشغيل أوركسترا المحتوى (باحث ← ناقد ← منشئ) وإرجاع Preview.
+- `/approve_content ID CODE`: إرسال النسخة المعتمدة إلى Buffer مع حفظ الإيصال.
+- `/reject_content ID`: رفض المسودة دون أي أثر خارجي.
+- `/content_status`: حالة Content Creator وBuffer وآخر المسودات.
+
+الوضع الافتراضي لـContent Creator هو `linkedin` وBuffer `draft`. يمكن ضبطهما عبر
+`CONTENT_DEFAULT_PLATFORM` و`BUFFER_DEFAULT_MODE`. لا ينشر أي نموذج مباشرة؛ جميع
+النسخ تدخل `action_queue` أولًا ولا يصل Buffer إلا بعد رمز الموافقة الخاص بالمسودة.
 
 الرد العادي يبدأ بالنتيجة أو المسودة المطلوبة، وبجملة أو جملتين افتراضيًا؛
 التفصيل يكون عند طلبه أو لضرورة السلامة. لا تُضاف قوائم ملفات المعرفة أو إشعارات
