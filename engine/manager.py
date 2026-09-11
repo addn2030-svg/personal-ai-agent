@@ -297,6 +297,16 @@ def loop():
         except Exception as exc:  # noqa: BLE001
             log_event("scheduler_error", error=str(exc)[:160])
 
+        # v1.0 — محرك الاستباقية: رصد ← تذكّر ← توقّع ← تسجيل ← قرار ← تنفيذ/تجهيز/تنبيه.
+        # يلتزم الحوكمة نفسها: لا أثر خارجي إلا عبر طابور الاعتماد، والاستقلالية
+        # لكل فئة حسب مصفوفة proactive.AUTONOMY_MATRIX (PROACTIVE_ENABLED=0 للتعطيل).
+        try:
+            import proactive
+            if proactive.enabled():
+                proactive.sweep(verbose=False)
+        except Exception as exc:  # noqa: BLE001
+            log_event("proactive_error", error=str(exc)[:160])
+
         due_full = t.replace(hour=MORNING_HOUR, minute=MORNING_MINUTE, second=0, microsecond=0)
         if t >= due_full and markers.get("last_full") != t.date().isoformat():
             try:

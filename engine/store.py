@@ -39,7 +39,13 @@ SECTIONS = ["tasks", "projects", "leads", "kpis", "meetings", "decisions",
             # sub-agent allocation matrix, automation schedule/runs ledger, mind-map
             # library, audio digest queue and curated YouTube source list.
             "drive_tree", "sub_agents", "automation_schedule", "automation_runs",
-            "mind_maps", "audio_digests", "content_sources"]
+            "mind_maps", "audio_digests", "content_sources",
+            # v1.0 — Proactive Chief of Staff (observe→remember→predict→score→decide→
+            # act/prepare/alert→learn): open-loops commitment ledger, pre-authorized
+            # standing orders, full proactive action/alert ledger with undo payloads,
+            # generated proactive briefs, and human feedback signals (good/much/never).
+            "open_loops", "standing_orders", "proactive_actions",
+            "proactive_briefs", "proactive_feedback"]
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _DATETIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?([+-]\d{2}:\d{2})?$")
