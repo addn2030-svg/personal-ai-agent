@@ -12,8 +12,9 @@
    - الاسم: `BUFFER_API_KEY` — القيمة: مفتاحك من publish.buffer.com/settings/api
    - (أو من الطرفية: `gh secret set BUFFER_API_KEY` ثم ألصق المفتاح)
 2. اختر طريقة التشغيل:
-   - **قائمة الانتظار (موصى بها):** أضف ملف JSON في `posts/buffer/` داخل PR نحو `main`
-     — يُجدول المنشور تلقائيًا عند فتح الـ PR (الحقول في `posts/buffer/README.md`)
+   - **قائمة الانتظار (موصى بها):** أضف ملف JSON في `posts/buffer/` داخل PR نحو `main`.
+     فتح الـPR لا ينشر شيئًا؛ يبدأ الإرسال إلى Buffer فقط بعد المراجعة والدمج في `main`
+     (الحقول في `posts/buffer/README.md`).
    - **يدويًا:** تبويب **Actions** → **Buffer Publish** → **Run workflow**
      (أو `gh workflow run buffer-publish.yml --ref main -f text="نص المنشور" -f service=instagram`)
 
