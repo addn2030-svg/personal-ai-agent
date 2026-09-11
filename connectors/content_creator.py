@@ -173,6 +173,14 @@ def render_preview(row: dict) -> str:
 
 
 def execute(action_id: str, approval_code: str) -> dict:
+    if str(action_id or "").strip().upper() in {"CONTENT-ID", "ID"} or str(
+        approval_code or ""
+    ).strip().upper() == "CODE":
+        raise ValueError(
+            "Create a preview first with /content_sheet Q-001, then copy the exact "
+            "/approve_content command shown at the bottom of that preview."
+        )
+
     def claim(state):
         row = next((x for x in state.get("action_queue", []) if x.get("action_id") == action_id), None)
         if not row or row.get("type") != "CONTENT_BUFFER_POST":

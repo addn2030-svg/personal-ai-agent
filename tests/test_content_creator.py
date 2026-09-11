@@ -67,6 +67,14 @@ class ContentCreatorTests(unittest.TestCase):
                     content.execute(row["action_id"], "WRONG")
         publish.assert_not_called()
 
+    def test_placeholder_approval_explains_how_to_create_preview(self):
+        with patch.object(content, "Store", return_value=self.store), patch.object(
+            content.buffer_publisher, "create_post"
+        ) as publish:
+            with self.assertRaisesRegex(ValueError, "/content_sheet Q-001"):
+                content.execute("CONTENT-ID", "CODE")
+        publish.assert_not_called()
+
     def test_explicit_approval_publishes_draft_and_persists_receipt(self):
         with patch.object(content, "Store", return_value=self.store):
             row = content.create_content_preview("movement", chat_id=1, model_call=self.model)
