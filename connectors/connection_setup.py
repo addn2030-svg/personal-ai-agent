@@ -70,6 +70,13 @@ GUIDES = {
         "Optional: ELEVENLABS_VOICE_ID for a custom narrator voice (a default is built in).",
         "Verify: python3 -m connectors.connection_setup --live (voices count, read-only).",
     ],
+    "buffer": [
+        "publish.buffer.com/settings/api → create a personal API key.",
+        "Set BUFFER_API_KEY locally / in the deployment variables — never in chat or git.",
+        "Images must be pre-hosted on a public URL (e.g. assets/ + raw.githubusercontent.com).",
+        "List channels: python3 -m connectors.buffer_publisher --list",
+        "Full walkthrough: docs/buffer-setup.md",
+    ],
 }
 
 PRIORITY_ORDER = ["calendar", "docs", "github"]  # per the guide: meeting Sept 14 → letters → backup
@@ -197,8 +204,20 @@ def check_voice(env=None) -> dict:
             "status": status, "detail": detail}
 
 
+def check_buffer(env=None) -> dict:
+    env = env if env is not None else _env
+    key = env("BUFFER_API_KEY")
+    return {
+        "key": "buffer", "name": "Buffer Publisher", "env": ["BUFFER_API_KEY"],
+        "status": "ok" if key else "missing",
+        "detail": "API key set — social scheduling ready"
+        if key
+        else "BUFFER_API_KEY is not set (publish.buffer.com/settings/api) — see docs/buffer-setup.md",
+    }
+
+
 CHECKS = [check_telegram, check_sheets, check_drive, check_docs, check_calendar, check_github,
-          check_voice]
+          check_voice, check_buffer]
 
 
 # ---------------------------------------------------------------- live probes
@@ -306,7 +325,7 @@ def render(results, live: bool = False) -> str:
     if pending:
         lines.append("")
         lines.append("Next steps (priority: " + " → ".join(PRIORITY_ORDER) + "):")
-        for key in PRIORITY_ORDER + ["sheets", "drive", "telegram", "voice"]:
+        for key in PRIORITY_ORDER + ["sheets", "drive", "telegram", "voice", "buffer"]:
             row = next((r for r in results if r["key"] == key and r["status"] != "ok"), None)
             if row:
                 lines.append(f"  • {row['name']}: python3 -m connectors.connection_setup --guide {key}")
