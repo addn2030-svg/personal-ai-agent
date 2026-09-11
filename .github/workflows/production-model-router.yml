@@ -1,6 +1,8 @@
 name: Production Model Router
 
 on:
+  push:
+    branches: [main]
   pull_request:
     branches: [main, state-safety-manager-foundation, wo8-linked-multi-intent, feature/super-manager-v1-after-wo8, manager-fast-canary-after-super-manager, capability-truth-action-sync, natural-action-executor-v1]
     paths:
@@ -93,6 +95,20 @@ on:
       - '.github/workflows/production-model-router.yml'
 
 jobs:
+  # Publish guard: runs on every push to main with no path filter, so a direct
+  # push (or a file outside the watchlist) cannot skip the contact-data check.
+  privacy-guard:
+    runs-on: ubuntu-latest
+    # يركض على كل push إلى main وعلى أي PR لا يجرّي حزمة الاختبار الكاملة
+    # (وظيفة privacy-guard رخيصة: 14 اختبارًا في <1 ثانية).
+    if: github.event_name == 'push' || !contains(fromJSON('"[main, state-safety-manager-foundation, wo8-linked-multi-intent, feature/super-manager-v1-after-wo8, manager-fast-canary-after-super-manager, capability-truth-action-sync, natural-action-executor-v1]"'), github.base_ref)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Contact-data guard (every tracked file)
+        run: python3 -m unittest tests.test_knowledge_privacy
   test:
     runs-on: ubuntu-latest
     steps:
