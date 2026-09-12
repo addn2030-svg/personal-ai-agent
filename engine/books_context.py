@@ -16,9 +16,11 @@ Place at: engine/books_context.py
 """
 from __future__ import annotations
 
+import re
+import unicodedata
 from typing import Any
 
-VERSION = "v3.0"
+VERSION = "v3.1"
 
 # Candidate tab names, in priority order. The live sheet uses
 # «المصادر والتعلم العلمي»; «مكتبة القراءة» and «تعلم» are fallbacks.
@@ -55,6 +57,49 @@ def _status_priority(status: Any) -> int:
     if "منجز" in s or "مكتمل" in s or "انته" in s:
         return 3
     return 9
+
+
+def _norm_tab(name: Any) -> str:
+    """Normalize a tab title for tolerant matching.
+
+    Real sheets often differ by a trailing space, tatweel/diacritic, or Arabic
+    presentation-form characters. Exact equality missed «المصادر والتعلم العلمي »
+    (trailing space) and silently returned zero books, so we normalize both sides.
+    """
+    s = str(name or "")
+    s = unicodedata.normalize("NFKC", s)          # fold Arabic presentation forms
+    s = re.sub(r"[ـ]", "", s)                      # tatweel
+    s = re.sub(r"[ؐ-ًؚ-ٰٟۖ-ۭ]", "", s)           # diacritics/tashkeel
+    s = s.replace("أ", "ا").replace("إ", "ا").replace("آ", "ا")
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+# Markers that identify a books/learning tab after normalization.
+_LEARNING_HINTS = ("المصادر", "التعلم", "التعلّم", "القراءة", "مكتبة", "الكتب", "تعلم")
+
+
+def _is_learning_tab(tab_title: str) -> bool:
+    t = _norm_tab(tab_title)
+    if not t:
+        return False
+    norm_targets = {_norm_tab(x) for x in LEARNING_TABS}
+    if t in norm_targets:
+        return True
+    # tolerant: a title that both names the shelf (sources/reading/library) AND
+    # mentions learning/reading — avoids matching unrelated operational tabs.
+    has_shelf = any(h in t for h in ("المصادر", "مكتبة", "القراءة", "الكتب"))
+    has_learning = any(h in t for h in ("التعلم", "التعلّم", "تعلم", "قراءة"))
+    return has_shelf and has_learning
+
+
+def _learning_tabs_from(snapshot_keys) -> list[str]:
+    """Return the actual snapshot tab titles that look like a books/learning tab."""
+    matches = [k for k in snapshot_keys if _is_learning_tab(k)]
+    # canonical names first, then any others, preserving snapshot order
+    canonical = [k for k in matches if _norm_tab(k) in {_norm_tab(x) for x in LEARNING_TABS}]
+    others = [k for k in matches if k not in canonical]
+    return canonical + others
 
 
 def _find_column(header: list, *names: str) -> int:
@@ -101,12 +146,29 @@ def extract_books(snapshot_data: dict, tabs: Any = None) -> list[dict]:
     gateway `snapshot` action (first row is usually the header).
     """
     if tabs is None:
-        tabs = LEARNING_TABS
-    if isinstance(tabs, str):
-        tabs = [tabs]
+        requested = _learning_tabs_from(snapshot_data.keys()) or LEARNING_TABS
+    elif isinstance(tabs, str):
+        requested = [tabs]
+    else:
+        requested = list(tabs)
+
+    # Map requested names to the real snapshot keys using tolerant normalization;
+    # fall back to auto-discovery if a canonical name is not present verbatim.
+    real_titles: list[str] = []
+    for name in requested:
+        exact = snapshot_data.get(name)
+        if exact is not None:
+            real_titles.append(name)
+        else:
+            norm = _norm_tab(name)
+            for key in snapshot_data.keys():
+                if key not in real_titles and _norm_tab(key) == norm:
+                    real_titles.append(key)
+    if not real_titles and tabs is None:
+        real_titles = _learning_tabs_from(snapshot_data.keys())
 
     books: list[dict] = []
-    for tab_name in tabs:
+    for tab_name in real_titles:
         tab = snapshot_data.get(tab_name) or []
         if not tab:
             continue
@@ -211,28 +273,47 @@ def live_books(max_rows: int = 60):
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
         from connectors import sheet_intelligence as si
         if not si.configured():
+            print(f"[books_context v{VERSION}] gateway not configured", flush=True)
             return [], "gateway not configured"
         data = si.snapshot(max_rows=max_rows, max_cols=16)
-        books = extract_books(data)
+        books: list[dict] = []
+        extract_error = ""
+        try:
+            books = extract_books(data)
+        except Exception as exc:  # never let structured extraction skip the fallback
+            extract_error = f"{type(exc).__name__}: {str(exc)[:120]}"
         if not books:
-            books = _books_from_search(si)
+            try:
+                books = _books_from_search(si, data)
+            except Exception as exc:
+                if not extract_error:
+                    extract_error = f"search: {type(exc).__name__}: {str(exc)[:120]}"
         print(
             f"[books_context v{VERSION}] live_books -> {len(books)} book(s) "
-            f"via snapshot-first",
+            f"(tabs_checked={len(_learning_tabs_from(data.keys()))}"
+            f"{', extract_error=' + extract_error if extract_error else ''})",
             flush=True,
         )
+        if not books:
+            return [], (extract_error or "no book rows found in learning tabs")
         return books, ""
     except Exception as e:  # pragma: no cover - live path
+        print(f"[books_context v{VERSION}] live_books error: {str(e)[:160]}", flush=True)
         return [], str(e)[:200]
 
 
-def _books_from_search(si, tab_names=None, max_results=60) -> list[dict]:
+def _books_from_search(si, data=None, max_results=60) -> list[dict]:
     """Rebuild the books list from the gateway `search` action (proven path).
 
     Each result row looks like the `/find كتاب` output, e.g.
     ["Essentialism — Greg McKeown", "كتاب", "الأولويات", ..., "لم يبدأ", ...].
+    Tab membership is matched tolerantly (a trailing space/diacritic must not
+    hide a row), and auto-discovered learning tabs are accepted when `data`
+    (the snapshot dict) is supplied.
     """
-    tab_names = tab_names or LEARNING_TABS
+    snapshot_keys = list((data or {}).keys())
+    learning = set(LEARNING_TABS) | set(_learning_tabs_from(snapshot_keys))
+    norm_learning = {_norm_tab(t) for t in learning}
     try:
         results = si.search("كتاب", max_results)
     except Exception:
@@ -241,7 +322,9 @@ def _books_from_search(si, tab_names=None, max_results=60) -> list[dict]:
     books: list[dict] = []
     seen_titles: set[str] = set()
     for r in results:
-        if r.get("sheet") not in tab_names:
+        sheet = str(r.get("sheet") or "")
+        in_learning = _norm_tab(sheet) in norm_learning or _is_learning_tab(sheet)
+        if not in_learning:
             continue
         values = [str(v or "").strip() for v in r.get("values", [])]
         if "كتاب" not in values:

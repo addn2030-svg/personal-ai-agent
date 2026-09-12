@@ -231,18 +231,33 @@ def _books_fast_path(raw: str, message: dict) -> bool:
         from books_context import live_books, suggest_line
     except ImportError:
         from engine.books_context import live_books, suggest_line
-    try:
-        books, err = live_books()
-    except Exception as exc:  # noqa: BLE001
-        print(f"Books fast-path read failed: {exc}", flush=True)
-        return False
-    if not books:
-        return False
+
     chat = message.get("chat") or {}
     chat_id = chat.get("id")
     if chat_id is None:
         return False
     if not _impl._authorized(chat_id, chat.get("type", "")):
+        return False
+
+    try:
+        books, err = live_books()
+    except Exception as exc:  # noqa: BLE001
+        print(f"Books fast-path read failed: {exc}", flush=True)
+        books, err = [], str(exc)[:160]
+
+    if not books:
+        # Explicit /books must never fall through to "أمر غير معروف". Report the
+        # real reason (tab/data/gateway) so silent zero-results are diagnosable.
+        if is_books_command:
+            detail = f"\nالسبب: {err}" if err else ""
+            _impl.send(
+                chat_id,
+                "📚 لم أستطع قراءة قائمة الكتب من شيت «المصادر والتعلم العلمي».\n"
+                "تحققت من المسار بسرعة لكن لم أجد صفوف نوعها «كتاب»." + detail +
+                "\nيمكنك استخدام /find كتاب للبحث في الشيت، أو مراجعة سطور "
+                "[books_context] في سجل النشر.",
+            )
+            return True
         return False
     lines = ["📚 قائمة كتبك الحقيقية (من شيت «المصادر والتعلم العلمي»):"]
     for b in books:
@@ -483,6 +498,7 @@ def _configure_commands():
         commands = _impl.api("getMyCommands") or []
         existing = {str(item.get("command", "")) for item in commands}
         additions = [
+            {"command": "books", "description": "قائمة كتبك من شيت «المصادر والتعلم» مباشرة"},
             {"command": "masteros", "description": "ملخص بنية وحالة Master OS"},
             {"command": "schedule", "description": "جدول الأتمتة المجدول (الرياض)"},
             {"command": "today_actions", "description": "إجراءات اليوم كمسودات اعتماد"},
