@@ -1125,11 +1125,62 @@ def status(store=None):
                           if l.get("status") in ("MISSED", "RECOVERING")),
         "ledger_rows": len(S.get("proactive_actions", [])),
         "feedback": len(S.get("proactive_feedback", [])),
+        "persistence": persistence_status(store),
     }
 
 
 def enabled():
     return os.environ.get("PROACTIVE_ENABLED", "1") != "0"
+
+
+# ---------------------------------------------------------------- تشخيص الاستمرارية (StateStore)
+def _looks_like_deploy_platform() -> bool:
+    """Best-effort detection of ephemeral-deploy platforms (Railway, Fly, Render, Heroku, K8s)."""
+    keys = ("RAILWAY_ENVIRONMENT", "RAILWAY_SERVICE_NAME", "FLY_APP_NAME",
+            "RENDER", "DYNO", "KUBERNETES_SERVICE_HOST", "PORT")
+    return any(os.environ.get(k) for k in keys)
+
+
+def persistence_status(store=None) -> dict:
+    """Report where state.json lives and warn loudly when it won't survive restart.
+
+    data/state.json is git-ignored runtime state (see .gitignore). If
+    AI_OS_DATA_DIR is not pointed at a mounted volume on a deploy platform,
+    every redeploy wipes the entire proactive layer: cfg overrides, standing
+    orders, pause state, last_full marker, and the automation_runs ledger
+    that deduplicates scheduled jobs. That means silent morning-brief failures.
+
+    We can't create a persistent disk from code, but we can make the absence
+    impossible to miss — same pattern as the books silent-fallthrough fix.
+    """
+    import store as _s  # local to avoid import-cycle surprises at module load
+    data_dir_env = os.environ.get("AI_OS_DATA_DIR", "").strip()
+    default_dir = os.path.realpath(os.path.join(BASE, "data"))
+    # A mounted volume is one where AI_OS_DATA_DIR is explicitly set to a path
+    # outside the repo-default data/ directory (the container-image layer).
+    if data_dir_env:
+        data_dir_resolved = os.path.realpath(data_dir_env)
+        volume_mounted = not (data_dir_resolved == default_dir
+                              or data_dir_resolved.startswith(default_dir + os.sep))
+        state_path = os.path.join(data_dir_resolved, "state.json")
+    else:
+        volume_mounted = False
+        state_path = os.path.join(default_dir, "state.json")
+    state_exists = os.path.exists(state_path)
+    warning = None
+    if not volume_mounted and _looks_like_deploy_platform():
+        warning = ("AI_OS_DATA_DIR غير مثبّت على Volume دائم — state.json داخل "
+                   "حاوية مؤقتة وكل إعادة deploy ستمحي إعدادات الاستباقية وسجل "
+                   "تشغيلات الأتمتة. اربط Railway Volume على /data واضبط "
+                   "AI_OS_DATA_DIR=/data (راجع docs/railway-agent-runtime.md).")
+    return {
+        "data_dir": data_dir_env or default_dir,
+        "state_path": state_path,
+        "volume_mounted": volume_mounted,
+        "state_exists": state_exists,
+        "deploy_platform": _looks_like_deploy_platform(),
+        "warning": warning,
+    }
 
 
 # ---------------------------------------------------------------- عتبات ذاتية الضبط من الواقع

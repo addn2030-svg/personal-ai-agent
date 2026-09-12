@@ -631,6 +631,68 @@ class ProactiveTests(unittest.TestCase):
         rw = self.by_kind("renewal_watch")[0]
         self.assertEqual(rw["decision"], "PREPARE")
 
+    # ---------------------------------------------------------- تشخيص الاستمرارية
+    PERSIST_ENV_VARS = ("AI_OS_DATA_DIR", "RAILWAY_ENVIRONMENT",
+                        "RAILWAY_SERVICE_NAME", "FLY_APP_NAME",
+                        "RENDER", "DYNO", "KUBERNETES_SERVICE_HOST", "PORT")
+
+    def _save_env(self, keys):
+        """احفظ واستعدِ القيم — نفس أسلوب _isolate_env الموجود في الملف."""
+        saved = {v: os.environ.get(v) for v in keys}
+
+        def restore():
+            for v, val in saved.items():
+                if val is None:
+                    os.environ.pop(v, None)
+                else:
+                    os.environ[v] = val
+
+        self.addCleanup(restore)
+
+    def test_persistence_status_local_dev_is_clean(self):
+        self._save_env(self.PERSIST_ENV_VARS)
+        for v in self.PERSIST_ENV_VARS:
+            os.environ.pop(v, None)
+        diag = proactive.persistence_status(store=self.store)
+        self.assertFalse(diag["deploy_platform"])
+        self.assertFalse(diag["volume_mounted"])
+        self.assertIsNone(diag["warning"])
+
+    def test_persistence_status_warns_when_deploy_without_volume(self):
+        self._save_env(self.PERSIST_ENV_VARS)
+        for v in self.PERSIST_ENV_VARS:
+            os.environ.pop(v, None)
+        os.environ["RAILWAY_SERVICE_NAME"] = "web"
+        os.environ.pop("AI_OS_DATA_DIR", None)
+        diag = proactive.persistence_status(store=self.store)
+        self.assertTrue(diag["deploy_platform"])
+        self.assertFalse(diag["volume_mounted"])
+        self.assertIsNotNone(diag["warning"])
+        self.assertIn("AI_OS_DATA_DIR", diag["warning"])
+        self.assertIn("Volume", diag["warning"])
+
+    def test_persistence_status_clean_when_volume_mounted(self):
+        self._save_env(self.PERSIST_ENV_VARS)
+        for v in self.PERSIST_ENV_VARS:
+            os.environ.pop(v, None)
+        os.environ["RAILWAY_SERVICE_NAME"] = "web"
+        os.environ["AI_OS_DATA_DIR"] = self.tmp.name  # مسار خارج المجلد الافتراضي
+        # أعد إنشاء store ليقرأ STATE_PATH من المتغير الجديد
+        from engine import store as _s_mod
+        # persistence_status يقرأ المتغير وقت النداء عبر store module
+        vol_store = Store(path=str(Path(self.tmp.name) / "custom-state.json"))
+        diag = proactive.persistence_status(store=vol_store)
+        self.assertTrue(diag["deploy_platform"])
+        self.assertTrue(diag["volume_mounted"])
+        self.assertIsNone(diag["warning"])
+
+    def test_status_payload_includes_persistence_block(self):
+        st = proactive.status(store=self.store)
+        self.assertIn("persistence", st)
+        self.assertIn("data_dir", st["persistence"])
+        self.assertIn("volume_mounted", st["persistence"])
+        self.assertIn("warning", st["persistence"])
+
 
 if __name__ == "__main__":
     unittest.main()
