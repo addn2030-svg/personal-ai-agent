@@ -45,7 +45,11 @@ SECTIONS = ["tasks", "projects", "leads", "kpis", "meetings", "decisions",
             # standing orders, full proactive action/alert ledger with undo payloads,
             # generated proactive briefs, and human feedback signals (good/much/never).
             "open_loops", "standing_orders", "proactive_actions",
-            "proactive_briefs", "proactive_feedback"]
+            "proactive_briefs", "proactive_feedback",
+            # v1.1 — Fleet control (manager as coordinator): the dispatch ledger that makes
+            # misroute rate / cost-per-item / autonomy rate computable, and the per-cycle
+            # budget markers (halt reason + partial results) used when a cap is breached.
+            "dispatches", "dispatch_cycles"]
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _DATETIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?([+-]\d{2}:\d{2})?$")
