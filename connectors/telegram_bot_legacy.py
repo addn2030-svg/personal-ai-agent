@@ -77,6 +77,10 @@ again until operational state, durable knowledge, recent conversation memory, an
 expanded Google Sheets evidence have been checked. If an original draft is missing,
 offer a useful replacement clearly labelled «مسودة مُعاد بناؤها». Never claim a
 write succeeded unless a concrete receipt (identifier and destination) is available.
+The RUNTIME CLOCK block in the context is the only authority for the current date,
+weekday and time. Never answer a date or time question from training data and never
+guess a year. If that block is absent, say the current date cannot be determined
+rather than guessing.
 """
 
 
@@ -544,6 +548,44 @@ def command_today(chat_id: int):
     send(chat_id, "📅 مواعيد اليوم\n\n" + "\n\n".join(_format_event(row) for row in rows))
 
 
+def command_time(chat_id: int):
+    """Instant clock and liveness probe — no model, no Google, no outbound call.
+
+    Diagnosing "the agent went quiet" needs a path that cannot itself be the
+    thing that is broken. /time answers straight from the process clock, so a
+    reply proves the webhook worker is alive and serving even when Bedrock,
+    OpenRouter and Google are all degraded. A small uptime figure also reveals
+    a container that has been silently crash-looping.
+    """
+    try:  # production layout: engine/ is on sys.path
+        from runtime_clock import status_text
+    except ImportError:  # pragma: no cover - package layout fallback
+        from engine.runtime_clock import status_text
+
+    lines = [status_text()]
+    try:
+        lines.append(
+            f"⏱️ مدة تشغيل العملية: {int(time.monotonic())} ثانية "
+            "(رقم صغير = أُعيد تشغيل الحاوية مؤخرًا)"
+        )
+    except Exception:  # noqa: BLE001 - diagnostics must never fail the command
+        pass
+    try:
+        try:
+            from store import Store
+        except ImportError:  # pragma: no cover - package layout fallback
+            from engine.store import Store
+        stamp = (Store().rows_all().get("manager_markers") or {}).get("last_proactive_worker")
+        lines.append(
+            f"🔁 آخر دورة استباقية مسجّلة: {stamp}"
+            if stamp
+            else "🔁 لا توجد دورة استباقية مسجّلة بعد."
+        )
+    except Exception as exc:  # noqa: BLE001 - keep the probe reply alive
+        lines.append(f"🔁 تعذّر قراءة علامة الدورة الاستباقية: {str(exc)[:120]}")
+    send(chat_id, "\n".join(lines))
+
+
 def command_remind(chat_id: int, request_text: str):
     from connectors.calendar_actions import parse_event_request
     try:
@@ -800,7 +842,8 @@ def command_start(chat_id: int):
         "أهلًا عبدالرحمن، وكيلك الشخصي متصل ويستقبل الأسئلة ✅\n\n"
         "يمكنك كتابة أي سؤال مباشرة بالعربية أو الإنجليزية.\n"
         "المدخلات والإجابات تُحفظ في Google Sheets بعد فحص الخصوصية.\n\n"
-        "/profile — الملف المهني\n/sources — المصادر\n/selftest — فحص كامل\n"
+        "/profile — الملف المهني\n/sources — المصادر\n/time — الوقت الآن وفحص فوري\n"
+        "/selftest — فحص كامل\n"
         "/ai_status — فحص Claude\n/storage_status — فحص الحفظ\n"
         "/sheet — الشيتات المتصلة\n/find كلمة — البحث\n/pending — القادم والناقص والحل\n"
         "/today — مواعيد اليوم\n/calendar — المواعيد القادمة\n"
@@ -936,6 +979,7 @@ def handle_message(message: dict):
         "/start": command_start, "/help": command_start, "/profile": command_profile,
         "/sources": command_sources, "/selftest": command_selftest,
         "/ai_status": command_ai_status, "/storage_status": command_storage_status,
+        "/time": command_time, "/now": command_time,
     }
     handler = handlers.get(command)
     if handler:
@@ -1143,6 +1187,7 @@ def handle_message(message: dict):
 def configure_commands():
     commands = json.dumps([
         {"command":"start","description":"تشغيل الوكيل"},
+        {"command":"time","description":"الوقت الآن + فحص فوري (بدون نموذج)"},
         {"command":"profile","description":"عرض الملف المهني"},
         {"command":"sources","description":"عرض مصادر المعرفة"},
         {"command":"selftest","description":"فحص المكونات"},
