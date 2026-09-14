@@ -9,9 +9,16 @@
 - AWS_REGION=us-east-1
 - BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-6
 
-### Persistent state
+### Persistent state ⚠️ REQUIRED — deploy will lose all state without it
+
 Attach a Railway Volume mounted at `/data`, then set:
-- AI_OS_DATA_DIR=/data
+- **AI_OS_DATA_DIR=/data** (REQUIRED — without a mounted volume every redeploy
+  factory-resets the proactive engine: cfg overrides, standing orders, pause
+  state, the `last_full` marker, the `automation_runs` deduplication ledger,
+  and the open-loops ledger all live in `data/state.json` which is
+  git-ignored runtime state). The worker logs a loud startup ⚠️ warning and
+  the `/proactive` diagnostics page surfaces a `persistence` block when this
+  is missing — but code cannot create a persistent disk for you.
 - AGENT_MEMORY_TURNS=10
 - AGENT_CONTEXT_CHARS=14000
 
