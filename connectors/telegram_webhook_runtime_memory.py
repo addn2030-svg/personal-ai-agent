@@ -8,6 +8,16 @@ the existing handler.
 from __future__ import annotations
 
 import re
+import sys
+from pathlib import Path
+
+# Running this file as a script (`python3 connectors/telegram_webhook_runtime_memory.py`,
+# which is what the container CMD used) puts /app/connectors — not /app — on sys.path,
+# so `from connectors import ...` raised ModuleNotFoundError and crash-looped the
+# deploy. Bootstrap the repo root first, exactly like connectors/telegram_webhook.py.
+BASE = Path(__file__).resolve().parents[1]
+if str(BASE) not in sys.path:
+    sys.path.insert(0, str(BASE))
 
 from connectors import project_memory
 from connectors import telegram_webhook_runtime as runtime

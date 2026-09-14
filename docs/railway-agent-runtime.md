@@ -1,5 +1,23 @@
 # Railway Agent Runtime — Memory, Sheets, Bedrock and Voice
 
+## Entrypoint invocation (crash-loop guard)
+
+The container entrypoint is `connectors/telegram_webhook_runtime_memory.py`. It
+must be started as a **module**:
+
+```text
+python3 -u -m connectors.telegram_webhook_runtime_memory
+```
+
+Running it as a script (`python3 connectors/telegram_webhook_runtime_memory.py`)
+puts `/app/connectors` on `sys.path` instead of `/app`, so
+`from connectors import project_memory` fails with
+`ModuleNotFoundError: No module named 'connectors'` and the deploy crash-loops
+forever. The Dockerfile already sets `PYTHONPATH=/app` and uses the `-m` form,
+and the module bootstraps `sys.path` from `__file__` as a second line of defence.
+
+If you override the start command in Railway, keep the `-m` form.
+
 ## Required Railway variables
 
 ### Core
