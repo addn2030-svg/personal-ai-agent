@@ -50,6 +50,21 @@ if not WEBHOOK_SECRET and bot.TOKEN:
 
 CALENDAR_ALERT_LOOP_SECONDS = max(15, int(os.environ.get("CALENDAR_ALERT_LOOP_SECONDS", "30")))
 
+# Webhook registration is retried instead of being fatal. A transient Telegram or
+# network error used to propagate out of run() and crash-loop the container
+# forever, with the bot completely silent and only a stack trace to show for it.
+WEBHOOK_SETUP_BACKOFF_SECONDS = (0, 2, 4, 8, 16)
+WEBHOOK_RETRY_INTERVAL_SECONDS = max(30, int(os.environ.get("TELEGRAM_WEBHOOK_RETRY_SECONDS", "60")))
+
+_webhook_state = {
+    "registered": False,
+    "error": None,
+    "attempts": 0,
+    "url": None,
+    "updated_at": None,
+}
+_webhook_state_lock = threading.Lock()
+
 _MAX_BODY = 2 * 1024 * 1024
 _recent_updates = deque(maxlen=2000)
 _processing_updates = set()
@@ -118,33 +133,104 @@ def _probe_sheets():
         return False, str(exc)[:220]
 
 
-def _configure_webhook():
-    if not bot.TOKEN:
-        raise RuntimeError("TELEGRAM_BOT_TOKEN is not set")
-    if not PUBLIC_BASE_URL:
-        raise RuntimeError("No public URL. Set TELEGRAM_WEBHOOK_BASE_URL or RAILWAY_PUBLIC_DOMAIN")
-    if not WEBHOOK_SECRET:
-        raise RuntimeError("Unable to derive Telegram webhook secret")
+def _record_webhook_state(**fields):
+    with _webhook_state_lock:
+        _webhook_state.update(fields)
+        _webhook_state["updated_at"] = time.time()
+        return dict(_webhook_state)
 
-    bot.configure_commands()
+
+def webhook_state() -> dict:
+    """Snapshot of webhook registration health (surfaced on /health and /ready)."""
+    with _webhook_state_lock:
+        return dict(_webhook_state)
+
+
+def _configure_webhook() -> bool:
+    """Register the webhook with Telegram. Returns True on success; never raises.
+
+    A transient Telegram/network failure or a missing env var must not kill the
+    process: the HTTP server keeps answering /health, the registrar keeps
+    retrying, and /ready reports the exact reason so a watchdog can alert.
+    """
+    missing = None
+    if not bot.TOKEN:
+        missing = "TELEGRAM_BOT_TOKEN is not set"
+    elif not PUBLIC_BASE_URL:
+        missing = "No public URL. Set TELEGRAM_WEBHOOK_BASE_URL or RAILWAY_PUBLIC_DOMAIN"
+    elif not WEBHOOK_SECRET:
+        missing = "Unable to derive Telegram webhook secret"
+
+    if missing:
+        _record_webhook_state(registered=False, error=missing, url=None)
+        print(f"Telegram webhook NOT registered: {missing}", flush=True)
+        return False
+
     webhook_url = PUBLIC_BASE_URL + WEBHOOK_PATH
-    bot.api(
-        "setWebhook",
-        {
-            "url": webhook_url,
-            "secret_token": WEBHOOK_SECRET,
-            "allowed_updates": json.dumps(["message", "callback_query"]),
-            "drop_pending_updates": "false",
-            "max_connections": "10",
-        },
-        timeout=30,
-    )
-    info = bot.api("getWebhookInfo", timeout=20)
+    last_error = None
+    for attempt, delay in enumerate(WEBHOOK_SETUP_BACKOFF_SECONDS, start=1):
+        if delay:
+            time.sleep(delay)
+        try:
+            bot.configure_commands()
+            bot.api(
+                "setWebhook",
+                {
+                    "url": webhook_url,
+                    "secret_token": WEBHOOK_SECRET,
+                    "allowed_updates": json.dumps(["message", "callback_query"]),
+                    "drop_pending_updates": "false",
+                    "max_connections": "10",
+                },
+                timeout=30,
+            )
+            info = bot.api("getWebhookInfo", timeout=20)
+            _record_webhook_state(registered=True, error=None, url=webhook_url, attempts=attempt)
+            print(
+                "Telegram webhook active: "
+                f"url_set={bool(info.get('url'))} pending={info.get('pending_update_count', 0)}",
+                flush=True,
+            )
+            return True
+        except Exception as exc:  # noqa: BLE001 - external Telegram boundary
+            last_error = exc
+            print(
+                f"Telegram webhook setup attempt {attempt}/"
+                f"{len(WEBHOOK_SETUP_BACKOFF_SECONDS)} failed: {str(exc)[:180]}",
+                flush=True,
+            )
+
+    _record_webhook_state(registered=False, error=str(last_error)[:300], url=webhook_url,
+                          attempts=len(WEBHOOK_SETUP_BACKOFF_SECONDS))
     print(
-        "Telegram webhook active: "
-        f"url_set={bool(info.get('url'))} pending={info.get('pending_update_count', 0)}",
+        "Telegram webhook NOT registered — continuing to serve /health and retrying: "
+        f"{str(last_error)[:220]}",
         flush=True,
     )
+    return False
+
+
+def _webhook_registrar(stop_event: threading.Event | None = None,
+                       interval: float | None = None) -> None:
+    """Keep trying to register the webhook until it sticks. Never exits the process."""
+    stop_event = stop_event or threading.Event()
+    interval = float(interval if interval is not None else WEBHOOK_RETRY_INTERVAL_SECONDS)
+    while not stop_event.is_set():
+        if _configure_webhook():
+            return
+        if stop_event.wait(interval):
+            break
+
+
+def _start_webhook_registrar(interval: float | None = None) -> threading.Thread:
+    worker = threading.Thread(
+        target=_webhook_registrar,
+        kwargs={"interval": interval},
+        name="telegram-webhook-registrar",
+        daemon=True,
+    )
+    worker.start()
+    return worker
 
 
 def _claim_update(update_id: int) -> bool:
@@ -236,13 +322,18 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):  # noqa: N802
         if self.path == "/health":
-            # Liveness must not depend on Google availability; Railway should not restart
-            # a healthy process merely because an external API is temporarily degraded.
+            # Liveness must not depend on Google or Telegram availability; Railway should
+            # not restart a healthy process merely because an external API is degraded.
+            # Registration state is reported, never enforced, so a dying webhook shows up
+            # in monitoring instead of in a restart loop.
+            state = webhook_state()
             self._send_json(
                 200,
                 {
                     "ok": True,
                     "telegram_mode": "webhook",
+                    "webhook_registered": state["registered"],
+                    "webhook_error": state["error"],
                     "calendar_reminders": True,
                     "manager_fast_canary": manager_fast_canary.enabled(),
                     "proactive_worker": proactive_worker.enabled(),
@@ -251,12 +342,19 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/ready":
             ok, detail = _probe_sheets()
+            state = webhook_state()
+            # Readiness is the signal a watchdog alerts on: it is 503 until Telegram
+            # delivery is actually registered, even though the process is healthy.
+            ready = ok and state["registered"]
             self._send_json(
-                200 if ok else 503,
+                200 if ready else 503,
                 {
-                    "ok": ok,
+                    "ok": ready,
                     "telegram_mode": "webhook",
                     "sheets": detail,
+                    "sheets_ok": ok,
+                    "webhook_registered": state["registered"],
+                    "webhook_error": state["error"],
                     "manager_fast_canary": manager_fast_canary.enabled(),
                     "proactive_worker": proactive_worker.enabled(),
                 },
@@ -312,7 +410,10 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def run():
-    _configure_webhook()
+    # Webhook registration runs in the background: a Telegram/network blip must not
+    # stop the HTTP server from answering /health, and it must not crash-loop the
+    # deploy. The registrar retries until it succeeds and /ready reports the state.
+    _start_webhook_registrar()
     sheets_ok, detail = _probe_sheets()
     print(f"Sheets startup check: {'OK' if sheets_ok else 'WARN'} - {detail}", flush=True)
     _start_calendar_alert_worker()

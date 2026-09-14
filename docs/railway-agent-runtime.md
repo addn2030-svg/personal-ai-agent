@@ -18,6 +18,29 @@ and the module bootstraps `sys.path` from `__file__` as a second line of defence
 
 If you override the start command in Railway, keep the `-m` form.
 
+## Health vs readiness (what a watchdog should alert on)
+
+Registering the webhook is retried in the background rather than being fatal: a
+transient Telegram or network error at boot no longer crash-loops the deploy.
+The server answers immediately and reports the registration state.
+
+| Endpoint | Always 200? | Meaning |
+| --- | --- | --- |
+| `/health` | Yes | Liveness only — the process is up. Never depends on Telegram or Google, so Railway cannot restart a healthy process because an external API is degraded. Includes `webhook_registered` and `webhook_error`. |
+| `/ready` | No | Readiness — `200` only when Telegram delivery is registered **and** Sheets responds. `503` otherwise, with `webhook_error` naming the reason. |
+
+Point an external uptime check at `/ready`. A dead bot cannot report itself
+dead, so `/health` alone would have shown "up" throughout an outage: alert on
+`/ready`, and inspect `/health` to tell whether the process or a provider is at
+fault.
+
+Tuning:
+
+```text
+TELEGRAM_WEBHOOK_RETRY_SECONDS=60   # registrar retry interval after a failed attempt
+CALENDAR_ALERT_LOOP_SECONDS=30      # reminder heartbeat
+```
+
 ## Required Railway variables
 
 ### Core

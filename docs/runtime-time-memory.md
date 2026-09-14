@@ -64,7 +64,7 @@ Triage when the agent goes quiet — run these in order:
 | `/time` answers | Process is alive and the webhook is serving | The fault is a provider: run `/ai_status` (Bedrock), `/storage_status` (Sheets), `/selftest` |
 | `/time` silent, uptime small on a later reply | Container is crash-looping | Open Railway → Deployments → Logs; check startup exceptions |
 | `/time` silent, no reply at all | Webhook not reaching the app | `curl https://<host>/health`; check `RAILWAY_PUBLIC_DOMAIN`/`TELEGRAM_WEBHOOK_BASE_URL` and that Railway did not change the domain |
-| `/health` 200 but Telegram silent | Telegram cannot deliver, or the secret mismatches | Re-run startup `setWebhook`; confirm `TELEGRAM_WEBHOOK_SECRET` |
+| `/health` 200 but `/ready` 503 | Process is up, Telegram delivery is not registered | Read `webhook_error` from `/ready` (token, public URL or secret) — the registrar retries automatically every `TELEGRAM_WEBHOOK_RETRY_SECONDS` |
 | Scheduled jobs never fire but chat works | Proactive worker or scheduler dispatch off | Check the `🔁` heartbeat line above and `PROACTIVE_WORKER_ENABLED` |
 
 `/health` is public and deliberately does **not** depend on Google, so Railway
