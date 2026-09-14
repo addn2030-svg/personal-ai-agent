@@ -36,6 +36,7 @@ _PENDING_SHEET_UPDATES = {}
 _PENDING_PREVISIT_MESSAGES = {}
 _PENDING_CALENDAR_EVENTS = {}
 _PENDING_CALENDAR_DELETES = {}
+_PENDING_CALENDAR_RESCHEDULES = {}
 _PENDING_TABS = {}
 _PENDING_DOCS = {}
 _LAST_CALENDAR_ALERT_CHECK = 0.0
@@ -738,6 +739,108 @@ def command_confirm_cancel(chat_id: int, token: str):
     send(chat_id, f"✅ تم حذف الموعد من Google Calendar\nEvent ID: {result['id']}")
 
 
+def command_reschedule(chat_id: int, request_text: str):
+    from connectors import calendar_actions as calendar
+    try:
+        parsed = calendar.parse_reschedule_request(request_text)
+    except ValueError as exc:
+        send(
+            chat_id,
+            "❌ لم أستطع تجهيز إعادة الجدولة: " + str(exc)
+            + "\n\nمثال:\n/reschedule اجتماع العمير إلى غدًا الساعة 5:30 مساءً",
+        )
+        return
+
+    search = parsed["search"]
+    if not search:
+        send(
+            chat_id,
+            "❌ حدد الموعد الذي تريد إعادة جدولته (العنوان أو جزءًا منه).\n"
+            "مثال:\n/reschedule اجتماع العمير إلى غدًا الساعة 5:30 مساءً",
+        )
+        return
+
+    matches = calendar.find_events(search)
+    if not matches:
+        send(
+            chat_id,
+            f"❌ لم أجد موعدًا يحمل «{search}» في التقويم القادم. "
+            "تحقق من العنوان أو اعرض المواعيد عبر /calendar.",
+        )
+        return
+    if len(matches) > 1:
+        listed = "\n".join(_format_event(event) for event in matches[:10])
+        send(
+            chat_id,
+            f"⚠️ وجدت أكثر من موعد يطابق «{search}». حدد العنوان بدقة أكبر.\n\n{listed}",
+        )
+        return
+
+    original = matches[0]
+    orig_start = _event_dt(original.get("start", ""), calendar.TZ)
+    orig_end = _event_dt(original.get("end", "") or original.get("start", ""), calendar.TZ)
+    orig_duration = int((orig_end - orig_start).total_seconds() // 60) or 60
+    orig_reminder = int(original.get("reminder_minutes", 60))
+
+    new_date = parsed["date"] or orig_start.date()
+    new_time = parsed["time"] or (orig_start.hour, orig_start.minute)
+    start = dt.datetime.combine(new_date, dt.time(new_time[0], new_time[1]), calendar.TZ)
+    duration = parsed["duration_minutes"] if parsed["duration_minutes"] is not None else orig_duration
+    reminder = parsed["reminder_minutes"] if parsed["reminder_minutes"] is not None else orig_reminder
+    end = start + dt.timedelta(minutes=duration)
+    proposal = {
+        "title": original.get("title", "موعد"),
+        "start": start,
+        "end": end,
+        "reminder_minutes": reminder,
+        "timezone": calendar.TZ_NAME,
+    }
+
+    token = secrets.token_hex(3)
+    _PENDING_CALENDAR_RESCHEDULES[token] = {
+        "old_event_id": original["id"],
+        "proposal": proposal,
+        "chat_id": str(chat_id),
+        "expires": time.time() + 900,
+    }
+    send(
+        chat_id,
+        "🔁 معاينة إعادة جدولة — لم يُنفَّذ أي تغيير بعد\n"
+        f"الموعد: {original.get('title', '')}\n"
+        f"من: {orig_start.strftime('%Y-%m-%d %H:%M')}\n"
+        f"إلى: {start.strftime('%Y-%m-%d %H:%M')}\n"
+        f"التنبيه: قبل {reminder} دقيقة\n\n"
+        f"للاعتماد خلال 15 دقيقة:\n/confirm_reschedule {token}",
+    )
+
+
+def command_confirm_reschedule(chat_id: int, token: str):
+    item = _PENDING_CALENDAR_RESCHEDULES.pop((token or "").strip(), None)
+    if not item or item["expires"] < time.time() or item["chat_id"] != str(chat_id):
+        send(chat_id, "❌ رمز اعتماد إعادة الجدولة غير صالح أو انتهت مدته.")
+        return
+    from connectors.calendar_actions import reschedule_event
+    try:
+        result = reschedule_event(item["old_event_id"], item["proposal"])
+    except Exception as exc:
+        send(chat_id, "❌ تعذر تنفيذ إعادة الجدولة: " + str(exc)[:300])
+        return
+    send(
+        chat_id,
+        "✅ تمت إعادة جدولة الموعد في Google Calendar\n"
+        f"العنوان: {result['title']}\nالبداية: {result['start']}\n"
+        f"Event ID: {result['id']}\n{result.get('link', '')}",
+    )
+
+
+def _event_dt(raw: str, tz):
+    """Parse an event start/end string into a tz-aware datetime (date-only -> midnight)."""
+    value = (raw or "").strip()
+    if "T" in value:
+        return dt.datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(tz)
+    return dt.datetime.combine(dt.date.fromisoformat(value), dt.time(0, 0), tz)
+
+
 def _maybe_send_calendar_alerts():
     global _LAST_CALENDAR_ALERT_CHECK
     if time.time() - _LAST_CALENDAR_ALERT_CHECK < 60:
@@ -1010,6 +1113,14 @@ def handle_message(message: dict):
         command_confirm_cancel(chat_id, text[len(command):].strip())
         _save_intake(iid, message, text, kind, attachment, "COMPLETED")
         return
+    if command == "/reschedule":
+        command_reschedule(chat_id, text[len(command):].strip())
+        _save_intake(iid, message, text, kind, attachment, "REVIEW_REQUIRED")
+        return
+    if command == "/confirm_reschedule":
+        command_confirm_reschedule(chat_id, text[len(command):].strip())
+        _save_intake(iid, message, text, kind, attachment, "COMPLETED")
+        return
     if command == "/sheet":
         command_sheet(chat_id)
         _save_intake(iid, message, text, kind, attachment, "COMPLETED")
@@ -1200,6 +1311,8 @@ def configure_commands():
         {"command":"confirm_event","description":"اعتماد إضافة الموعد"},
         {"command":"cancel_event","description":"اقتراح حذف موعد"},
         {"command":"confirm_cancel","description":"تأكيد حذف الموعد"},
+        {"command":"reschedule","description":"إعادة جدولة موعد قائم"},
+        {"command":"confirm_reschedule","description":"اعتماد إعادة الجدولة"},
         {"command":"find","description":"البحث في الشيت"},
         {"command":"pending","description":"القادم والناقص والحل"},
         {"command":"brief","description":"إنشاء الملخص التنفيذي بعد دورة اكتشاف"},

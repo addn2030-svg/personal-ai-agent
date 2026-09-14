@@ -58,6 +58,15 @@ _FALSE_BLANKET_DENIAL_RE = re.compile(
     r"لا\s+أكمل\s+طلبات",
     re.I | re.S,
 )
+# A false denial that the agent cannot reach the user's Calendar. The runtime DOES
+# have Calendar tooling (read verified + approval-gated writes), so any answer that
+# claims otherwise must be corrected.
+_FALSE_CALENDAR_DENIAL_RE = re.compile(
+    r"(?:i\s+)?(?:can\s*not|cannot|can't|don't\s*have|do\s*not\s*have|no\s+access|unable\s+to\s+access)"
+    r".{0,80}?(?:calendar|تقويم|مواعيدك|appointments)"
+    r"|لا\s+(?:أملك|أستطيع|يمكنني|أمتلك).{0,60}?(?:تقويمك|التقويم|تقويم|المواعيد|صلاحية\s+الوصول)",
+    re.I | re.S,
+)
 
 
 @dataclass(frozen=True)
@@ -111,11 +120,20 @@ def arbitrary_sheet_url_request(text: str) -> bool:
     return bool(_SHEET_URL_RE.search(text or ""))
 
 
+def calendar_action_related(text: str) -> bool:
+    try:
+        from connectors import calendar_intent
+        return calendar_intent.is_calendar_action(text) or calendar_intent.is_reschedule_action(text)
+    except Exception:  # noqa: BLE001 - capability detection must not break the runtime
+        return False
+
+
 def action_related(text: str) -> bool:
     value = text or ""
     return bool(
         capability_related(value)
         or sheet_capability_related(value)
+        or calendar_action_related(value)
         or (_ACTION_RE.search(value) and (_SHEET_RE.search(value) or _MEMORY_RE.search(value)))
     )
 
@@ -264,10 +282,41 @@ def capability_summary_response(text: str) -> str:
     return "\n".join(lines)
 
 
+def calendar_capability_response(text: str) -> str:
+    """Deterministic correction when the model falsely denies Calendar access."""
+    cap = snapshot()
+    arabic = bool(re.search(r"[\u0600-\u06FF]", text or ""))
+    status = "القراءة والمسار الحي متحققان" if cap.calendar_read_verified else "الأداة موجودة لكن الاتصال الحي غير متحقق الآن"
+    if arabic:
+        return (
+            "📅 في الحقيقة أملك الوصول إلى تقويم Google Calendar: "
+            f"{status}، وأي تغيير (إضافة/إعادة جدولة/حذف) يتم خلف معاينة ثم موافقتك الصريحة.\n"
+            "استخدم:\n"
+            "• /calendar لعرض المواعيد القادمة\n"
+            "• /remind لإضافة موعد أو تذكير\n"
+            "• /reschedule لإعادة جدولة موعد قائم\n"
+            "• /cancel_event لحذف موعد\n\n"
+            "قل لي الموعد الذي تقصده والوقت الجديد وسأجهّز لك المعاينة."
+        )
+    return (
+        "📅 I actually do have Google Calendar access: "
+        f"{'live read/write route verified' if cap.calendar_read_verified else 'tooling present but live connectivity is not verified now'}, "
+        "with every change (add/reschedule/delete) gated behind a preview and your explicit approval.\n"
+        "Use:\n"
+        "• /calendar to list upcoming events\n"
+        "• /remind to add an event or reminder\n"
+        "• /reschedule to move an existing event\n"
+        "• /cancel_event to delete an event\n\n"
+        "Tell me which event and the new time and I'll prepare the preview."
+    )
+
+
 def guard_response(text: str, answer: str) -> str:
     if not action_related(text):
         return answer
     cap = snapshot()
+    if cap.calendar_read_verified and _FALSE_CALENDAR_DENIAL_RE.search(answer or ""):
+        return calendar_capability_response(text)
     if (
         cap.sheet_read_verified
         and not arbitrary_sheet_url_request(text)

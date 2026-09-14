@@ -341,3 +341,166 @@ def claim_alert(event_id: str, reminder_minutes: int):
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     os.replace(tmp, LEDGER)
     return True
+
+
+# ---------------------------------------------------------------------------
+# Rescheduling (إعادة الجدولة) — the agent DOES have Calendar access, so a
+# reschedule request must route to a deterministic preview -> approval ->
+# delete-old + create-new flow instead of falling through to a model that may
+# wrongly claim it cannot reach the calendar.
+# ---------------------------------------------------------------------------
+
+# Canonical reschedule verbs (Arabic + English). Short verbs such as "أجل" are
+# only recognized when followed by an event noun, so "أجل، سأرسلها" (a plain
+# "yes") is never mistaken for a reschedule.
+RESCHEDULE_VERBS = (
+    r"إعادة\s*جدولة|اعادة\s*جدولة|أعدّ?\s*جدولة|"
+    r"أجّل\s+(?:ال)?(?:موعد|اجتماع|مقابلة|لقاء|جلسة|ورشة|مكالمة|موعده)|"
+    r"أجل\s+(?:ال)?(?:موعد|اجتماع|مقابلة|لقاء|جلسة|ورشة|مكالمة|موعده)|"
+    r"أخّر\s+(?:ال)?(?:موعد|اجتماع|مقابلة|لقاء|جلسة|ورشة|مكالمة)|"
+    r"أخر\s+(?:ال)?(?:موعد|اجتماع|مقابلة|لقاء|جلسة|ورشة|مكالمة)|"
+    r"قدّم\s+(?:ال)?(?:موعد|اجتماع|مقابلة|لقاء|جلسة|ورشة|مكالمة)|"
+    r"قدم\s+(?:ال)?(?:موعد|اجتماع|مقابلة|لقاء|جلسة|ورشة|مكالمة)|"
+    r"أرجئ\s+(?:ال)?(?:موعد|اجتماع|مقابلة|لقاء|جلسة|ورشة|مكالمة)|"
+    r"أرّجئ\s+(?:ال)?(?:موعد|اجتماع|مقابلة|لقاء|جلسة|ورشة|مكالمة)|"
+    r"غيّر\s*(?:ال)?موعد|غير\s*(?:ال)?موعد|"
+    r"عدّ?ل\s*(?:ال)?موعد|"
+    r"بدّ?ل\s*(?:ال)?موعد|"
+    r"انقل\s*(?:ال)?موعد|نقل\s*(?:ال)?موعد|"
+    r"reschedule|postpone|"
+    r"move\s+(?:the\s+)?(?:meeting|appointment|event|call)\b|"
+    r"change\s+(?:the\s+)?(?:meeting|appointment|event|call)\b|"
+    r"delay\s+(?:the\s+)?(?:meeting|appointment|event|call)\b|"
+    r"bring\s*forward"
+)
+
+_RESCHEDULE_VERB_RE = re.compile(
+    r"^\s*(?:/reschedule\s+|/calendar_reschedule\s+)?" + r"(?:" + RESCHEDULE_VERBS + r")\s*[:،,\s]*",
+    re.I,
+)
+
+_RESCHEDULE_CONNECTOR_RE = re.compile(
+    r"\b(?:إلى|الى|إلى\s*يوم|الى\s*يوم|ليوم|لـ|to|on|for|until|till)\b",
+    re.I,
+)
+
+
+def is_reschedule_action(text: str) -> bool:
+    value = str(text or "").strip()
+    if not value or value.startswith("/"):
+        return False
+    return bool(_RESCHEDULE_VERB_RE.search(value))
+
+
+def _optional_duration_minutes(normalized: str) -> int | None:
+    match = re.search(r"(?:لمده|لمدة|مدة)\s*(\d+)\s*(دقيقه|دقيقة|دقائق|ساعه|ساعة|ساعات)", normalized)
+    if not match:
+        return None
+    return int(match.group(1)) * (60 if "ساع" in match.group(2) else 1)
+
+
+def _optional_reminder_minutes(normalized: str) -> int | None:
+    if re.search(r"قبل\s+ساعتين", normalized):
+        return 120
+    if re.search(r"قبل\s+نصف\s+(?:ساعه|ساعة)", normalized):
+        return 30
+    match = re.search(r"قبل\s+(\d+)\s*(دقيقه|دقيقة|دقائق|minute)", normalized, re.I)
+    if match:
+        return max(0, min(40320, int(match.group(1))))
+    match = re.search(r"قبل\s+(\d+)\s*(ساعه|ساعة|ساعات|hour)", normalized, re.I)
+    if match:
+        return max(0, min(40320, int(match.group(1)) * 60))
+    return None
+
+
+_DIACRITICS_RE = re.compile(r"[\u064B-\u0652\u0640]")
+
+
+def _reschedule_search(text: str) -> str:
+    """Extract the event reference (title fragment) from a reschedule request."""
+    value = _RESCHEDULE_VERB_RE.sub(" ", str(text or ""), count=1)
+    value = re.sub(r"^/reschedule\s*", "", value, flags=re.I)
+    value = _RESCHEDULE_CONNECTOR_RE.sub(" ", value)
+    value = _DIACRITICS_RE.sub("", value)
+    value = re.sub(r"\b20\d{2}[-/]\d{1,2}[-/]\d{1,2}\b", " ", value)
+    value = re.sub(r"(?:بعد\s+(?:غد|بكره)|غد[ًاا]?|بكره|بكرة|اليوم|tomorrow|today)", " ", value, flags=re.I)
+    value = re.sub(r"(?:يوم\s+)?(" + "|".join(map(re.escape, AR_DAYS)) + r")", " ", value)
+    value = re.sub(
+        r"(?:الساعه|الساعة|عند|at)?\s*\d{1,2}(?::\d{2})?\s*(?:صباحا|صباحًا|صباح|ص|am|مساء|مساءً|م|pm)",
+        " ", value, flags=re.I,
+    )
+    value = re.sub(r"(?:لمده|لمدة|مدة)\s*\d+\s*(?:دقيقه|دقيقة|دقائق|ساعه|ساعة|ساعات)", " ", value)
+    value = re.sub(r"قبل\s+(?:\d+\s*)?(?:دقيقه|دقيقة|دقائق|ساعه|ساعة|ساعات|ساعتين|minute|minutes|hour|hours)", " ", value, flags=re.I)
+    value = re.sub(r"قبل\s+نصف\s+(?:ساعه|ساعة)", " ", value)
+    return re.sub(r"\s+", " ", value).strip(" -،,.")
+
+
+def parse_reschedule_request(text: str, base: dt.datetime | None = None) -> dict:
+    """Parse a reschedule request into an event reference + optional new fields.
+
+    Returns ``{"search", "date", "time", "duration_minutes", "reminder_minutes"}``
+    where every field except ``search`` may be ``None`` (meaning "inherit from the
+    original event"). Ambiguous dates/times raise :class:`NeedsInputError`.
+    """
+    base = base or now_local()
+    body = _RESCHEDULE_VERB_RE.sub(" ", str(text or ""), count=1)
+    body = re.sub(r"^/reschedule\s*", "", body, flags=re.I)
+    body = _RESCHEDULE_CONNECTOR_RE.sub(" ", body)
+    normalized = body.translate(AR_DIGITS)
+
+    new_date = None
+    try:
+        new_date = _parse_date(normalized, base)
+    except ValueError:
+        new_date = None
+
+    new_time = None
+    try:
+        new_time = _parse_time(normalized)
+    except ValueError:
+        new_time = None
+
+    return {
+        "search": _reschedule_search(text),
+        "date": new_date,
+        "time": new_time,
+        "duration_minutes": _optional_duration_minutes(normalized),
+        "reminder_minutes": _optional_reminder_minutes(normalized),
+    }
+
+
+def find_events(query: str, days_forward: int = 30, max_results: int = 100) -> list:
+    """Return upcoming events whose title contains ``query`` (case-insensitive)."""
+    term = (query or "").strip()
+    if not term:
+        return []
+    matches = []
+    for event in list_events(days_forward=days_forward, max_results=max_results):
+        if term.lower() in event.get("title", "").lower():
+            matches.append(event)
+    return matches
+
+
+def reschedule_event(old_event_id: str, proposal: dict) -> dict:
+    """Reschedule an existing event: verify it, create the new one, delete the old.
+
+    Fails closed — if the original event can no longer be found, nothing is
+    created or deleted, so a stale approval cannot mutate an unrelated event.
+    """
+    cal = _calendar_service()
+    try:
+        cal.events().get(calendarId=CALENDAR_ID, eventId=old_event_id).execute()
+    except Exception as exc:  # noqa: BLE001 - translate any lookup failure to a safe stop
+        raise RuntimeError(
+            "تعذر إيجاد الموعد الأصلي لإعادة الجدولة (ربما حُذف أو غُيّر يدويًا). "
+            "لم يُنفَّذ أي تغيير."
+        ) from exc
+    created = create_event(proposal)
+    deleted = delete_event(old_event_id)
+    return {
+        "id": created["id"],
+        "title": created["title"],
+        "start": created["start"],
+        "link": created.get("link", ""),
+        "old_id": deleted["id"],
+    }

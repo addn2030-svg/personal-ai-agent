@@ -44,8 +44,15 @@ def is_calendar_action(text: str) -> bool:
     return bool(_CALENDAR_ACTION_RE.search(value))
 
 
+def is_reschedule_action(text: str) -> bool:
+    """True when the message asks to reschedule/postpone/move an existing event."""
+    return calendar_actions.is_reschedule_action(text)
+
+
 def routed_text(text: str) -> str:
     value = str(text or "").strip()
+    if is_reschedule_action(value):
+        return f"/reschedule {value}"
     return f"/remind {value}" if is_calendar_action(value) else value
 
 
@@ -138,6 +145,11 @@ def install() -> None:
 
     def wrapped_handle_message(message: dict):
         text = (message.get("text") or message.get("caption") or "").strip()
+        if text and is_reschedule_action(text):
+            routed = dict(message)
+            routed["text"] = routed_text(text)
+            routed.pop("caption", None)
+            return _ORIGINAL_HANDLE(routed)
         if text and is_calendar_action(text):
             routed = dict(message)
             routed["text"] = routed_text(text)
