@@ -77,6 +77,14 @@ GUIDES = {
         "List channels: python3 -m connectors.buffer_publisher --list",
         "Full walkthrough: docs/buffer-setup.md",
     ],
+    "videosearch": [
+        "Works with zero config via DuckDuckGo (read-only verified YouTube watch URLs).",
+        "Optional, more reliable: console.cloud.google.com → enable \"YouTube Data API v3\".",
+        "Credentials → Create Credentials → API key → restrict it to YouTube Data API v3.",
+        "Set YOUTUBE_API_KEY locally / in the deployment variables — never in chat or git.",
+        "Verify: python3 -m connectors.web_search --check",
+        "Bot usage: /youtube كلمات البحث — or just ask for video links in any message.",
+    ],
 }
 
 PRIORITY_ORDER = ["calendar", "docs", "github"]  # per the guide: meeting Sept 14 → letters → backup

@@ -342,6 +342,49 @@ def _sheet_context():
     return compact_context()
 
 
+def _verified_video_lookup(text: str):
+    """Search verified YouTube links when the user asks for videos.
+
+    Returns (context_block, results). Fail-soft: any error yields ("", []).
+    """
+    try:
+        from connectors.web_search import (
+            answer_has_video_links, is_video_link_request, sanitize_query,
+            search_videos, verified_context_block,
+        )
+        if answer_has_video_links(text) or not is_video_link_request(text):
+            return "", []
+        query = sanitize_query(text)
+        if not query:
+            return "", []
+        out = search_videos(query)
+        results = list(out.get("results") or [])
+        if not results:
+            return "", []
+        return verified_context_block(results, query), results
+    except Exception as exc:  # noqa: BLE001 — never break the chat path
+        print(f"Verified video lookup error: {exc}", flush=True)
+        return "", []
+
+
+def command_youtube(chat_id: int, query: str):
+    from connectors.web_search import format_links_section, sanitize_query, search_videos
+    clean = sanitize_query(query)
+    if not clean:
+        send(chat_id, "استخدم: /youtube كلمات البحث — مثال: /youtube ملخص العادات الذرية")
+        return
+    send(chat_id, "🔍 أبحث في يوتيوب عن روابط موثقة...")
+    out = search_videos(clean)
+    if out.get("results"):
+        send(chat_id, format_links_section(out["results"], clean))
+    else:
+        send(chat_id, "لم أجد روابط موثقة الآن — جرّب صياغة أخرى.")
+
+
+def command_search(chat_id: int, query: str):
+    command_youtube(chat_id, query)
+
+
 def command_sheet(chat_id: int):
     from connectors.sheet_intelligence import configured, metadata
     if not configured():
@@ -845,7 +888,9 @@ def command_start(chat_id: int):
         "/profile — الملف المهني\n/sources — المصادر\n/time — الوقت الآن وفحص فوري\n"
         "/selftest — فحص كامل\n"
         "/ai_status — فحص Claude\n/storage_status — فحص الحفظ\n"
-        "/sheet — الشيتات المتصلة\n/find كلمة — البحث\n/pending — القادم والناقص والحل\n"
+        "/sheet — الشيتات المتصلة\n/find كلمة — البحث في الشيت\n"
+        "/youtube كلمات — بحث يوتيوب بروابط موثقة\n/search كلمات — نفس بحث اليوتيوب\n"
+        "/pending — القادم والناقص والحل\n"
         "/today — مواعيد اليوم\n/calendar — المواعيد القادمة\n"
         "/proactive — حالة الاستباقية\n/sweep — دورة فورية\n/proactive_test — تجربة قناة التنبيه\n"
         "/remind — اقتراح موعد أو تذكير\n/cancel_event — اقتراح حذف موعد\n"
@@ -1018,6 +1063,10 @@ def handle_message(message: dict):
         command_find(chat_id, text[len(command):].strip())
         _save_intake(iid, message, text, kind, attachment, "COMPLETED")
         return
+    if command in ("/youtube", "/search"):
+        command_youtube(chat_id, text[len(command):].strip())
+        _save_intake(iid, message, text, kind, attachment, "COMPLETED")
+        return
     if command == "/pending":
         command_pending(chat_id)
         _save_intake(iid, message, text, kind, attachment, "COMPLETED")
@@ -1168,6 +1217,9 @@ def handle_message(message: dict):
                 sheet_context = _sheet_context()
             except Exception as exc:
                 print(f"Sheet context error: {exc}", flush=True)
+        video_block, video_results = _verified_video_lookup(text)
+        if video_block:
+            sheet_context = (sheet_context + "\n\n" if sheet_context else "") + video_block
         answer, usage, latency, _ = ask_bedrock(
             chat_id, text, sheet_context=sheet_context
         )
@@ -1176,7 +1228,14 @@ def handle_message(message: dict):
         _save_intake(iid, message, text, kind, attachment, "COMPLETED", response_id=cid)
         # Routine storage/retrieval diagnostics belong in backend logs and the
         # explicit diagnostic commands, not in every user-facing reply.
-        send(chat_id, answer)
+        # Verified YouTube URLs are the requested deliverable when the user asked
+        # for video links; append them only if the model omitted every watch URL.
+        video_note = ""
+        if video_results:
+            from connectors.web_search import answer_has_video_links, format_links_section
+            if not answer_has_video_links(answer):
+                video_note = format_links_section(video_results)
+        send(chat_id, answer + video_note)
     except Exception as exc:
         _save_conversation(cid, iid, text, "", {}, 0, "ERROR", error=exc)
         _save_intake(iid, message, text, kind, attachment, "ERROR", response_id=cid, error=exc)
