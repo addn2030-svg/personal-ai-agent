@@ -56,6 +56,31 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import store as _store_mod
 from store import Store, log_event
 
+
+def _load_payment_gateway():
+    """موصل الدفع التفويضي (عتبة 375 ريال) — يُحمَّل من المسارين الممكنين.
+
+    None عند تعذّر التحميل: المحرك يعود عندها إلى السلوك المحافظ (لا تنفيذ
+    مالي آلي أبدًا، كل شيء مسودة في طابور الاعتماد).
+    """
+    try:  # المسار الحزمي: المستودع على sys.path (اختبارات/CI)
+        from connectors import payment_gateway as pg
+        return pg
+    except Exception:  # noqa: BLE001
+        pass
+    try:  # المسار المباشر: python3 engine/proactive.py
+        import importlib.util
+        path = os.path.join(BASE, "connectors", "payment_gateway.py")
+        spec = importlib.util.spec_from_file_location("_payment_gateway", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    except Exception:  # noqa: BLE001
+        return None
+
+
+PG = _load_payment_gateway()
+
 TZ = ZoneInfo(os.environ.get("MANAGER_TIMEZONE", "Asia/Riyadh"))
 REPORTS = os.path.join(BASE, "reports")
 os.makedirs(REPORTS, exist_ok=True)
@@ -82,6 +107,10 @@ DEFAULT_CFG = {
     "focus_day_start": os.environ.get("PROACTIVE_FOCUS_DAY_START", "09:00"),
     "focus_day_end": os.environ.get("PROACTIVE_FOCUS_DAY_END", "17:00"),
     "demote_days": int(os.environ.get("PROACTIVE_DEMOTE_DAYS", "14")),
+    # عتبة التفويض المالي: أقل منها money L1 → L3 (تنفيذ فعلي + إيصال + تراجع)،
+    # وعندها/fوقها أحمر: تنبيه + مسودة فقط. السقف الفعلي ≤ 375 ريال دائمًا
+    # (حد في الكود داخل connectors/payment_gateway.py، والبيئة تخفضه لا ترفعه).
+    "money_threshold_sar": float(os.environ.get("MONEY_AUTOPAY_MAX_SAR", "375")),
 }
 
 LEVELS = ["L0", "L1", "L2", "L3", "L4"]
@@ -104,6 +133,44 @@ AUTONOMY_MATRIX = {
 }
 RED_CATEGORIES = {"money", "legal", "health"}   # أحمر: تنبيه فوري وتوصية — لا تنفيذ
 RISK_FACTOR = {"low": 1.0, "medium": 0.85, "high": 0.6}
+
+
+def _money_policy(amount, *, S=None, today="", key=""):
+    """حكم عتبة التفويض المالي (375 ريال) — مصدر الحقيقة connectors/payment_gateway.
+
+    يعيد {"authorized","level","reason","guard","threshold_sar","daily_cap_sar",
+    "amount_sar","amount_usd","daily_spent_sar"}؛ وعند تعذّر تحميل الموصل يعيد
+    سياسة محافظة صريحة: لا تفويض، المستوى L1، والسبب موثَّق.
+    """
+    if PG is None:
+        return {"authorized": False, "level": "L1", "guard": "gateway_module_missing",
+                "reason": "موصل الدفع غير متاح — لا تنفيذ مالي آلي (مسودة للاعتماد)",
+                "amount_sar": None, "amount_usd": None, "threshold_sar": None,
+                "daily_cap_sar": None, "daily_spent_sar": "0.00"}
+    return PG.evaluate(amount, S=S, today=today, idempotency_key=key)
+
+
+def money_threshold_status(S=None):
+    """حالة العتبة للعرض/التدقيق: المستوى الفعلي لكل جانب والحواجز القائمة."""
+    state = S if isinstance(S, dict) else {}
+    today = now().date().isoformat()
+    below = _money_policy(0, S=state, today=today)          # أي مبلغ < العتبة
+    above = _money_policy(below.get("threshold_sar") or 375, S=state, today=today)
+    info = PG.readiness() if PG is not None else {
+        "threshold_sar": None, "daily_cap_sar": None, "autopay_enabled": False,
+        "owner_ack": False, "gateway_configured": False, "execution_armed": False,
+        "level_below_threshold": "L1", "level_at_or_above_threshold": "L1"}
+    info.update({
+        "money_level_base": AUTONOMY_MATRIX.get("money", "L1"),
+        "money_level_below_threshold": below.get("level"),
+        "money_level_at_or_above_threshold": above.get("level"),
+        "upgrades_to_l3": below.get("level") == "L3",
+        "spent_today_sar": PG.spent_today(state, today) if PG is not None else "0.00",
+        "executions_ledger": len(state.get("autopay_executions", []) or []),
+        "threshold_text": (PG.threshold_text() if PG is not None else "غير متاح"),
+    })
+    return info
+
 PRIO_IMPACT = {"عالية": 5, "متوسطة": 3, "منخفضة": 1}
 DONE_WORDS = ("منجز", "تم", "CLOSED", "DONE")
 
@@ -416,13 +483,15 @@ def refresh_open_loops(S, t):
 # ---------------------------------------------------------------- توقّع: مولدات المحفزات (نقية — بلا كتابة)
 def _cand(key, kind, title, body, category, impact, urgency, confidence, risk,
           reversibility, hint, due=None, loop_id=None, override_quiet=False,
-          channel="wa/email", action_type=None):
+          channel="wa/email", action_type=None, amount=None, payee=None):
     return {"key": key, "kind": kind, "title": title, "body": body,
             "category": category, "impact": impact, "urgency": urgency,
             "confidence": confidence, "risk": risk, "reversibility": reversibility,
             "hint": hint, "due": due.isoformat() if isinstance(due, dt.date) else due,
             "loop_id": loop_id, "override_quiet": override_quiet,
-            "channel": channel, "action_type": action_type or kind}
+            "channel": channel, "action_type": action_type or kind,
+            # مبلغ مالي صريح (ريال) + المستفيد — يُستخدمان لسياسة عتبة 375 فقط
+            "amount": amount, "payee": payee}
 
 
 def collect_candidates(S, t, cfg):
@@ -503,7 +572,10 @@ def collect_candidates(S, t, cfg):
                                body, "external_comms", 4, 3, 0.9, "medium", "reversible",
                                "enqueue", due=due))
 
-    # --- مالي: استحقاق ≤3 أيام أحمر (SO-004) / تجديد ≤7 أيام تجهيز قرار (SO-005) ---
+    # --- مالي: استحقاق ≤3 أيام (SO-004) / تجديد ≤7 أيام (SO-005) ---
+    # عتبة التفويض: المبلغ < 375 ريال ← مخاطر منخفضة وقابل للعكس (استرداد) مع
+    # تلميح pay_auto فيرتقي money من L1 إلى L3. المبلغ ≥ 375 (أو مجهول) ← أحمر
+    # غير قابل للعكس مع تلميح enqueue: تنبيه + مسودة في طابور الاعتماد فقط.
     for f in S.get("finance", []):
         due = _as_date(f.get("تاريخ التجديد"))
         cost = f.get("التكلفة (ريال/شهر)") or 0
@@ -511,26 +583,50 @@ def collect_candidates(S, t, cfg):
         if due:
             days = (due - today).days
             if 0 <= days <= cfg["renew_red_days"] and _enabled(S, "bill_due"):
-                body = (f"تنبيه أحمر: التزام مالي «{f.get('البند')}» يستحق خلال {days} "
-                        f"يوم ({due.isoformat()}) — {cost} ريال/شهر.\n"
-                        "التوصية: مراجعة الكشف وتجهيز السداد قبل الاستحقاق. جهّزت "
-                        "تعليمة دفع في طابور الاعتماد — التنفيذ بيدك وحدك بنقرة.")
+                policy = _money_policy(cost, S=S, today=today.isoformat(),
+                                       key=f"bill_due|{f.get('البند')}|{due}")
+                sub_threshold = bool(policy.get("authorized"))
+                if sub_threshold:
+                    body = (f"دفع تلقائي <{policy['threshold_sar']} ريال: التزام "
+                            f"«{f.get('البند')}» يستحق خلال {days} يوم ({due.isoformat()}) "
+                            f"— {cost} ريال/شهر (~{policy['amount_usd']}$).\n"
+                            "المبلغ دون عتبة 375 ريال المصرّح بها ← نُفّذ الدفع فعليًا "
+                            "عبر موصل الدفع (L3) وسجّلتُ الإيصال.\n"
+                            "قابل للتراجع: undo سيطلب الاسترداد من المزوّد ويوثّق النتيجة.")
+                    risk, rev, hint = "low", "reversible", "pay_auto"
+                else:
+                    body = (f"تنبيه أحمر: التزام مالي «{f.get('البند')}» يستحق خلال {days} "
+                            f"يوم ({due.isoformat()}) — {cost} ريال/شهر.\n"
+                            f"سبب المنع: {policy.get('reason')}\n"
+                            "التوصية: مراجعة الكشف وتجهيز السداد قبل الاستحقاق. جهّزت "
+                            "تعليمة دفع في طابور الاعتماد — التنفيذ بيدك وحدك بنقرة.")
+                    risk, rev, hint = "high", "irreversible", "enqueue"
                 cands.append(_cand(f"bill_due|{f.get('البند')}|{due}", "bill_due",
                                    f"استحقاق مالي وشيك: {f.get('البند')}", body,
-                                   "money", 5, 5, 0.95, "high", "irreversible",
-                                   "enqueue", due=due, override_quiet=days <= 1,
-                                   action_type="payment_instruction"))
+                                   "money", 5, 5, 0.95, risk, rev,
+                                   hint, due=due, override_quiet=days <= 1,
+                                   action_type="payment_instruction",
+                                   amount=cost, payee=f.get("البند")))
             elif cfg["renew_red_days"] < days <= cfg["renew_watch_days"] and _enabled(S, "renewal_watch"):
                 unused_note = ("\n⚠️ البند غير مستخدم منذ فترة — الإلغاء مرشّح بقوة."
                                if last_use and (today - last_use).days > 30 else "")
+                policy = _money_policy(cost, S=S, today=today.isoformat(),
+                                       key=f"renewal_watch|{f.get('البند')}|{due}")
+                sub_threshold = bool(policy.get("authorized"))
                 body = (f"تجديد خلال {days} أيام: «{f.get('البند')}» ({due.isoformat()}, "
                         f"{cost} ريال/شهر).{unused_note}\n"
-                        "ملخص القرار: تجديد / إلغاء / تفاوض. جهّزت مذكرة القرار للاعتماد.")
+                        + ("المبلغ دون عتبة 375 ريال ← التجديد مُفوَّض (L3) وسيُسجَّل الإيصال."
+                           if sub_threshold else
+                           f"ملخص القرار: تجديد / إلغاء / تفاوض. جهّزت مذكرة القرار للاعتماد.\n"
+                           f"سبب المنع: {policy.get('reason')}"))
                 # نافذة 7 أيام = تجهيز قرار مبكر (أصفر)؛ الأحمر يبدأ عند ≤3 أيام
                 cands.append(_cand(f"renewal_watch|{f.get('البند')}|{due}",
                                    "renewal_watch", f"قرار تجديد: {f.get('البند')}", body,
-                                   "money", 4, 2, 0.9, "medium", "reversible",
-                                   "enqueue", due=due, action_type="renewal_decision"))
+                                   "money", 4, 2, 0.9,
+                                   "low" if sub_threshold else "medium", "reversible",
+                                   "pay_auto" if sub_threshold else "enqueue",
+                                   due=due, action_type="renewal_decision",
+                                   amount=cost, payee=f.get("البند")))
         # فرصة مالية: اشتراك غير مستخدم (اقتراح فقط)
         if last_use and (today - last_use).days > cfg["unused_days"] and cost > 0:
             cands.append(_cand(f"unused_subscription|{f.get('البند')}|{today}",
@@ -678,6 +774,30 @@ def decide(cand, S, t, cfg, rules):
     red = (cand["risk"] == "high" or cand["reversibility"] == "irreversible"
            or (cand["category"] in RED_CATEGORIES and cand["urgency"] >= 4))
 
+    # --- عتبة التفويض المالي (375 ريال): إعادة حكم صريحة قبل أي مسار آخر ---
+    # دون العتبة ومصرّح ← money يرتقي L1 → L3 (ACT_PAY أخضر قابل للتراجع).
+    # عند/فوق العتبة، أو مجهول المبلغ، أو أي حاجز ناقص ← يبقى أحمر (تنبيه + مسودة).
+    if cand.get("hint") == "pay_auto" and cand.get("category") == "money":
+        policy = _money_policy(cand.get("amount"), S=S, today=t.date().isoformat(),
+                               key=cand["key"])
+        if policy.get("authorized"):
+            cand["money_policy"] = policy
+            level, lvl = "L3", LEVELS.index("L3")
+            red = False
+            if cand["confidence"] >= cfg["confidence_act"]:
+                return ("ACT_PAY", "GREEN",
+                        f"دفع تلقائي <{policy['threshold_sar']} ريال — "
+                        f"{level} مصرّح (قابل للتراجع عبر undo)")
+            return ("PREPARE", "YELLOW",
+                    f"ثقة {cand['confidence']:.2f} < {cfg['confidence_act']} — "
+                    "تجهيز تعليقمة الدفع بدل التنفيذ الآلي")
+        # غير مفوَّض ← أحمر: تنبيه + مسودة (لا تنفيذ مهما كان المستوى)
+        cand["money_policy"] = policy
+        draft = cand.get("action_type") in ("payment_instruction", "renewal_decision") \
+            or cand["hint"] == "enqueue"
+        return (("ALERT_DRAFT" if draft else "ALERT"), "RED",
+                f"{policy.get('reason')} — لا تنفيذ + مسودة للاعتماد")
+
     if cand["kind"] in rules["never_kinds"] or cand["category"] in rules["never_categories"]:
         if red:
             return "ALERT", "RED", "تفضيل «أبدًا» مسجّل، لكن التنبيه الأحمر يتجاوزه لحمايتك"
@@ -736,6 +856,36 @@ def _apply_candidate(S, cand, t, cfg, events):
         row["status"] = "DONE"
         events.append(("proactive_act", {"pa_id": pa_id, "kind": cand["kind"],
                                          "title": cand["title"][:80]}))
+    elif decision == "ACT_PAY":
+        # دفع تفويضي <375 ريال: نسجّل **النية** داخل المعاملة (AUTHORIZED) ثم
+        # نُنفّذ أثر الشبكة بعد الإقفال (مثل دفع تيليجرام) — لا نخلط أثرًا خارجيًا
+        # بذرّية الحالة. الإيصال/الفشل يُكتبان في معاملة ثانية قصيرة.
+        policy = cand.get("money_policy") or {}
+        amount = policy.get("amount_sar") or str(cand.get("amount") or "")
+        idem = cand["key"]
+        pay_id = "PAY-%04d" % (len(S.get("autopay_executions", [])) + 1)
+        S.setdefault("autopay_executions", []).append({
+            "payment_id": pay_id, "pa_id": pa_id, "kind": cand["kind"],
+            "title": cand["title"], "payee": cand.get("payee") or cand["title"],
+            "amount_sar": amount, "amount_usd": policy.get("amount_usd"),
+            "threshold_sar": policy.get("threshold_sar"),
+            "idempotency_key": idem, "day": t.date().isoformat(),
+            "status": "AUTHORIZED", "authorized_at": t.isoformat(timespec="seconds"),
+            "receipt": None, "reference": cand.get("action_type")})
+        # مهمة مرئية للتدقيق — قابلة للتراجع مع الدفع
+        S.setdefault("tasks", []).append({
+            "العنوان": f"دفع تلقائي: {cand.get('payee') or cand['title']} ({amount} ر.س)",
+            "النوع": "استباقي", "الأولوية": "عالية",
+            "الموعد النهائي": cand["due"] or t.date().isoformat(),
+            "الحالة": "لم تبدأ", "السياق/المشروع": "مالية",
+            "المصدر": "proactive:" + pa_id,
+            "ملاحظات": f"[{pa_id}/{pay_id}] دون عتبة 375 — تنفيذ L3 مفوَّض"})
+        row["undo"] = {"op": "refund_payment", "pa_id": pa_id, "payment_id": pay_id}
+        row["result"] = {"payment_id": pay_id, "amount_sar": amount,
+                         "idempotency_key": idem, "pending_execution": True}
+        row["status"] = "AUTHORIZED"
+        events.append(("autopay_authorized", {"pa_id": pa_id, "payment_id": pay_id,
+                                              "amount_sar": amount, "kind": cand["kind"]}))
     elif decision in ("PREPARE", "ALERT_DRAFT"):
         queue = S.setdefault("action_queue", [])
         h = _hash(cand["body"])
@@ -811,12 +961,25 @@ def recovery_pass(S, t, cfg, events):
                     f"المسودة: السلام عليكم، «{loop['title']}» تجاوز موعده بـ{days} "
                     "يومًا — أقدّر انشغالك؛ هل نثبّت موعدًا واقعيًا جديدًا؟ (عبدالرحمن)")
         elif loop["kind"] == "renewal":
-            cat, risk, rev, hint = "money", "high", "irreversible", "enqueue"
-            body = (f"ما فات: «{loop['title']}» استحق {due.isoformat()} ولم يُحسم.\n"
-                    f"الأثر: تجديد تلقائي محتمل بكلفة "
-                    f"{(loop.get('source') or {}).get('cost') or '—'} ريال/شهر.\n"
-                    "خيارات الاستدراك: 1) سداد/تفاوض فوري 2) إلغاء قبل الغرامة.\n"
-                    "ما فعلت: جهّزت التعليمة في طابور الاعتماد. ما أحتاج: قرارك بنقرة.")
+            amount = (loop.get("source") or {}).get("cost") or 0
+            policy = _money_policy(amount, S=S, today=today.isoformat(),
+                                   key=f"missed_recovery|{loop['loop_id']}|{today}")
+            if policy.get("authorized"):
+                cat, risk, rev, hint = "money", "low", "reversible", "pay_auto"
+                body = (f"ما فات: «{loop['title']}» استحق {due.isoformat()} ولم يُحسم.\n"
+                        f"الأثر: تجديد تلقائي محتمل بكلفة {amount} ريال/شهر "
+                        f"(~{policy['amount_usd']}$).\n"
+                        "ما فعلت: المبلغ دون عتبة 375 ريال المصرّح بها ← سدّدتُه/جدّدتُه "
+                        "فورًا عبر موصل الدفع (L3) والإيصال مسجّل.\n"
+                        "ما أحتاج: لا شيء — وإن أردت التراجع: undo يطلب الاسترداد ويوثّقه.")
+            else:
+                cat, risk, rev, hint = "money", "high", "irreversible", "enqueue"
+                body = (f"ما فات: «{loop['title']}» استحق {due.isoformat()} ولم يُحسم.\n"
+                        f"الأثر: تجديد تلقائي محتمل بكلفة "
+                        f"{(loop.get('source') or {}).get('cost') or '—'} ريال/شهر.\n"
+                        f"سبب المنع: {policy.get('reason')}\n"
+                        "خيارات الاستدراك: 1) سداد/تفاوض فوري 2) إلغاء قبل الغرامة.\n"
+                        "ما فعلت: جهّزت التعليمة في طابور الاعتماد. ما أحتاج: قرارك بنقرة.")
         else:  # i_promised / decision / risk — استدراك داخلي قابل للعكس
             cat, risk, rev, hint = "reminders", "low", "reversible", "create_task"
             body = (f"ما فات: «{loop['title']}» تأخر {days} يومًا عن {due.isoformat()}.\n"
@@ -842,8 +1005,8 @@ def _mutate_sweep(S, t, cfg):
     if not S.get("standing_orders"):
         S["standing_orders"] = [dict(o) for o in DEFAULT_STANDING_ORDERS]
         changed = True
-    summary = {"loops_open": 0, "act": 0, "prepare": 0, "alert": 0, "batched": 0,
-               "suggest": 0, "skipped": 0, "missed": 0, "paused": False}
+    summary = {"loops_open": 0, "act": 0, "pay": 0, "prepare": 0, "alert": 0,
+               "batched": 0, "suggest": 0, "skipped": 0, "missed": 0, "paused": False}
     paused_dt = _as_dt((S.get("manager_markers") or {}).get("proactive_paused_until"))
     if paused_dt and paused_dt > t:
         summary["paused"] = True
@@ -857,21 +1020,142 @@ def _mutate_sweep(S, t, cfg):
         row = _apply_candidate(S, cand, t, cfg, events)
         changed = True
         seen.add(cand["key"])
-        summary[{"ACT": "act", "PREPARE": "prepare", "ALERT": "alert",
-                  "ALERT_DRAFT": "alert", "BATCHED": "batched",
-                  "SUGGEST": "suggest"}.get(row["decision"], "skipped")] += 1
+        summary[{"ACT": "act", "ACT_PAY": "pay", "PREPARE": "prepare", "ALERT": "alert",
+                 "ALERT_DRAFT": "alert", "BATCHED": "batched",
+                 "SUGGEST": "suggest"}.get(row["decision"], "skipped")] += 1
     before = len(S.get("proactive_actions", []))
     recovery_pass(S, t, cfg, events)
     for row in S.get("proactive_actions", [])[before:]:  # عدّل صفوف الاستدراك في الملخص
-        summary[{"ACT": "act", "PREPARE": "prepare", "ALERT": "alert",
-                  "ALERT_DRAFT": "alert", "BATCHED": "batched",
-                  "SUGGEST": "suggest"}.get(row["decision"], "skipped")] += 1
+        summary[{"ACT": "act", "ACT_PAY": "pay", "PREPARE": "prepare", "ALERT": "alert",
+                 "ALERT_DRAFT": "alert", "BATCHED": "batched",
+                 "SUGGEST": "suggest"}.get(row["decision"], "skipped")] += 1
     changed = changed or len(S.get("proactive_actions", [])) != before
     summary["missed"] = sum(1 for l in S.get("open_loops", [])
                             if l.get("status") in ("MISSED", "RECOVERING"))
     summary["loops_open"] = sum(1 for l in S.get("open_loops", [])
                                 if l.get("status") == "OPEN")
     return changed, (summary, events)
+
+
+def _execute_authorized_payments(t, store, events, verbose):
+    """ينفّذ مدفوعات AUTHORIZED عبر الموصل **بعد** إقفال معاملة الحالة.
+
+    - لا دفع مزدوج: المفتاح الحتمي + فحص الإيصال السابق قبل كل نداء.
+    - الفشل موثَّق ولا يُسقط الدورة — وعند الفشل تُجهَّز مسودة اعتماد احتياطية
+      حتى لا يسقط التزام مالي بصمت (write-on-change داخل معاملة ثانية قصيرة).
+    يعيد {"executed":n,"failed":n,"skipped":n}.
+    """
+    out = {"executed": 0, "failed": 0, "skipped": 0}
+    if PG is None or not PG.ready():
+        return out
+
+    def _enqueue_autopay_fallback(S, row, when, reason):
+        """لا سقوط صامت لالتزام مالي ← مسودة يدوية في طابور الاعتماد."""
+        queue = S.setdefault("action_queue", [])
+        content = (f"تعذّر الدفع التلقائي لـ«{row.get('title')}» "
+                   f"({row.get('amount_sar')} ر.س): {reason}\n"
+                   "التنفيذ اليدوي مطلوب — علّق في طابور الاعتماد.")
+        h = _hash(content)
+        if any(a.get("content_hash") == h for a in queue):
+            return
+        aq_id = "A-%03d" % (len(queue) + 1)
+        queue.append({"action_id": aq_id, "type": "payment_instruction",
+                      "channel": "wa/email", "content": content, "content_hash": h,
+                      "status": "PENDING_APPROVAL",
+                      "created_at": when.date().isoformat(),
+                      "expires_at": (when.date() + dt.timedelta(days=2)).isoformat(),
+                      "approved_at": None, "executed_at": None,
+                      "origin": "proactive_autopay_failed",
+                      "proactive_id": row.get("pa_id")})
+
+    def _reconcile_pa(S, pa_id, status, extra_note=None, result=None):
+        """يطابق صف دفتر الإجراءات مع حقيقة التنفيذ (لا ادّعاء دفع لم يحدث)."""
+        for a in S.get("proactive_actions", []):
+            if a.get("pa_id") != pa_id:
+                continue
+            if status == "EXECUTED":
+                a["status"] = "DONE"
+            elif status in ("FAILED", "BLOCKED"):
+                a["status"] = "QUEUED"
+                a["note"] = str(a.get("note", "")) + (extra_note or "")
+            if result:
+                a.setdefault("result", {}).update(result)
+            return
+
+    def mutate(S):
+        changed = False
+        pending = [r for r in S.get("autopay_executions", [])
+                   if r.get("status") == "AUTHORIZED" and not r.get("receipt")]
+        for row in pending:
+            idem = row.get("idempotency_key")
+            prior = PG.find_by_key(S, idem)
+            if prior and prior is not row and prior.get("receipt"):
+                # نُفّذ في دورة سابقة — طابق الإيصال ولا تُعِد الخصم
+                row.update(status="EXECUTED", receipt=prior.get("receipt"),
+                           executed_at=prior.get("executed_at"))
+                _reconcile_pa(S, row.get("pa_id"), "EXECUTED",
+                              result={"pending_execution": False,
+                                      "receipt": prior.get("receipt")})
+                changed = True
+                out["skipped"] += 1
+                continue
+            # دفاع عميق: أعد فحص السقف اليومي لحظة التنفيذ مقابل ما استقر فعلًا
+            # (EXECUTED فقط — لا يعدّ النيّة الجارية ضد نفسها).
+            spent = PG.settled_today(S, row.get("day"))
+            amount = PG.amount_of(row.get("amount_sar")) or 0
+            if spent + amount > PG.daily_cap_sar():
+                row.update(status="BLOCKED",
+                           error=f"DAILY_CAP: {spent}+{amount} > {PG.daily_cap_sar()}",
+                           blocked_at=t.isoformat(timespec="seconds"))
+                _reconcile_pa(S, row.get("pa_id"), "BLOCKED",
+                              extra_note=" | حُجب عند التنفيذ: السقف اليومي 375 ريال",
+                              result={"pending_execution": False})
+                _enqueue_autopay_fallback(S, row, t, "تجاوز السقف اليومي 375 ريال")
+                changed = True
+                out["failed"] += 1
+                events.append(("autopay_blocked", {"payment_id": row.get("payment_id"),
+                                                   "pa_id": row.get("pa_id"),
+                                                   "reason": "daily_cap"}))
+                continue
+            try:
+                receipt = PG.execute(amount=row.get("amount_sar"),
+                                     payee=row.get("payee"),
+                                     idempotency_key=idem,
+                                     reference=row.get("reference"),
+                                     purpose=str(row.get("title"))[:240],
+                                     source="proactive:" + str(row.get("pa_id")),
+                                     due=row.get("day"))
+                row.update(status="EXECUTED", receipt=receipt,
+                           executed_at=t.isoformat(timespec="seconds"))
+                _reconcile_pa(S, row.get("pa_id"), "EXECUTED",
+                              result={"pending_execution": False, "receipt": receipt,
+                                      "gateway_payment_id": receipt.get("payment_id")})
+                changed = True
+                out["executed"] += 1
+                events.append(("autopay_executed", {
+                    "payment_id": row.get("payment_id"), "pa_id": row.get("pa_id"),
+                    "amount_sar": receipt.get("amount_sar"),
+                    "gateway_payment_id": receipt.get("payment_id")}))
+            except Exception as exc:  # noqa: BLE001 — الفشل موثَّق ولا يُسقط الدورة
+                row.update(status="FAILED",
+                           error=str(exc)[:200],
+                           failed_at=t.isoformat(timespec="seconds"))
+                _reconcile_pa(S, row.get("pa_id"), "FAILED",
+                              extra_note=f" | تعذّر التنفيذ الآلي: {str(exc)[:80]}",
+                              result={"pending_execution": False})
+                _enqueue_autopay_fallback(S, row, t, str(exc)[:120])
+                changed = True
+                out["failed"] += 1
+                events.append(("autopay_failed", {"payment_id": row.get("payment_id"),
+                                                  "pa_id": row.get("pa_id"),
+                                                  "error": str(exc)[:120]}))
+        return changed, None
+
+    store.transaction(mutate, "autopay_execute")
+    if verbose and (out["executed"] or out["failed"]):
+        print(f"💳 دفع تلقائي <375: نُفّذ={out['executed']} | فشل={out['failed']} "
+              f"| سبق={out['skipped']}")
+    return out
 
 
 def sweep(store=None, now_dt=None, cfg=None, verbose=True):
@@ -885,23 +1169,31 @@ def sweep(store=None, now_dt=None, cfg=None, verbose=True):
     cfg = resolve_cfg(store, cfg)
     summary, events = store.transaction(
         lambda S: _mutate_sweep(S, t, cfg), "proactive_sweep")
-    for event, details in events:
-        log_event(event, **details)
     if summary.get("paused"):
+        for event, details in events:
+            log_event(event, **details)
         if verbose:
             print("⏸️ الاستباقية موقوفة مؤقتًا — لم تُنفَّذ الدورة (resume للاستئناف).")
         return summary
+    # نفّذ الدفع التفويضي <375 بعد إقفال المعاملة (أثر شبكة خارجي — مثل تيليجرام)
+    pay = _execute_authorized_payments(t, store, events, verbose)
+    summary["paid"] = pay["executed"]
+    summary["pay_failed"] = pay["failed"]
+    for event, details in events:
+        log_event(event, **details)
     alert_ids = [d["pa_id"] for e, d in events if e == "proactive_alert"]
     alert_rows = [a for a in store.rows_all().get("proactive_actions", [])
                   if a.get("pa_id") in set(alert_ids)] if alert_ids else []
     summary["pushed"] = _push_alerts(t, events, alert_rows, verbose)
     if verbose:
         pushed = f" | دُفع تيليجرام={summary['pushed']}" if summary.get("pushed") else ""
+        paid = f" | دُفع آليًا={summary['paid']}" if summary.get("paid") else ""
         print(f"🛰️ دورة استباقية: حلقات مفتوحة={summary['loops_open']} | "
-              f"نُفّذ={summary['act']} | جهّز={summary['prepare']} | "
+              f"نُفّذ={summary['act']} | دفع تفويضي={summary['pay']} | "
+              f"جهّز={summary['prepare']} | "
               f"تنبيه={summary['alert']} | أُرجئ={summary['batched']} | "
               f"اقتراح={summary['suggest']} | فائت تحت الاستدراك={summary['missed']}"
-              f"{pushed}")
+              f"{paid}{pushed}")
     return summary
 
 
@@ -951,6 +1243,37 @@ def undo(pa_id, store=None):
         if op is None:
             return False, (False, "لا حمولة تراجع لهذا النوع (المسودات أصلًا بانتظار اعتمادك)")
         if op == "remove_task":
+            before = len(S.get("tasks", []))
+            S["tasks"] = [x for x in S.get("tasks", [])
+                          if x.get("المصدر") != "proactive:" + pa_id]
+            undone = before - len(S["tasks"])
+        elif op == "refund_payment":
+            # تراجع دفع تفويضي: اطلب الاسترداد من المزوّد ثم أزِل المهمة المرئية.
+            pay_row = next((p for p in S.get("autopay_executions", [])
+                            if p.get("payment_id") == (row.get("undo") or {}).get("payment_id")),
+                           None)
+            if not pay_row:
+                raise ValueError("لا يوجد سجل دفع linked بهذا الإجراء")
+            receipt = pay_row.get("receipt") or {}
+            gateway_pid = receipt.get("payment_id")
+            if pay_row.get("status") == "EXECUTED" and gateway_pid and PG is not None:
+                try:
+                    refund = PG.refund(gateway_pid, amount=pay_row.get("amount_sar"),
+                                       idempotency_key="undo:" + pa_id,
+                                       reason="owner_undo")
+                    pay_row.update(status="REVERSED", refund=refund,
+                                   reversed_at=now().isoformat(timespec="seconds"))
+                except Exception as exc:  # noqa: BLE001 — وثّق الفشل ولا تدّعي التراجع
+                    pay_row.update(status="REFUND_FAILED",
+                                   refund_error=str(exc)[:200],
+                                   reversed_at=now().isoformat(timespec="seconds"))
+                    raise ValueError(
+                        "تعذّر الاسترداد من المزوّد — الدفع لم يُعكس تلقائيًا؛ "
+                        f"راجع يدويًا. ({str(exc)[:120]})")
+            else:
+                # لم يُنفَّذ أصلًا (AUTHORIZED/FAILED) ← ألغِ النية بلا أثر مالي
+                pay_row.update(status="CANCELLED",
+                               reversed_at=now().isoformat(timespec="seconds"))
             before = len(S.get("tasks", []))
             S["tasks"] = [x for x in S.get("tasks", [])
                           if x.get("المصدر") != "proactive:" + pa_id]
@@ -1125,6 +1448,10 @@ def status(store=None):
                           if l.get("status") in ("MISSED", "RECOVERING")),
         "ledger_rows": len(S.get("proactive_actions", [])),
         "feedback": len(S.get("proactive_feedback", [])),
+        "money_threshold": money_threshold_status(S),
+        "autopay_today": sum(1 for p in S.get("autopay_executions", [])
+                             if str(p.get("day"))[:10] == today
+                             and p.get("status") in ("EXECUTED", "REVERSED")),
         "persistence": persistence_status(store),
     }
 
@@ -1377,8 +1704,8 @@ def push_test():
 def main():
     ap = argparse.ArgumentParser(description="محرك الاستباقية — Proactive Chief of Staff")
     ap.add_argument("cmd", choices=["sweep", "brief", "status", "orders", "matrix",
-                                    "order-enable", "order-disable", "pause", "resume",
-                                    "undo", "feedback", "push-test", "review"])
+                                    "threshold", "order-enable", "order-disable", "pause",
+                                    "resume", "undo", "feedback", "push-test", "review"])
     ap.add_argument("id", nargs="?")
     ap.add_argument("signal", nargs="?", choices=["good", "much", "never"])
     ap.add_argument("--hours", type=float, default=4.0)
@@ -1403,8 +1730,22 @@ def main():
                 print(f"{'🟢' if o.get('enabled') else '⚪'} {o['order_id']} "
                       f"[{o['category']}/{o['level']}] {o['name']}")
         elif args.cmd == "matrix":
+            S = Store().rows_all()
+            mt = money_threshold_status(S)
             for cat, lvl in AUTONOMY_MATRIX.items():
-                print(f"{cat:15s} {lvl}  {LEVEL_AR[lvl]}")
+                line = f"{cat:15s} {lvl}  {LEVEL_AR[lvl]}"
+                if cat == "money":
+                    line += (f"\n{'':15s} ↪ <{mt['threshold_text']} → "
+                             f"{mt['money_level_below_threshold']} "
+                             f"({LEVEL_AR[mt['money_level_below_threshold']]})"
+                             f"\n{'':15s} ↪ ≥ العتبة → "
+                             f"{mt['money_level_at_or_above_threshold']} "
+                             f"(تنبيه + مسودة، لا تنفيذ)")
+                print(line)
+        elif args.cmd == "threshold":
+            S = Store().rows_all()
+            print(json.dumps(money_threshold_status(S), ensure_ascii=False,
+                             indent=2, default=str))
         elif args.cmd in ("order-enable", "order-disable"):
             name = set_order(args.id, args.cmd == "order-enable")
             state = "فعّال" if args.cmd == "order-enable" else "موقوف"

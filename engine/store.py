@@ -47,7 +47,11 @@ SECTIONS = ["tasks", "projects", "leads", "kpis", "meetings", "decisions",
             "open_loops", "standing_orders", "proactive_actions",
             "proactive_briefs", "proactive_feedback",
             # v2.0 — Unified Finance Hub (single source, monthly auto-snapshot, external link)
-            "finance_snapshots", "finance_links"]
+            "finance_snapshots", "finance_links",
+            # v1.1 — Money autonomy threshold (375 SAR): ledger of delegated payment
+            # executions below the threshold, each with receipt + idempotency key so a
+            # retry can never charge twice and `undo` can reverse/refund it.
+            "autopay_executions"]
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _DATETIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?([+-]\d{2}:\d{2})?$")
