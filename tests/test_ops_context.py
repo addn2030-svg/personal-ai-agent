@@ -109,13 +109,13 @@ class OpsContextTests(unittest.TestCase):
     # ---- v1.1 Google Sheets auto-load expansion tests ----
 
     def test_new_identity_development_tabs_in_ops_sheet_tabs(self):
-        """التطوير الشخصي, مكتبة العبارات التوجيهية, الهوية الشخصية must be in OPS_SHEET_TABS."""
-        for tab in ("التطوير الشخصي", "مكتبة العبارات التوجيهية", "الهوية الشخصية"):
+        """التطوير الشخصي, مكتبة العبارات التوجيهية, الهوية الشخصية, 📥 مراجعة اليوم — Inbox must be in OPS_SHEET_TABS."""
+        for tab in ("التطوير الشخصي", "مكتبة العبارات التوجيهية", "الهوية الشخصية", "📥 مراجعة اليوم — Inbox"):
             self.assertIn(tab, ops.OPS_SHEET_TABS, f"{tab} missing from OPS_SHEET_TABS")
 
     def test_new_identity_development_tabs_in_priority_tabs(self):
-        """All three new tabs must appear in PRIORITY_TABS so the snapshot reads them."""
-        for tab in ("مكتبة العبارات التوجيهية", "الهوية الشخصية"):
+        """All new tabs must appear in PRIORITY_TABS so the snapshot reads them."""
+        for tab in ("مكتبة العبارات التوجيهية", "الهوية الشخصية", "📥 مراجعة اليوم — Inbox"):
             self.assertIn(tab, sheet_intelligence.PRIORITY_TABS, f"{tab} missing from PRIORITY_TABS")
         # التطوير الشخصي was already present
         self.assertIn("التطوير الشخصي", sheet_intelligence.PRIORITY_TABS)
