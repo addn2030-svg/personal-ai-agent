@@ -358,6 +358,14 @@ def _produce_dhs_tuesday(S, ref):
 
 
 def _produce_finance_thursday(S, ref):
+    # v2.0 — Finance Hub: unify local+external, auto snapshot (idempotent)
+    try:
+        import finance_hub
+        finance_hub.sync_external(force=False)
+        from store import Store as _FHStore
+        S = _FHStore().rows_all()
+    except Exception:
+        pass
     rows = S.get("finance", [])
     today = ref.date()
     total = sum(float(r.get("التكلفة (ريال/شهر)") or 0) for r in rows)
@@ -366,20 +374,34 @@ def _produce_finance_thursday(S, ref):
              and (dt.date.fromisoformat(str(r["تاريخ التجديد"])[:10]) - today).days >= 0]
     unused = [r for r in rows if r.get("آخر استخدام") and
               (today - dt.date.fromisoformat(str(r["آخر استخدام"])[:10])).days > 30]
+    hub_line = ""
+    try:
+        import finance_hub as _fh2
+        from store import Store as _S2
+        _st = _fh2.status(store=_S2())
+        if _st.get("link") or _st.get("env_sheet_id"):
+            hub_line = f" | 🔗 خارجي: {_st.get('external_preview_rows',0)} بند ({_st.get('external_source')})"
+    except Exception:
+        hub_line = ""
     lines = [f"💰 مراجعة الميزانية — {_fmt_date(today)}",
-             f"إجمالي الالتزامات الشهرية: {total:,.0f} ريال | بنود مرصودة: {len(rows)}"]
+             f"إجمالي الالتزامات الشهرية: {total:,.0f} ريال | بنود مرصودة: {len(rows)}{hub_line}"]
     if renew:
         lines.append("")
         lines.append("🔁 تجديدات خلال 14 يومًا:")
-        lines += [f"   • {r.get('البند')} — {_ar_date(r.get('تاريخ التجديد'))}"
-                  for r in renew[:5]]
+        lines += [f"   • {r.get('البند')} — {_ar_date(r.get('تاريخ التجديد'))} — {float(r.get('التكلفة (ريال/شهر)') or 0):,.0f} ريال" for r in renew[:5]]
     if unused:
+        savings = sum(float(r.get("التكلفة (ريال/شهر)") or 0) for r in unused)
         lines.append("")
-        lines.append("⚠️ بنود غير مستخدمة (أكثر من 30 يومًا) — مرشحة للإلغاء:")
-        lines += [f"   • {r.get('البند')} (آخر استخدام {_ar_date(r.get('آخر استخدام'))})"
-                  for r in unused[:5]]
+        lines.append(f"⚠️ بنود غير مستخدمة (أكثر من 30 يومًا) — مرشحة للإلغاء (وفورات {savings:,.0f} ريال/شهر):")
+        lines += [f"   • {r.get('البند')} (آخر استخدام {_ar_date(r.get('آخر استخدام'))}) — {float(r.get('التكلفة (ريال/شهر)') or 0):,.0f} ريال" for r in unused[:5]]
+    snaps = S.get("finance_snapshots", [])
+    if snaps:
+        latest = snaps[-1]
+        lines.append("")
+        lines.append(f"📸 لقطة شهر {latest.get('snapshot_id')}: {latest.get('total_monthly',0):,.0f} ريال/شهر — reports/finance-monthly-{latest.get('snapshot_id')}.md")
     lines.append("")
-    lines.append("الخطوة: حدّث تبويب المالية وقرّر خفض أي بند غير مستخدم هذا الأسبوع.")
+    lines.append("الخطوة: حدّث تبويب المالية (أو الشيت الخارجي المربوط) وقرّر خفض أي بند غير مستخدم هذا الأسبوع.")
+    lines.append("للربط: `python3 engine/finance_hub.py link SHEET_ID [GID]` — ثم `sync`")
     return "\n".join(lines)
 
 
@@ -432,28 +454,60 @@ def _produce_monthly_prod(ref, store):
 
 
 def _produce_finance_health_1st(ref, store):
-    S = store.rows_all()
-    d = ref.date()
-    rows = S.get("finance", [])
-    total = sum(float(r.get("التكلفة (ريال/شهر)") or 0) for r in rows)
-    unused_n = len([r for r in rows if r.get("آخر استخدام") and
-                    (d - dt.date.fromisoformat(str(r["آخر استخدام"])[:10])).days > 30])
-    savings = sum(float(r.get("التكلفة (ريال/شهر)") or 0) for r in rows if r.get("آخر استخدام") and
-                  (d - dt.date.fromisoformat(str(r["آخر استخدام"])[:10])).days > 30)
-    base = 100
-    if total > 0:
-        base -= min(20, unused_n * 5)
-        if unused_n:
-            base -= 5
-    index = max(0, base)
-    debt_cov = os.environ.get("DEBT_COVERAGE_PCT", "غير محددة")
-    save_rate = os.environ.get("SAVINGS_RATE_PCT", "غير محددة")
-    return (f"🧮 مؤشر الصحة المالية — أول {AR_MONTHS[d.month - 1]}\n"
+    # v2.0 — Unified Finance Hub (single source + monthly auto-snapshot)
+    try:
+        import finance_hub
+        finance_hub.auto_update(store=store, ref=ref, force=False)
+        S = store.rows_all() if store else finance_hub.Store().rows_all()
+        from store import Store as _Store2
+        if store is None:
+            S = _Store2().rows_all()
+        snaps = S.get("finance_snapshots", [])
+        sid = finance_hub._snapshot_id(ref.date())
+        snap = next((s for s in snaps if s.get("snapshot_id") == sid), None)
+        if not snap:
+            snap = finance_hub.build_snapshot(S, ref.date())
+        rows = S.get("finance", [])
+        finance_hub.ensure_monthly_snapshot(store=store or _Store2(), ref=ref.date(), force=False)
+        total = snap.get("total_monthly", 0)
+        unused_n = snap.get("unused_count", 0)
+        savings = snap.get("savings_potential", 0)
+        index = snap.get("health_index", 0)
+        debt_cov = os.environ.get("DEBT_COVERAGE_PCT", "غير محددة")
+        save_rate = os.environ.get("SAVINGS_RATE_PCT", "غير محددة")
+        return (
+            f"🧮 مؤشر الصحة المالية — أول {AR_MONTHS[ref.date().month - 1]} (موحد v2.0)\n"
+            f"المؤشر المحسوب: {index}/100\n"
+            f"الالتزامات الشهرية: {total:,.0f} ريال | بنود غير مستخدمة: {unused_n} "
+            f"(وفورات محتملة: {savings:,.0f} ريال/شهر)\n"
+            f"البنود: {len(rows)} | مصدر: {snap.get('source')} | لقطة: {snap.get('snapshot_id')}\n"
+            f"تغطية الديون: {debt_cov} | نسبة الادخار: {save_rate}\n"
+            f"📄 التقرير الكامل: reports/finance-monthly-{snap.get('snapshot_id')}.md\n"
+            "للربط الخارجي: `python3 engine/finance_hub.py link SHEET_ID [GID]` ثم `sync`"
+        )
+    except Exception as exc:
+        S = store.rows_all() if store else Store().rows_all()
+        d = ref.date()
+        rows = S.get("finance", [])
+        total = sum(float(r.get("التكلفة (ريال/شهر)") or 0) for r in rows)
+        unused_n = len([r for r in rows if r.get("آخر استخدام") and (d - dt.date.fromisoformat(str(r["آخر استخدام"])[:10])).days > 30])
+        savings = sum(float(r.get("التكلفة (ريال/شهر)") or 0) for r in rows if r.get("آخر استخدام") and (d - dt.date.fromisoformat(str(r["آخر استخدام"])[:10])).days > 30)
+        base = 100
+        if total > 0:
+            base -= min(20, unused_n * 5)
+            if unused_n:
+                base -= 5
+        index = max(0, base)
+        debt_cov = os.environ.get("DEBT_COVERAGE_PCT", "غير محددة")
+        save_rate = os.environ.get("SAVINGS_RATE_PCT", "غير محددة")
+        return (
+            f"🧮 مؤشر الصحة المالية — أول {AR_MONTHS[d.month - 1]} (fallback)\n"
             f"المؤشر المحسوب: {index}/100\n"
             f"الالتزامات الشهرية: {total:,.0f} ريال | بنود غير مستخدمة: {unused_n} "
             f"(وفورات محتملة: {savings:,.0f} ريال/شهر)\n"
             f"تغطية الديون: {debt_cov} | نسبة الادخار: {save_rate}\n"
-            "حدّث قيمتي التغطية والادخار في شيت المالية لتظهر في التقرير القادم.")
+            f"⚠️ Finance Hub error: {exc} — حدّث شيت المالية"
+        )
 
 
 def _produce_context_archive(ref, store):
@@ -715,7 +769,11 @@ def main():
             print(f"  {job['emoji']} {job['job_id']} — {job['name']} عند {job['time']}")
         print(f"\n({len(listing)} وظيفة مستحقة)")
     elif cmd == "dispatch":
-        dispatch_due()
+        ref = val("--date")
+        at = val("--at")
+        if at and ref:
+            ref = f"{ref} {at}"
+        dispatch_due(ref=ref)
     elif cmd == "today-actions":
         today_actions()
     else:

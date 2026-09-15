@@ -204,6 +204,21 @@ def fast_cycle():
 
 def full_cycle():
     fast_cycle()
+    # v2.0 — Finance Hub: unify + monthly snapshot (idempotent, throttled inside)
+    try:
+        import finance_hub
+        finance_hub.auto_update(force=False)
+    except Exception as exc:  # noqa: BLE001
+        log_event("finance_hub_error", error=str(exc)[:160])
+    # Dormant activations (v0.5–v0.8) — now live but guarded, no external effects
+    for script in ["asset_registry.py", "backup_verify.py", "change_intelligence.py", "observability.py", "trust_dashboard.py"]:
+        try:
+            subprocess.run(
+                [sys.executable, os.path.join(BASE, "engine", script)],
+                capture_output=True, text=True, timeout=20,
+            )
+        except Exception as exc:  # noqa: BLE001
+            log_event("dormant_activation_error", script=script, error=str(exc)[:120])
     subprocess.run(
         [sys.executable, os.path.join(BASE, "engine", "asset_registry.py")],
         capture_output=True,
@@ -304,8 +319,30 @@ def loop():
             import proactive
             if proactive.enabled():
                 proactive.sweep(verbose=False)
+            else:
+                log_event("proactive_skipped", reason="PROACTIVE_ENABLED=0")
         except Exception as exc:  # noqa: BLE001
             log_event("proactive_error", error=str(exc)[:160])
+
+        # v2.0 — Finance Hub: unify external sheet + local finance, auto-monthly (throttled 1h)
+        # يجعل المالية مصدرًا واحدًا ويحدّث اللقطة الشهرية تلقائيًا.
+        # يُعطَّل بـ FINANCE_HUB_ENABLED=0 عند الحاجة.
+        if os.environ.get("FINANCE_HUB_ENABLED", "1") != "0":
+            try:
+                import finance_hub
+                finance_hub.auto_update(force=False)
+            except Exception as exc:  # noqa: BLE001
+                log_event("finance_hub_error", error=str(exc)[:160])
+
+        # Dormant activations — observability/trust heartbeat (daily, guarded)
+        # تُشغَّل مرة واحدة يوميًا كحد أقصى لتجنب الضغط، ولا تُرسل خارجيًا.
+        try:
+            if markers.get("trust_day") != t.date().isoformat() and os.environ.get("TRUST_HEARTBEAT_ENABLED", "1") != "0":
+                for script in ["observability.py", "trust_dashboard.py"]:
+                    subprocess.run([sys.executable, os.path.join(BASE, "engine", script)], capture_output=True, text=True, timeout=10)
+                _update_markers(trust_day=t.date().isoformat())
+        except Exception as exc:  # noqa: BLE001
+            log_event("trust_heartbeat_error", error=str(exc)[:120])
 
         due_full = t.replace(hour=MORNING_HOUR, minute=MORNING_MINUTE, second=0, microsecond=0)
         if t >= due_full and markers.get("last_full") != t.date().isoformat():
