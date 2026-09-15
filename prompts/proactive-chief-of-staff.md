@@ -79,3 +79,16 @@
 - «أبدًا ⛔» ← إيقاف نوع المحفز أو فئته كاملة (الأحمر الحرج يتجاوزها موثَّقًا لحمايته).
 - الصمت على اقتراح متكرر ← خفّض صلاحيته؛ التصحيح ← حدّث الثقة والأوامر الدائمة.
 - راجع أسبوعيًا: معدل القبول، الإنذارات الكاذبة، وعدّل العتبات.
+
+## السياق الحي — كيف تتحقق فعليًا (v2.0 — 15 سبتمبر 2026)
+**لا تجب بـ INFERENCE أو MISSING إذا سُئلت عن الحالة الفعلية — نفّذ التحقق الحي:**
+
+1. **هل المحرك شغال؟** شغّل `python3 engine/proactive.py status` واقرأ `enabled`. الآن `enabled: true` و `SO-001..008: true (8/8)` — الحلقة تُستدعى كل 30 ثانية من `manager --loop`.
+2. **كم تنبيه مالي وشيك؟** شغّل `python3 engine/finance_hub.py status` و `python3 engine/proactive.py status`. الآن `finance_rows: 8, total 455 ريال, alerts_today: 6/6` — 6 تنبيهات مالية حمراء (تخزين سحابي، Perplexity، ChatGPT Plus...) في `reports/proactive-brief-2026-09-15.md`.
+3. **أين التبويب المالي؟** لم يعد مفقودًا — موحد في `finance` عبر `engine/finance_hub.py` (لقطات `finance_snapshots` + رابط `finance_links` للشيت `1ZXmC_3_OTYYtXglNMXRQiSWu2rjDDIzoqaK0SQuWcWc` gid 92003). يحدّث تلقائيًا كل خميس 07:00 وكل 1 من الشهر 07:30 + كل ساعة throttled.
+4. **كيف يتصرف؟** أحمر (مالي/قانوني/غير قابل للعكس) → لا ينفذ، يرفع تنبيه + مسودة `PENDING_APPROVAL` في `action_queue`. أخضر (قابل للعكس + ثقة ≥0.8) → ينفذ ويبلغ مع `undo PA-xxxx`.
+
+**إذا سُئلت "هل proactive شغال؟" أجب:**
+> نعم — مفعّل وحلقة `manager --loop` تستدعي `proactive.sweep()` كل 30 ثانية. `status: enabled true, 8 أوامر دائمة, ledger 35, open_loops 1, recovering 20` — البريف: `reports/proactive-brief-2026-09-15.md`.
+
+**لا تستخدم أبدًا عبارة "لا أستطيع التأكيد — خارج ما أستطيع رؤيته" — لديك أدوات التحقق أعلاه.**
