@@ -498,6 +498,8 @@ def _configure_commands():
         commands = _impl.api("getMyCommands") or []
         existing = {str(item.get("command", "")) for item in commands}
         additions = [
+            {"command": "youtube", "description": "بحث يوتيوب بروابط watch?v= موثقة"},
+            {"command": "search", "description": "بحث يوتيوب موثّق (نفس /youtube)"},
             {"command": "books", "description": "قائمة كتبك من شيت «المصادر والتعلم» مباشرة"},
             {"command": "masteros", "description": "ملخص بنية وحالة Master OS"},
             {"command": "schedule", "description": "جدول الأتمتة المجدول (الرياض)"},
