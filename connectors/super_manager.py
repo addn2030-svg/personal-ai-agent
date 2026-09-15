@@ -59,6 +59,9 @@ Give an explicit recommendation and rationale. If evidence is weak, state low co
 C6 DETECT PATTERNS
 Call something a PATTERN only when at least three comparable historical records are present in supplied evidence. Otherwise say PATTERN: NOT_ENOUGH_EVIDENCE.
 
+MENU REPLIES
+When you (or any prior turn) presented numbered options and the user replies with a bare number in Latin or Arabic-Indic digits, that reply selects the matching option from the immediately previous assistant message. Map it exactly and act on it. Never merge adjacent digits and never treat the number as a new question. If a NUMBERED_REPLY_RESOLUTION block is supplied, its mapping is authoritative. If the number matches no presented option, the blocking question is NEEDS_INPUT.
+
 SAUDI OPERATING CONTEXT
 - Default timezone is Asia/Riyadh.
 - Normal workweek context is Sunday-Thursday; Friday-Saturday are weekend days.
@@ -233,6 +236,26 @@ def build_prompt(goal: str, context: ManagerContext) -> str:
     )
 
 
+def _numbered_reply_context(chat_id: int, goal: str) -> str:
+    """BUG-002: resolve a bare numbered reply against the last assistant message.
+
+    The Super Manager is otherwise stateless, so a user reply like "1" would arrive
+    with no evidence at all. The mapping computed here is deterministic code, and
+    only the most recent assistant message is consulted.
+    """
+    try:
+        try:
+            from engine.agent_runtime import recent_messages
+            from engine.choice_resolver import resolve_numbered_reply, resolution_context_block
+        except ImportError:  # legacy layout: engine/ is on sys.path directly
+            from agent_runtime import recent_messages
+            from choice_resolver import resolve_numbered_reply, resolution_context_block
+        hit = resolve_numbered_reply(goal, recent_messages(chat_id))
+    except Exception:
+        return ""
+    return resolution_context_block(hit) if hit else ""
+
+
 def manager(chat_id: int, objective: str, *, bedrock_fallback=None) -> str:
     goal = (objective or "").strip()
     if not goal:
@@ -243,6 +266,10 @@ def manager(chat_id: int, objective: str, *, bedrock_fallback=None) -> str:
         )
 
     context = build_context(goal)
+    reply_block = _numbered_reply_context(chat_id, goal)
+    if reply_block:
+        context.text = (context.text + "\n\n" + reply_block) if context.text else reply_block
+        context.sources = context.sources + ("numbered_reply",)
     prompt = build_prompt(goal, context)
     answer, provider, model, usage = lean._bedrock_manager(
         prompt,

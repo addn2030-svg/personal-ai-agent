@@ -81,6 +81,12 @@ The RUNTIME CLOCK block in the context is the only authority for the current dat
 weekday and time. Never answer a date or time question from training data and never
 guess a year. If that block is absent, say the current date cannot be determined
 rather than guessing.
+MENU REPLIES: when you have presented numbered choices (1, 2, 3...) and the user
+replies with a bare number in Latin or Arabic-Indic digits, that reply selects the
+matching choice from your most recent message. Map it exactly and act on it (or
+confirm it). Never merge adjacent digits, never reinterpret the number as a new
+question, and never ask what the number means when it matches a presented choice.
+If the number matches no presented choice, ask one clarifying question.
 """
 
 
@@ -1203,6 +1209,20 @@ def handle_message(message: dict):
         remember(chat_id, "user", text, message.get("message_id", ""), category)
         api("sendChatAction", {"chat_id": chat_id, "action": "typing"})
         sheet_context = ""
+        try:
+            from agent_runtime import recent_messages
+            try:
+                from engine.choice_resolver import resolve_numbered_reply, resolution_context_block
+            except ImportError:  # legacy layout: engine/ is on sys.path
+                from choice_resolver import resolve_numbered_reply, resolution_context_block
+            hit = resolve_numbered_reply(text, recent_messages(chat_id))
+            if hit:
+                # BUG-002: a bare numbered reply selects the matching option from the
+                # previous message. State that mapping deterministically so the model
+                # executes the choice instead of asking "ماذا تقصد بـ 11؟".
+                sheet_context = resolution_context_block(hit) + "\n\n" + sheet_context
+        except Exception as exc:
+            print(f"Numbered reply resolution warning: {exc}", flush=True)
         if _needs_memory_lookup(text):
             try:
                 sheet_context, _ = _memory_sheet_context(text)

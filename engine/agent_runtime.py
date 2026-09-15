@@ -191,9 +191,20 @@ def build_context(chat_id, query):
 
 
 def bedrock_messages(chat_id, query):
-    history = recent_messages(chat_id)
+    # BUG-002 ("1" read as "11"): handle_message persists the current user message
+    # with remember() before the model call, so it is already the last history row.
+    # Appending the query again produced two adjacent identical user turns, which
+    # models read as one merged message ("1" + "1" -> "11"). Drop that duplicate;
+    # a genuine repeat sent in an earlier turn is kept.
+    rows = list(recent_messages(chat_id)[-MAX_MEMORY_TURNS * 2:])
+    if (
+        rows
+        and rows[-1].get("role") == "user"
+        and str(rows[-1].get("content", "")).strip() == str(query).strip()
+    ):
+        rows.pop()
     messages = []
-    for row in history[-MAX_MEMORY_TURNS * 2:]:
+    for row in rows:
         role = row.get("role")
         if role in {"user", "assistant"}:
             messages.append({"role": role, "content": [{"text": str(row.get("content", ""))[:5000]}]})

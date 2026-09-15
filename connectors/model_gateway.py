@@ -76,8 +76,19 @@ def _set_route(provider: str, model: str, fallback: bool = False):
 def _openai_messages(chat_id: int, text: str, system_prompt: str, context: str) -> list[dict]:
     from agent_runtime import recent_messages
 
+    # BUG-002 ("1" read as "11"): the caller persists the current user message with
+    # remember() before asking, so it already ends the history. Appending it again
+    # created adjacent duplicate user turns that models merge ("1" + "1" -> "11").
+    rows = list(recent_messages(chat_id)[-20:])
+    if (
+        rows
+        and rows[-1].get("role") == "user"
+        and str(rows[-1].get("content", "")).strip() == str(text).strip()
+    ):
+        rows.pop()
+
     messages = [{"role": "system", "content": system_prompt + "\n\n" + context}]
-    for row in recent_messages(chat_id)[-20:]:
+    for row in rows:
         role = row.get("role")
         if role in {"user", "assistant"}:
             messages.append({"role": role, "content": str(row.get("content", ""))[:5000]})

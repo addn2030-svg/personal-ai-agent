@@ -378,7 +378,14 @@ def _delegated_handle_message(message: dict):
     try:
         _impl.api("sendChatAction", {"chat_id": chat_id, "action": "typing"})
         if natural_manager:
+            # Super Manager mode bypasses the legacy pipeline, so without this the
+            # conversation_memory stays empty and numbered menu replies ("1") can
+            # never be resolved against the menu the manager itself presented.
+            from agent_runtime import remember
+            category = _impl._category(text, "TEXT")
+            remember(chat_id, "user", text, message.get("message_id", ""), category)
             answer = _super_manager.manager(chat_id, natural_objective, bedrock_fallback=_legacy_ask_bedrock)
+            remember(chat_id, "assistant", answer, message.get("message_id", ""), category)
             _send_chunks(chat_id, answer)
         elif command == "/manager":
             objective = text[len(command):].strip()
