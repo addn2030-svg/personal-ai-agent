@@ -18,13 +18,16 @@ from . import lean_missions as lean
 from . import model_gateway as models
 from . import task_delegation as base
 
-OPS_CONTEXT_LIMIT = int(os.environ.get("MISSION_OPS_CONTEXT_CHARS", "2400"))
+OPS_CONTEXT_LIMIT = int(os.environ.get("MISSION_OPS_CONTEXT_CHARS", "4000"))
 OPS_SHEET_TABS = (
     "Projects",
     "خطة الإنجاز والمهام",
     "Waiting_For",
     "Blockers",
     "Executive_Brief",
+    "التطوير الشخصي",
+    "الهوية الشخصية",
+    "مكتبة العبارات التوجيهية",
 )
 
 _TRIGGER_RE = re.compile(
@@ -181,7 +184,7 @@ def _sheet_lines() -> list[str]:
 
     if not sheet_intelligence.configured():
         return []
-    data = sheet_intelligence.snapshot(max_rows=12, max_cols=8)
+    data = sheet_intelligence.snapshot(max_rows=20, max_cols=8)
     lines: list[str] = []
     for tab in OPS_SHEET_TABS:
         rows = data.get(tab) or []
@@ -192,7 +195,7 @@ def _sheet_lines() -> list[str]:
             clean = " | ".join(_clean(cell, 120) for cell in row if str(cell).strip())
             if clean:
                 lines.append(f"SHEET {tab} r{idx} | {clean}")
-            if len(lines) >= 14:
+            if len(lines) >= 22:
                 return lines
     return lines
 
