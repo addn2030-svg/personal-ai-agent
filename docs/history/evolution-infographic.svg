@@ -1,0 +1,355 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="2080" viewBox="0 0 1600 2080" font-family="Inter, Segoe UI, Helvetica, Arial, sans-serif">
+<defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0f172a"/><stop offset="1" stop-color="#1e293b"/></linearGradient><linearGradient id="area" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#38bdf8" stop-opacity="0.55"/><stop offset="1" stop-color="#38bdf8" stop-opacity="0.05"/></linearGradient></defs>
+<rect width="1600" height="2080" fill="url(#bg)"/>
+<text x="60" y="70" font-size="40" font-weight="800" fill="#f8fafc">Rehabilitation Chief-of-Staff Agent — Evolution Timeline</text>
+<text x="60" y="104" font-size="18" fill="#94a3b8">Abdulrahman AI OS · addn2030-svg/personal-ai-agent · 21 Aug 2026 → 15 Sep 2026 (26 days) · 304 commits · 108 merged PRs</text>
+<rect x="60.0" y="130" width="233.33333333333334" height="96" rx="14" fill="#1e293b" stroke="#334155"/>
+<text x="78.0" y="176" font-size="36" font-weight="800" fill="#38bdf8">64</text>
+<text x="78.0" y="200" font-size="14" fill="#e2e8f0">engine modules</text>
+<text x="78.0" y="218" font-size="12" fill="#64748b">13 → 64</text>
+<rect x="309.33333333333337" y="130" width="233.33333333333334" height="96" rx="14" fill="#1e293b" stroke="#334155"/>
+<text x="327.33333333333337" y="176" font-size="36" font-weight="800" fill="#38bdf8">57</text>
+<text x="327.33333333333337" y="200" font-size="14" fill="#e2e8f0">connectors</text>
+<text x="327.33333333333337" y="218" font-size="12" fill="#64748b">0 → 57</text>
+<rect x="558.6666666666667" y="130" width="233.33333333333334" height="96" rx="14" fill="#1e293b" stroke="#334155"/>
+<text x="576.6666666666667" y="176" font-size="36" font-weight="800" fill="#38bdf8">44</text>
+<text x="576.6666666666667" y="200" font-size="14" fill="#e2e8f0">test files</text>
+<text x="576.6666666666667" y="218" font-size="12" fill="#64748b">373 tests</text>
+<rect x="808.0" y="130" width="233.33333333333334" height="96" rx="14" fill="#1e293b" stroke="#334155"/>
+<text x="826.0" y="176" font-size="36" font-weight="800" fill="#38bdf8">60+</text>
+<text x="826.0" y="200" font-size="14" fill="#e2e8f0">Telegram commands</text>
+<text x="826.0" y="218" font-size="12" fill="#64748b">/brief … /sweep</text>
+<rect x="1057.3333333333335" y="130" width="233.33333333333334" height="96" rx="14" fill="#1e293b" stroke="#334155"/>
+<text x="1075.3333333333335" y="176" font-size="36" font-weight="800" fill="#38bdf8">29K</text>
+<text x="1075.3333333333335" y="200" font-size="14" fill="#e2e8f0">lines of Python</text>
+<text x="1075.3333333333335" y="218" font-size="12" fill="#64748b">engine+connectors+tests</text>
+<rect x="1306.6666666666667" y="130" width="233.33333333333334" height="96" rx="14" fill="#1e293b" stroke="#334155"/>
+<text x="1324.6666666666667" y="176" font-size="36" font-weight="800" fill="#38bdf8">16</text>
+<text x="1324.6666666666667" y="200" font-size="14" fill="#e2e8f0">prompt packs</text>
+<text x="1324.6666666666667" y="218" font-size="12" fill="#64748b">clinical · proactive · …</text>
+<rect x="60" y="270" width="1480" height="360" rx="16" fill="#0b1220" stroke="#334155"/>
+<text x="80" y="302" font-size="20" font-weight="700" fill="#f1f5f9">Codebase growth by day (last commit on main each day)</text>
+<line x1="120" y1="570.0" x2="1500" y2="570.0" stroke="#1e293b"/>
+<text x="110" y="574.0" font-size="11" fill="#64748b" text-anchor="end">0</text>
+<line x1="120" y1="535.7" x2="1500" y2="535.7" stroke="#1e293b"/>
+<text x="110" y="539.7" font-size="11" fill="#64748b" text-anchor="end">10</text>
+<line x1="120" y1="501.4" x2="1500" y2="501.4" stroke="#1e293b"/>
+<text x="110" y="505.4" font-size="11" fill="#64748b" text-anchor="end">20</text>
+<line x1="120" y1="467.1" x2="1500" y2="467.1" stroke="#1e293b"/>
+<text x="110" y="471.1" font-size="11" fill="#64748b" text-anchor="end">30</text>
+<line x1="120" y1="432.9" x2="1500" y2="432.9" stroke="#1e293b"/>
+<text x="110" y="436.9" font-size="11" fill="#64748b" text-anchor="end">40</text>
+<line x1="120" y1="398.6" x2="1500" y2="398.6" stroke="#1e293b"/>
+<text x="110" y="402.6" font-size="11" fill="#64748b" text-anchor="end">50</text>
+<line x1="120" y1="364.3" x2="1500" y2="364.3" stroke="#1e293b"/>
+<text x="110" y="368.3" font-size="11" fill="#64748b" text-anchor="end">60</text>
+<line x1="120" y1="330.0" x2="1500" y2="330.0" stroke="#1e293b"/>
+<text x="110" y="334.0" font-size="11" fill="#64748b" text-anchor="end">70</text>
+<polygon points="120.0,570 120.0,525.4 196.7,395.1 273.3,391.7 350.0,388.3 426.7,388.3 503.3,388.3 580.0,388.3 656.7,384.9 733.3,384.9 810.0,384.9 886.7,384.9 963.3,384.9 1040.0,381.4 1116.7,381.4 1193.3,364.3 1270.0,360.9 1346.7,360.9 1423.3,357.4 1500.0,350.6 1500.0,570" fill="url(#area)"/>
+<polyline points="120.0,525.4 196.7,395.1 273.3,391.7 350.0,388.3 426.7,388.3 503.3,388.3 580.0,388.3 656.7,384.9 733.3,384.9 810.0,384.9 886.7,384.9 963.3,384.9 1040.0,381.4 1116.7,381.4 1193.3,364.3 1270.0,360.9 1346.7,360.9 1423.3,357.4 1500.0,350.6" fill="none" stroke="#38bdf8" stroke-width="3" stroke-linejoin="round"/>
+<circle cx="120.0" cy="525.4" r="3.5" fill="#38bdf8"/>
+<circle cx="196.7" cy="395.1" r="3.5" fill="#38bdf8"/>
+<circle cx="273.3" cy="391.7" r="3.5" fill="#38bdf8"/>
+<circle cx="350.0" cy="388.3" r="3.5" fill="#38bdf8"/>
+<circle cx="426.7" cy="388.3" r="3.5" fill="#38bdf8"/>
+<circle cx="503.3" cy="388.3" r="3.5" fill="#38bdf8"/>
+<circle cx="580.0" cy="388.3" r="3.5" fill="#38bdf8"/>
+<circle cx="656.7" cy="384.9" r="3.5" fill="#38bdf8"/>
+<circle cx="733.3" cy="384.9" r="3.5" fill="#38bdf8"/>
+<circle cx="810.0" cy="384.9" r="3.5" fill="#38bdf8"/>
+<circle cx="886.7" cy="384.9" r="3.5" fill="#38bdf8"/>
+<circle cx="963.3" cy="384.9" r="3.5" fill="#38bdf8"/>
+<circle cx="1040.0" cy="381.4" r="3.5" fill="#38bdf8"/>
+<circle cx="1116.7" cy="381.4" r="3.5" fill="#38bdf8"/>
+<circle cx="1193.3" cy="364.3" r="3.5" fill="#38bdf8"/>
+<circle cx="1270.0" cy="360.9" r="3.5" fill="#38bdf8"/>
+<circle cx="1346.7" cy="360.9" r="3.5" fill="#38bdf8"/>
+<circle cx="1423.3" cy="357.4" r="3.5" fill="#38bdf8"/>
+<circle cx="1500.0" cy="350.6" r="3.5" fill="#38bdf8"/>
+<polyline points="120.0,570.0 196.7,542.6 273.3,525.4 350.0,522.0 426.7,515.1 503.3,480.9 580.0,477.4 656.7,467.1 733.3,439.7 810.0,422.6 886.7,419.1 963.3,419.1 1040.0,419.1 1116.7,412.3 1193.3,412.3 1270.0,395.1 1346.7,391.7 1423.3,384.9 1500.0,374.6" fill="none" stroke="#a78bfa" stroke-width="3" stroke-linejoin="round"/>
+<circle cx="120.0" cy="570.0" r="3.5" fill="#a78bfa"/>
+<circle cx="196.7" cy="542.6" r="3.5" fill="#a78bfa"/>
+<circle cx="273.3" cy="525.4" r="3.5" fill="#a78bfa"/>
+<circle cx="350.0" cy="522.0" r="3.5" fill="#a78bfa"/>
+<circle cx="426.7" cy="515.1" r="3.5" fill="#a78bfa"/>
+<circle cx="503.3" cy="480.9" r="3.5" fill="#a78bfa"/>
+<circle cx="580.0" cy="477.4" r="3.5" fill="#a78bfa"/>
+<circle cx="656.7" cy="467.1" r="3.5" fill="#a78bfa"/>
+<circle cx="733.3" cy="439.7" r="3.5" fill="#a78bfa"/>
+<circle cx="810.0" cy="422.6" r="3.5" fill="#a78bfa"/>
+<circle cx="886.7" cy="419.1" r="3.5" fill="#a78bfa"/>
+<circle cx="963.3" cy="419.1" r="3.5" fill="#a78bfa"/>
+<circle cx="1040.0" cy="419.1" r="3.5" fill="#a78bfa"/>
+<circle cx="1116.7" cy="412.3" r="3.5" fill="#a78bfa"/>
+<circle cx="1193.3" cy="412.3" r="3.5" fill="#a78bfa"/>
+<circle cx="1270.0" cy="395.1" r="3.5" fill="#a78bfa"/>
+<circle cx="1346.7" cy="391.7" r="3.5" fill="#a78bfa"/>
+<circle cx="1423.3" cy="384.9" r="3.5" fill="#a78bfa"/>
+<circle cx="1500.0" cy="374.6" r="3.5" fill="#a78bfa"/>
+<polyline points="120.0,570.0 196.7,566.6 273.3,559.7 350.0,552.9 426.7,549.4 503.3,515.1 580.0,515.1 656.7,498.0 733.3,487.7 810.0,484.3 886.7,484.3 963.3,484.3 1040.0,484.3 1116.7,474.0 1193.3,456.9 1270.0,443.1 1346.7,436.3 1423.3,426.0 1500.0,419.1" fill="none" stroke="#34d399" stroke-width="3" stroke-linejoin="round"/>
+<circle cx="120.0" cy="570.0" r="3.5" fill="#34d399"/>
+<circle cx="196.7" cy="566.6" r="3.5" fill="#34d399"/>
+<circle cx="273.3" cy="559.7" r="3.5" fill="#34d399"/>
+<circle cx="350.0" cy="552.9" r="3.5" fill="#34d399"/>
+<circle cx="426.7" cy="549.4" r="3.5" fill="#34d399"/>
+<circle cx="503.3" cy="515.1" r="3.5" fill="#34d399"/>
+<circle cx="580.0" cy="515.1" r="3.5" fill="#34d399"/>
+<circle cx="656.7" cy="498.0" r="3.5" fill="#34d399"/>
+<circle cx="733.3" cy="487.7" r="3.5" fill="#34d399"/>
+<circle cx="810.0" cy="484.3" r="3.5" fill="#34d399"/>
+<circle cx="886.7" cy="484.3" r="3.5" fill="#34d399"/>
+<circle cx="963.3" cy="484.3" r="3.5" fill="#34d399"/>
+<circle cx="1040.0" cy="484.3" r="3.5" fill="#34d399"/>
+<circle cx="1116.7" cy="474.0" r="3.5" fill="#34d399"/>
+<circle cx="1193.3" cy="456.9" r="3.5" fill="#34d399"/>
+<circle cx="1270.0" cy="443.1" r="3.5" fill="#34d399"/>
+<circle cx="1346.7" cy="436.3" r="3.5" fill="#34d399"/>
+<circle cx="1423.3" cy="426.0" r="3.5" fill="#34d399"/>
+<circle cx="1500.0" cy="419.1" r="3.5" fill="#34d399"/>
+<polyline points="120.0,559.7 196.7,528.9 273.3,525.4 350.0,525.4 426.7,525.4 503.3,525.4 580.0,525.4 656.7,522.0 733.3,522.0 810.0,522.0 886.7,522.0 963.3,522.0 1040.0,522.0 1116.7,515.1 1193.3,508.3 1270.0,501.4 1346.7,501.4 1423.3,498.0 1500.0,470.6" fill="none" stroke="#fbbf24" stroke-width="3" stroke-linejoin="round"/>
+<circle cx="120.0" cy="559.7" r="3.5" fill="#fbbf24"/>
+<circle cx="196.7" cy="528.9" r="3.5" fill="#fbbf24"/>
+<circle cx="273.3" cy="525.4" r="3.5" fill="#fbbf24"/>
+<circle cx="350.0" cy="525.4" r="3.5" fill="#fbbf24"/>
+<circle cx="426.7" cy="525.4" r="3.5" fill="#fbbf24"/>
+<circle cx="503.3" cy="525.4" r="3.5" fill="#fbbf24"/>
+<circle cx="580.0" cy="525.4" r="3.5" fill="#fbbf24"/>
+<circle cx="656.7" cy="522.0" r="3.5" fill="#fbbf24"/>
+<circle cx="733.3" cy="522.0" r="3.5" fill="#fbbf24"/>
+<circle cx="810.0" cy="522.0" r="3.5" fill="#fbbf24"/>
+<circle cx="886.7" cy="522.0" r="3.5" fill="#fbbf24"/>
+<circle cx="963.3" cy="522.0" r="3.5" fill="#fbbf24"/>
+<circle cx="1040.0" cy="522.0" r="3.5" fill="#fbbf24"/>
+<circle cx="1116.7" cy="515.1" r="3.5" fill="#fbbf24"/>
+<circle cx="1193.3" cy="508.3" r="3.5" fill="#fbbf24"/>
+<circle cx="1270.0" cy="501.4" r="3.5" fill="#fbbf24"/>
+<circle cx="1346.7" cy="501.4" r="3.5" fill="#fbbf24"/>
+<circle cx="1423.3" cy="498.0" r="3.5" fill="#fbbf24"/>
+<circle cx="1500.0" cy="470.6" r="3.5" fill="#fbbf24"/>
+<polyline points="120.0,546.0 196.7,525.4 273.3,522.0 350.0,522.0 426.7,522.0 503.3,522.0 580.0,522.0 656.7,522.0 733.3,522.0 810.0,522.0 886.7,522.0 963.3,522.0 1040.0,522.0 1116.7,522.0 1193.3,518.6 1270.0,515.1 1346.7,515.1 1423.3,515.1 1500.0,515.1" fill="none" stroke="#f472b6" stroke-width="3" stroke-linejoin="round"/>
+<circle cx="120.0" cy="546.0" r="3.5" fill="#f472b6"/>
+<circle cx="196.7" cy="525.4" r="3.5" fill="#f472b6"/>
+<circle cx="273.3" cy="522.0" r="3.5" fill="#f472b6"/>
+<circle cx="350.0" cy="522.0" r="3.5" fill="#f472b6"/>
+<circle cx="426.7" cy="522.0" r="3.5" fill="#f472b6"/>
+<circle cx="503.3" cy="522.0" r="3.5" fill="#f472b6"/>
+<circle cx="580.0" cy="522.0" r="3.5" fill="#f472b6"/>
+<circle cx="656.7" cy="522.0" r="3.5" fill="#f472b6"/>
+<circle cx="733.3" cy="522.0" r="3.5" fill="#f472b6"/>
+<circle cx="810.0" cy="522.0" r="3.5" fill="#f472b6"/>
+<circle cx="886.7" cy="522.0" r="3.5" fill="#f472b6"/>
+<circle cx="963.3" cy="522.0" r="3.5" fill="#f472b6"/>
+<circle cx="1040.0" cy="522.0" r="3.5" fill="#f472b6"/>
+<circle cx="1116.7" cy="522.0" r="3.5" fill="#f472b6"/>
+<circle cx="1193.3" cy="518.6" r="3.5" fill="#f472b6"/>
+<circle cx="1270.0" cy="515.1" r="3.5" fill="#f472b6"/>
+<circle cx="1346.7" cy="515.1" r="3.5" fill="#f472b6"/>
+<circle cx="1423.3" cy="515.1" r="3.5" fill="#f472b6"/>
+<circle cx="1500.0" cy="515.1" r="3.5" fill="#f472b6"/>
+<text x="120.0" y="588" font-size="11" fill="#94a3b8" text-anchor="middle">08-21</text>
+<text x="196.7" y="588" font-size="11" fill="#94a3b8" text-anchor="middle">08-22</text>
+<text x="273.3" y="588" font-size="11" fill="#94a3b8" text-anchor="middle">08-24</text>
+<text x="350.0" y="588" font-size="11" fill="#94a3b8" text-anchor="middle">08-25</text>
+<text x="426.7" y="588" font-size="11" fill="#94a3b8" text-anchor="middle">08-27</text>
+<text x="503.3" y="588" font-size="11" fill="#94a3b8" text-anchor="middle">08-28</text>
+<text x="580.0" y="588" font-size="11" fill="#94a3b8" text-anchor="middle">08-29</text>
+<text x="656.7" y="588" font-size="11" fill="#94a3b8" text-anchor="middle">08-30</text>
+<text x="733.3" y="588" font-size="11" fill="#94a3b8" text-anchor="middle">08-31</text>
+<text x="810.0" y="588" font-size="11" fill="#94a3b8" text-anchor="middle">09-01</text>
+<text x="886.7" y="588" font-size="11" fill="#94a3b8" text-anchor="middle">09-02</text>
+<text x="963.3" y="588" font-size="11" fill="#94a3b8" text-anchor="middle">09-03</text>
+<text x="1040.0" y="588" font-size="11" fill="#94a3b8" text-anchor="middle">09-04</text>
+<text x="1116.7" y="588" font-size="11" fill="#94a3b8" text-anchor="middle">09-08</text>
+<text x="1193.3" y="588" font-size="11" fill="#94a3b8" text-anchor="middle">09-09</text>
+<text x="1270.0" y="588" font-size="11" fill="#94a3b8" text-anchor="middle">09-11</text>
+<text x="1346.7" y="588" font-size="11" fill="#94a3b8" text-anchor="middle">09-12</text>
+<text x="1423.3" y="588" font-size="11" fill="#94a3b8" text-anchor="middle">09-14</text>
+<text x="1500.0" y="588" font-size="11" fill="#94a3b8" text-anchor="middle">09-15</text>
+<rect x="101.8" y="541.2" width="36.3" height="28.8" fill="#f8fafc" opacity="0.06"/>
+<text x="120.0" y="604" font-size="10" fill="#475569" text-anchor="middle">14c</text>
+<rect x="178.5" y="487.7" width="36.3" height="82.3" fill="#f8fafc" opacity="0.06"/>
+<text x="196.7" y="604" font-size="10" fill="#475569" text-anchor="middle">40c</text>
+<rect x="255.2" y="555.6" width="36.3" height="14.4" fill="#f8fafc" opacity="0.06"/>
+<text x="273.3" y="604" font-size="10" fill="#475569" text-anchor="middle">7c</text>
+<rect x="331.8" y="541.2" width="36.3" height="28.8" fill="#f8fafc" opacity="0.06"/>
+<text x="350.0" y="604" font-size="10" fill="#475569" text-anchor="middle">14c</text>
+<rect x="408.5" y="567.9" width="36.3" height="2.1" fill="#f8fafc" opacity="0.06"/>
+<text x="426.7" y="604" font-size="10" fill="#475569" text-anchor="middle">1c</text>
+<rect x="485.2" y="430.1" width="36.3" height="139.9" fill="#f8fafc" opacity="0.06"/>
+<text x="503.3" y="604" font-size="10" fill="#475569" text-anchor="middle">68c</text>
+<rect x="561.8" y="528.9" width="36.3" height="41.1" fill="#f8fafc" opacity="0.06"/>
+<text x="580.0" y="604" font-size="10" fill="#475569" text-anchor="middle">20c</text>
+<rect x="638.5" y="508.3" width="36.3" height="61.7" fill="#f8fafc" opacity="0.06"/>
+<text x="656.7" y="604" font-size="10" fill="#475569" text-anchor="middle">30c</text>
+<rect x="715.2" y="524.7" width="36.3" height="45.3" fill="#f8fafc" opacity="0.06"/>
+<text x="733.3" y="604" font-size="10" fill="#475569" text-anchor="middle">22c</text>
+<rect x="791.8" y="543.3" width="36.3" height="26.7" fill="#f8fafc" opacity="0.06"/>
+<text x="810.0" y="604" font-size="10" fill="#475569" text-anchor="middle">13c</text>
+<rect x="868.5" y="563.8" width="36.3" height="6.2" fill="#f8fafc" opacity="0.06"/>
+<text x="886.7" y="604" font-size="10" fill="#475569" text-anchor="middle">3c</text>
+<rect x="945.2" y="557.7" width="36.3" height="12.3" fill="#f8fafc" opacity="0.06"/>
+<text x="963.3" y="604" font-size="10" fill="#475569" text-anchor="middle">6c</text>
+<rect x="1021.8" y="557.7" width="36.3" height="12.3" fill="#f8fafc" opacity="0.06"/>
+<text x="1040.0" y="604" font-size="10" fill="#475569" text-anchor="middle">6c</text>
+<rect x="1098.5" y="561.8" width="36.3" height="8.2" fill="#f8fafc" opacity="0.06"/>
+<text x="1116.7" y="604" font-size="10" fill="#475569" text-anchor="middle">4c</text>
+<rect x="1175.2" y="553.5" width="36.3" height="16.5" fill="#f8fafc" opacity="0.06"/>
+<text x="1193.3" y="604" font-size="10" fill="#475569" text-anchor="middle">8c</text>
+<rect x="1251.8" y="543.3" width="36.3" height="26.7" fill="#f8fafc" opacity="0.06"/>
+<text x="1270.0" y="604" font-size="10" fill="#475569" text-anchor="middle">13c</text>
+<rect x="1328.5" y="563.8" width="36.3" height="6.2" fill="#f8fafc" opacity="0.06"/>
+<text x="1346.7" y="604" font-size="10" fill="#475569" text-anchor="middle">3c</text>
+<rect x="1405.2" y="563.8" width="36.3" height="6.2" fill="#f8fafc" opacity="0.06"/>
+<text x="1423.3" y="604" font-size="10" fill="#475569" text-anchor="middle">3c</text>
+<rect x="1481.8" y="559.7" width="36.3" height="10.3" fill="#f8fafc" opacity="0.06"/>
+<text x="1500.0" y="604" font-size="10" fill="#475569" text-anchor="middle">5c</text>
+<rect x="120" y="604" width="14" height="14" rx="3" fill="#38bdf8"/>
+<text x="140" y="616" font-size="12" fill="#cbd5e1">Engine modules</text>
+<rect x="270" y="604" width="14" height="14" rx="3" fill="#a78bfa"/>
+<text x="290" y="616" font-size="12" fill="#cbd5e1">Connectors</text>
+<rect x="420" y="604" width="14" height="14" rx="3" fill="#34d399"/>
+<text x="440" y="616" font-size="12" fill="#cbd5e1">Test files</text>
+<rect x="570" y="604" width="14" height="14" rx="3" fill="#fbbf24"/>
+<text x="590" y="616" font-size="12" fill="#cbd5e1">Docs</text>
+<rect x="720" y="604" width="14" height="14" rx="3" fill="#f472b6"/>
+<text x="740" y="616" font-size="12" fill="#cbd5e1">Prompt packs</text>
+<text x="880" y="616" font-size="12" fill="#64748b">grey bars / "Nc" = commits that day</text>
+<text x="60" y="680" font-size="24" font-weight="800" fill="#f8fafc">Release milestones</text>
+<line x1="800.0" y1="704" x2="800.0" y2="1624.0" stroke="#334155" stroke-width="4" stroke-dasharray="2 6"/>
+<circle cx="800.0" cy="734" r="9" fill="#2563eb" stroke="#0f172a" stroke-width="3"/>
+<line x1="770.0" y1="734" x2="800.0" y2="734" stroke="#2563eb" stroke-width="2"/>
+<rect x="60" y="704" width="710.0" height="150" rx="14" fill="#0b1220" stroke="#2563eb" stroke-width="1.5"/>
+<rect x="60" y="704" width="8" height="150" rx="4" fill="#2563eb"/>
+<text x="82" y="732" font-size="13" font-weight="700" fill="#2563eb">AUG 21</text>
+<text x="754.0" y="732" font-size="12" fill="#94a3b8" text-anchor="end">v0.2 → v0.4.1</text>
+<text x="82" y="758" font-size="19" font-weight="800" fill="#f8fafc">Foundation</text>
+<text x="82" y="782" font-size="12.5" fill="#cbd5e1">• Unified StateStore + SHA-256 approval gate</text>
+<text x="82" y="800" font-size="12.5" fill="#cbd5e1">• Manager loop (fast 15m / full 06:00)</text>
+<text x="82" y="818" font-size="12.5" fill="#cbd5e1">• Voice-call intake · Adaptive teaching (ILPC)</text>
+<text x="82" y="836" font-size="12.5" fill="#cbd5e1">• Autostart 24/7 · Drive &amp; ChatGPT bridges</text>
+<circle cx="800.0" cy="822.0" r="9" fill="#7c3aed" stroke="#0f172a" stroke-width="3"/>
+<line x1="800.0" y1="822.0" x2="830.0" y2="822.0" stroke="#7c3aed" stroke-width="2"/>
+<rect x="830.0" y="792.0" width="710.0" height="150" rx="14" fill="#0b1220" stroke="#7c3aed" stroke-width="1.5"/>
+<rect x="830.0" y="792.0" width="8" height="150" rx="4" fill="#7c3aed"/>
+<text x="852.0" y="820.0" font-size="13" font-weight="700" fill="#7c3aed">AUG 22</text>
+<text x="1524.0" y="820.0" font-size="12" fill="#94a3b8" text-anchor="end">v0.5 → v0.9</text>
+<text x="852.0" y="846.0" font-size="19" font-weight="800" fill="#f8fafc">Chief of Staff Core</text>
+<text x="852.0" y="870.0" font-size="12.5" fill="#cbd5e1">• Orchestrator, permissions, memory, RAG</text>
+<text x="852.0" y="888.0" font-size="12.5" fill="#cbd5e1">• RCJY rehab leadership training pack</text>
+<text x="852.0" y="906.0" font-size="12.5" fill="#cbd5e1">• Self-improving loop · Trust &amp; change intel</text>
+<text x="852.0" y="924.0" font-size="12.5" fill="#cbd5e1">• Live Gmail/Calendar/Drive/GitHub/Telegram</text>
+<circle cx="800.0" cy="910" r="9" fill="#0891b2" stroke="#0f172a" stroke-width="3"/>
+<line x1="770.0" y1="910" x2="800.0" y2="910" stroke="#0891b2" stroke-width="2"/>
+<rect x="60" y="880" width="710.0" height="150" rx="14" fill="#0b1220" stroke="#0891b2" stroke-width="1.5"/>
+<rect x="60" y="880" width="8" height="150" rx="4" fill="#0891b2"/>
+<text x="82" y="908" font-size="13" font-weight="700" fill="#0891b2">AUG 22–25</text>
+<text x="754.0" y="908" font-size="12" fill="#94a3b8" text-anchor="end">Telegram Prod v1</text>
+<text x="82" y="934" font-size="19" font-weight="800" fill="#f8fafc">Mobile Runtime</text>
+<text x="82" y="958" font-size="12.5" fill="#cbd5e1">• Railway container · Bedrock Claude replies</text>
+<text x="82" y="976" font-size="12.5" fill="#cbd5e1">• AWS Transcribe voice notes</text>
+<text x="82" y="994" font-size="12.5" fill="#cbd5e1">• Sheets intelligence + secure Apps Script webhook</text>
+<text x="82" y="1012" font-size="12.5" fill="#cbd5e1">• Provenance-first semantic memory</text>
+<circle cx="800.0" cy="998.0" r="9" fill="#059669" stroke="#0f172a" stroke-width="3"/>
+<line x1="800.0" y1="998.0" x2="830.0" y2="998.0" stroke="#059669" stroke-width="2"/>
+<rect x="830.0" y="968.0" width="710.0" height="150" rx="14" fill="#0b1220" stroke="#059669" stroke-width="1.5"/>
+<rect x="830.0" y="968.0" width="8" height="150" rx="4" fill="#059669"/>
+<text x="852.0" y="996.0" font-size="13" font-weight="700" fill="#059669">AUG 24</text>
+<text x="1524.0" y="996.0" font-size="12" fill="#94a3b8" text-anchor="end">Rehab v1.3 / Ph 1.5</text>
+<text x="852.0" y="1022.0" font-size="19" font-weight="800" fill="#f8fafc">Clinical Layer</text>
+<text x="852.0" y="1046.0" font-size="12.5" fill="#cbd5e1">• Executive /brief discovery + supervisor form</text>
+<text x="852.0" y="1064.0" font-size="12.5" fill="#cbd5e1">• Pre-visit intelligence (case-code only)</text>
+<text x="852.0" y="1082.0" font-size="12.5" fill="#cbd5e1">• Safety triage URGENT/PRIORITY/ROUTINE</text>
+<text x="852.0" y="1100.0" font-size="12.5" fill="#cbd5e1">• Webhook mode + privacy hardening (P0)</text>
+<circle cx="800.0" cy="1086" r="9" fill="#d97706" stroke="#0f172a" stroke-width="3"/>
+<line x1="770.0" y1="1086" x2="800.0" y2="1086" stroke="#d97706" stroke-width="2"/>
+<rect x="60" y="1056" width="710.0" height="150" rx="14" fill="#0b1220" stroke="#d97706" stroke-width="1.5"/>
+<rect x="60" y="1056" width="8" height="150" rx="4" fill="#d97706"/>
+<text x="82" y="1084" font-size="13" font-weight="700" fill="#d97706">AUG 27–28</text>
+<text x="754.0" y="1084" font-size="12" fill="#94a3b8" text-anchor="end">Prod v0.5a → v0.9.6</text>
+<text x="82" y="1110" font-size="19" font-weight="800" fill="#f8fafc">Multi-Model Team</text>
+<text x="82" y="1134" font-size="12.5" fill="#cbd5e1">• OpenRouter primary + Bedrock fallback</text>
+<text x="82" y="1152" font-size="12.5" fill="#cbd5e1">• Task delegation · Mission orchestrator</text>
+<text x="82" y="1170" font-size="12.5" fill="#cbd5e1">• Claude/GPT/Gemini direct APIs · Nova Micro</text>
+<text x="82" y="1188" font-size="12.5" fill="#cbd5e1">• Guarded NL Calendar actions (mobile)</text>
+<circle cx="800.0" cy="1174.0" r="9" fill="#dc2626" stroke="#0f172a" stroke-width="3"/>
+<line x1="800.0" y1="1174.0" x2="830.0" y2="1174.0" stroke="#dc2626" stroke-width="2"/>
+<rect x="830.0" y="1144.0" width="710.0" height="150" rx="14" fill="#0b1220" stroke="#dc2626" stroke-width="1.5"/>
+<rect x="830.0" y="1144.0" width="8" height="150" rx="4" fill="#dc2626"/>
+<text x="852.0" y="1172.0" font-size="13" font-weight="700" fill="#dc2626">AUG 29–31</text>
+<text x="1524.0" y="1172.0" font-size="12" fill="#94a3b8" text-anchor="end">Gate 0.5 / WO-8</text>
+<text x="852.0" y="1198.0" font-size="19" font-weight="800" fill="#f8fafc">Safety &amp; Truth</text>
+<text x="852.0" y="1222.0" font-size="12.5" fill="#cbd5e1">• Direct Brief v2.1 (Sheets + Calendar)</text>
+<text x="852.0" y="1240.0" font-size="12.5" fill="#cbd5e1">• StateStore concurrency + fail-closed dates</text>
+<text x="852.0" y="1258.0" font-size="12.5" fill="#cbd5e1">• Capability Truth · Natural Action Executor</text>
+<text x="852.0" y="1276.0" font-size="12.5" fill="#cbd5e1">• Super Manager v1.1 · FAST canary</text>
+<circle cx="800.0" cy="1262" r="9" fill="#db2777" stroke="#0f172a" stroke-width="3"/>
+<line x1="770.0" y1="1262" x2="800.0" y2="1262" stroke="#db2777" stroke-width="2"/>
+<rect x="60" y="1232" width="710.0" height="150" rx="14" fill="#0b1220" stroke="#db2777" stroke-width="1.5"/>
+<rect x="60" y="1232" width="8" height="150" rx="4" fill="#db2777"/>
+<text x="82" y="1260" font-size="13" font-weight="700" fill="#db2777">SEP 1–4</text>
+<text x="754.0" y="1260" font-size="12" fill="#94a3b8" text-anchor="end">Commerce / Bridge</text>
+<text x="82" y="1286" font-size="19" font-weight="800" fill="#f8fafc">Extensions</text>
+<text x="82" y="1310" font-size="12.5" fill="#cbd5e1">• Commerce Agent ($100 pilot caps)</text>
+<text x="82" y="1328" font-size="12.5" fill="#cbd5e1">• First-party /chat Bridge API</text>
+<text x="82" y="1346" font-size="12.5" fill="#cbd5e1">• Strategic shadow DEV CI runner</text>
+<text x="82" y="1364" font-size="12.5" fill="#cbd5e1">• Books context (learning shelf) v3.0</text>
+<circle cx="800.0" cy="1350.0" r="9" fill="#4f46e5" stroke="#0f172a" stroke-width="3"/>
+<line x1="800.0" y1="1350.0" x2="830.0" y2="1350.0" stroke="#4f46e5" stroke-width="2"/>
+<rect x="830.0" y="1320.0" width="710.0" height="150" rx="14" fill="#0b1220" stroke="#4f46e5" stroke-width="1.5"/>
+<rect x="830.0" y="1320.0" width="8" height="150" rx="4" fill="#4f46e5"/>
+<text x="852.0" y="1348.0" font-size="13" font-weight="700" fill="#4f46e5">SEP 8–9</text>
+<text x="1524.0" y="1348.0" font-size="12" fill="#94a3b8" text-anchor="end">v0.9 Master OS</text>
+<text x="852.0" y="1374.0" font-size="19" font-weight="800" fill="#f8fafc">Knowledge &amp; Automation</text>
+<text x="852.0" y="1398.0" font-size="12.5" fill="#cbd5e1">• Google Docs connector + connection doctor</text>
+<text x="852.0" y="1416.0" font-size="12.5" fill="#cbd5e1">• Riyadh scheduler (11 jobs)</text>
+<text x="852.0" y="1434.0" font-size="12.5" fill="#cbd5e1">• Mermaid mind maps · Audio digests</text>
+<text x="852.0" y="1452.0" font-size="12.5" fill="#cbd5e1">• ElevenLabs channel · /diag</text>
+<circle cx="800.0" cy="1438" r="9" fill="#16a34a" stroke="#0f172a" stroke-width="3"/>
+<line x1="770.0" y1="1438" x2="800.0" y2="1438" stroke="#16a34a" stroke-width="2"/>
+<rect x="60" y="1408" width="710.0" height="150" rx="14" fill="#0b1220" stroke="#16a34a" stroke-width="1.5"/>
+<rect x="60" y="1408" width="8" height="150" rx="4" fill="#16a34a"/>
+<text x="82" y="1436" font-size="13" font-weight="700" fill="#16a34a">SEP 11–12</text>
+<text x="754.0" y="1436" font-size="12" fill="#94a3b8" text-anchor="end">v1.0 → v1.0.3</text>
+<text x="82" y="1462" font-size="19" font-weight="800" fill="#f8fafc">Proactive CoS</text>
+<text x="82" y="1486" font-size="12.5" fill="#cbd5e1">• observe→remember→predict→score→decide→act</text>
+<text x="82" y="1504" font-size="12.5" fill="#cbd5e1">• 8 standing orders · L0–L4 autonomy</text>
+<text x="82" y="1522" font-size="12.5" fill="#cbd5e1">• Urgent Telegram alerts · self-tuning review</text>
+<text x="82" y="1540" font-size="12.5" fill="#cbd5e1">• Buffer publisher · Content Creator · Gemini media</text>
+<circle cx="800.0" cy="1526.0" r="9" fill="#ea580c" stroke="#0f172a" stroke-width="3"/>
+<line x1="800.0" y1="1526.0" x2="830.0" y2="1526.0" stroke="#ea580c" stroke-width="2"/>
+<rect x="830.0" y="1496.0" width="710.0" height="150" rx="14" fill="#0b1220" stroke="#ea580c" stroke-width="1.5"/>
+<rect x="830.0" y="1496.0" width="8" height="150" rx="4" fill="#ea580c"/>
+<text x="852.0" y="1524.0" font-size="13" font-weight="700" fill="#ea580c">SEP 14–15</text>
+<text x="1524.0" y="1524.0" font-size="12" fill="#94a3b8" text-anchor="end">v2.0 / v1.1</text>
+<text x="852.0" y="1550.0" font-size="19" font-weight="800" fill="#f8fafc">Finance &amp; Autopay</text>
+<text x="852.0" y="1574.0" font-size="12.5" fill="#cbd5e1">• Real-clock anchor · Drive project memory</text>
+<text x="852.0" y="1592.0" font-size="12.5" fill="#cbd5e1">• Unified Finance Hub v2.0</text>
+<text x="852.0" y="1610.0" font-size="12.5" fill="#cbd5e1">• Dormant layers activated (14/14)</text>
+<text x="852.0" y="1628.0" font-size="12.5" fill="#cbd5e1">• Money threshold: autopay &lt; 375 SAR</text>
+<text x="60" y="1654" font-size="24" font-weight="800" fill="#f8fafc">Capability layers at v2.0 (15 Sep 2026)</text>
+<rect x="60" y="1674" width="1480" height="52" rx="10" fill="#0b1220" stroke="#334155"/>
+<rect x="60" y="1674" width="230" height="52" rx="10" fill="#dc2626"/>
+<text x="76" y="1706" font-size="15" font-weight="800" fill="#ffffff">Governance</text>
+<text x="310" y="1706" font-size="13.5" fill="#e2e8f0">SHA-256 approval gate · L0–L4 autonomy · Capability Truth · audit.jsonl · money ≤375 SAR hard cap</text>
+<rect x="60" y="1734" width="1480" height="52" rx="10" fill="#0b1220" stroke="#334155"/>
+<rect x="60" y="1734" width="230" height="52" rx="10" fill="#16a34a"/>
+<text x="76" y="1766" font-size="15" font-weight="800" fill="#ffffff">Proactive Chief of Staff</text>
+<text x="310" y="1766" font-size="13.5" fill="#e2e8f0">8 standing orders · open loops · 6 alerts/day · quiet hours 22:00–06:30 · undo · self-tuning review</text>
+<rect x="60" y="1794" width="1480" height="52" rx="10" fill="#0b1220" stroke="#334155"/>
+<rect x="60" y="1794" width="230" height="52" rx="10" fill="#059669"/>
+<text x="76" y="1826" font-size="15" font-weight="800" fill="#ffffff">Clinical &amp; Rehab Ops</text>
+<text x="310" y="1826" font-size="13.5" fill="#e2e8f0">Executive /brief · supervisor form · pre-visit intelligence (case-code only) · clinical prompt pack · voice-call intake</text>
+<rect x="60" y="1854" width="1480" height="52" rx="10" fill="#0b1220" stroke="#334155"/>
+<rect x="60" y="1854" width="230" height="52" rx="10" fill="#4f46e5"/>
+<text x="76" y="1886" font-size="15" font-weight="800" fill="#ffffff">Knowledge &amp; Learning</text>
+<text x="310" y="1886" font-size="13.5" fill="#e2e8f0">RAG · provenance memory · books shelf · ILPC teaching engine · mind maps · audio digests · Drive tree</text>
+<rect x="60" y="1914" width="1480" height="52" rx="10" fill="#0b1220" stroke="#334155"/>
+<rect x="60" y="1914" width="230" height="52" rx="10" fill="#ea580c"/>
+<text x="76" y="1946" font-size="15" font-weight="800" fill="#ffffff">Automation &amp; Finance</text>
+<text x="310" y="1946" font-size="13.5" fill="#e2e8f0">Riyadh scheduler (11 jobs) · manager fast/full loop · Finance Hub v2.0 · OKR · energy log · asset registry</text>
+<rect x="60" y="1974" width="1480" height="52" rx="10" fill="#0b1220" stroke="#334155"/>
+<rect x="60" y="1974" width="230" height="52" rx="10" fill="#0891b2"/>
+<text x="76" y="2006" font-size="15" font-weight="800" fill="#ffffff">Integrations</text>
+<text x="310" y="2006" font-size="13.5" fill="#e2e8f0">Telegram webhook · Google Sheets/Docs/Calendar/Drive/Gmail · GitHub · Buffer · Bedrock/OpenRouter/Gemini/GPT · ElevenLabs · AWS Transcribe</text>
+<text x="60" y="2056" font-size="12" fill="#475569">Source: git history of main (304 commits / 108 PRs), README release notes, docs/v*.md. Generated by scripts/build_history_infographic.py — the agent never sends external side-effects without approval.</text>
+</svg>
