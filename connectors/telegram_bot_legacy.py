@@ -367,6 +367,33 @@ def _verified_video_lookup(text: str):
         return "", []
 
 
+def _verified_web_lookup(text: str):
+    """Search the open web via Tavily for explicit research requests.
+
+    Returns (context_block, results, provider_answer). Fail-soft: any error
+    yields ("", [], ""). Video-link requests stay on the verified YouTube path.
+    """
+    try:
+        from connectors.web_search import (
+            is_web_search_request, sanitize_query, tavily_configured,
+            web_context_block, web_search,
+        )
+        if not tavily_configured() or not is_web_search_request(text):
+            return "", [], ""
+        query = sanitize_query(text)
+        if not query:
+            return "", [], ""
+        out = web_search(query)
+        results = list(out.get("results") or [])
+        if not results:
+            return "", [], ""
+        answer = str(out.get("answer") or "").strip()
+        return web_context_block(results, query, answer), results, answer
+    except Exception as exc:  # noqa: BLE001 — never break the chat path
+        print(f"Verified web lookup error: {exc}", flush=True)
+        return "", [], ""
+
+
 def command_youtube(chat_id: int, query: str):
     from connectors.web_search import format_links_section, sanitize_query, search_videos
     clean = sanitize_query(query)
@@ -383,6 +410,32 @@ def command_youtube(chat_id: int, query: str):
 
 def command_search(chat_id: int, query: str):
     command_youtube(chat_id, query)
+
+
+def command_websearch(chat_id: int, query: str):
+    from connectors.web_search import (
+        format_web_section, sanitize_query, tavily_configured, web_search,
+    )
+    clean = sanitize_query(query)
+    if not clean:
+        send(chat_id, "استخدم: /websearch كلمات البحث — مثال: /websearch بروتوكول الركبة")
+        return
+    if not tavily_configured():
+        send(chat_id, "❌ بحث الويب غير مفعّل: اضبط TAVILY_API_KEY في بيئة التشغيل ثم أعد البوت.")
+        return
+    send(chat_id, "🌐 أبحث في الويب (Tavily)...")
+    out = web_search(clean)
+    if not out.get("results"):
+        send(chat_id, "لم أجد نتائج موثقة الآن — جرّب صياغة أخرى.")
+        return
+    parts = []
+    answer = (out.get("answer") or "").strip()
+    if answer:
+        parts.append("💡 " + answer)
+    parts.append(format_web_section(out["results"], clean))
+    message = "\n\n".join(parts)
+    for start in range(0, len(message), 3500):
+        send(chat_id, message[start:start + 3500])
 
 
 def command_sheet(chat_id: int):
@@ -1067,6 +1120,10 @@ def handle_message(message: dict):
         command_youtube(chat_id, text[len(command):].strip())
         _save_intake(iid, message, text, kind, attachment, "COMPLETED")
         return
+    if command == "/websearch":
+        command_websearch(chat_id, text[len(command):].strip())
+        _save_intake(iid, message, text, kind, attachment, "COMPLETED")
+        return
     if command == "/pending":
         command_pending(chat_id)
         _save_intake(iid, message, text, kind, attachment, "COMPLETED")
@@ -1218,8 +1275,13 @@ def handle_message(message: dict):
             except Exception as exc:
                 print(f"Sheet context error: {exc}", flush=True)
         video_block, video_results = _verified_video_lookup(text)
+        web_block, web_results, _web_answer = ("", [], "")
+        if not video_block:
+            web_block, web_results, _web_answer = _verified_web_lookup(text)
         if video_block:
             sheet_context = (sheet_context + "\n\n" if sheet_context else "") + video_block
+        elif web_block:
+            sheet_context = (sheet_context + "\n\n" if sheet_context else "") + web_block
         answer, usage, latency, _ = ask_bedrock(
             chat_id, text, sheet_context=sheet_context
         )
@@ -1235,7 +1297,13 @@ def handle_message(message: dict):
             from connectors.web_search import answer_has_video_links, format_links_section
             if not answer_has_video_links(answer):
                 video_note = format_links_section(video_results)
-        send(chat_id, answer + video_note)
+        # Same discipline for web research: append the verified sources only
+        # when the model cited no URL at all, so we never double the list.
+        web_note = ""
+        if web_results and not re.search(r"https?://", answer or ""):
+            from connectors.web_search import format_web_section
+            web_note = format_web_section(web_results, text)
+        send(chat_id, answer + video_note + web_note)
     except Exception as exc:
         _save_conversation(cid, iid, text, "", {}, 0, "ERROR", error=exc)
         _save_intake(iid, message, text, kind, attachment, "ERROR", response_id=cid, error=exc)
@@ -1260,6 +1328,7 @@ def configure_commands():
         {"command":"cancel_event","description":"اقتراح حذف موعد"},
         {"command":"confirm_cancel","description":"تأكيد حذف الموعد"},
         {"command":"find","description":"البحث في الشيت"},
+        {"command":"websearch","description":"بحث ويب عام بمصادر موثقة (Tavily)"},
         {"command":"pending","description":"القادم والناقص والحل"},
         {"command":"brief","description":"إنشاء الملخص التنفيذي بعد دورة اكتشاف"},
         {"command":"previsit","description":"مسودة استبيان آمن قبل الزيارة"},

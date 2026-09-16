@@ -85,6 +85,16 @@ GUIDES = {
         "Verify: python3 -m connectors.web_search --check",
         "Bot usage: /youtube كلمات البحث — or just ask for video links in any message.",
     ],
+    "websearch": [
+        "tavily.com → sign in → API keys → create a key (starts with tvly-).",
+        "Set TAVILY_API_KEY locally / in the deployment variables — never in chat or git.",
+        "Optional: TAVILY_BASE_URL to point at a proxy (default https://api.tavily.com).",
+        "Verify: python3 -m connectors.web_search --check (probes Tavily when the key is set)",
+        "  or: python3 -m connectors.web_search \"knee protocol\" --web",
+        "Bot usage: /websearch كلمات البحث — and explicit research asks in normal chat",
+        "  («ابحث عن…», «search…», «قارن…») get verified web sources automatically.",
+        "Without the key, /websearch reports that web search is disabled; YouTube search is unaffected.",
+    ],
 }
 
 PRIORITY_ORDER = ["calendar", "docs", "github"]  # per the guide: meeting Sept 14 → letters → backup
@@ -224,8 +234,20 @@ def check_buffer(env=None) -> dict:
     }
 
 
+def check_tavily(env=None) -> dict:
+    env = env if env is not None else _env
+    key = env("TAVILY_API_KEY")
+    return {
+        "key": "websearch", "name": "Web Search (Tavily)", "env": ["TAVILY_API_KEY"],
+        "status": "ok" if key else "missing",
+        "detail": "API key set — /websearch and automatic web research ready"
+        if key
+        else "TAVILY_API_KEY is not set (tavily.com → API keys) — /websearch disabled, YouTube search unaffected",
+    }
+
+
 CHECKS = [check_telegram, check_sheets, check_drive, check_docs, check_calendar, check_github,
-          check_voice, check_buffer]
+          check_voice, check_buffer, check_tavily]
 
 
 # ---------------------------------------------------------------- live probes
@@ -290,6 +312,15 @@ def _probe_voice():
     return {"voices": len(payload.get("voices", []))}
 
 
+def _probe_tavily():
+    """Read-only single web search (one Tavily search credit)."""
+    from . import web_search as ws
+    out = ws.web_search("test", max_results=1)
+    if not out["ok"]:
+        raise RuntimeError(out.get("error") or "tavily search failed")
+    return {"results": len(out["results"])}
+
+
 PROBES = {
     "telegram": _probe_telegram,
     "sheets": _probe_sheets,
@@ -298,6 +329,7 @@ PROBES = {
     "calendar": _probe_calendar,
     "github": _probe_github,
     "voice": _probe_voice,
+    "websearch": _probe_tavily,
 }
 
 STATUS_ICON = {"ok": "✅", "partial": "⚠️", "missing": "❌", "invalid": "❌"}
@@ -333,7 +365,7 @@ def render(results, live: bool = False) -> str:
     if pending:
         lines.append("")
         lines.append("Next steps (priority: " + " → ".join(PRIORITY_ORDER) + "):")
-        for key in PRIORITY_ORDER + ["sheets", "drive", "telegram", "voice", "buffer"]:
+        for key in PRIORITY_ORDER + ["sheets", "drive", "telegram", "voice", "buffer", "websearch"]:
             row = next((r for r in results if r["key"] == key and r["status"] != "ok"), None)
             if row:
                 lines.append(f"  • {row['name']}: python3 -m connectors.connection_setup --guide {key}")

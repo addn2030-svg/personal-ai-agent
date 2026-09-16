@@ -272,6 +272,338 @@ class BotWiringTests(unittest.TestCase):
         self.assertIn("youtube.com/watch?v=", sent)
 
 
+TAVILY_JSON = json.dumps({
+    "query": "knee protocol",
+    "answer": "The Quiet Knee Protocol is a conservative post-TKA recovery method.",
+    "results": [
+        {"title": "HSS Quiet Knee Study", "url": "https://news.hss.edu/quiet-knee",
+         "content": "Conservative recovery after TKA reduces opioid use.", "score": 0.91},
+        {"title": "Duplicate", "url": "https://news.hss.edu/quiet-knee",
+         "content": "duplicate entry", "score": 0.90},
+        {"title": "No URL", "content": "should be dropped", "score": 0.80},
+        {"title": "Bad Scheme", "url": "ftp://example.com/x", "content": "dropped", "score": 0.70},
+        {"title": "Quiet Knee Explained",
+         "url": "https://corycalendinemd.com/blog/quiet-knee-protocol/",
+         "content": "Calm swelling first, then strengthen around week four.", "score": 0.87},
+    ],
+})
+
+
+def _patch_tavily_post(payload: str = TAVILY_JSON, exc=None):
+    calls = []
+
+    def fake_urlopen(request, timeout=None):
+        calls.append(request)
+        if exc is not None:
+            raise exc
+        return _resp(payload.encode("utf-8"))
+
+    return mock.patch.object(web_search.urllib.request, "urlopen", side_effect=fake_urlopen), calls
+
+
+class TavilyWebSearchTests(unittest.TestCase):
+    def setUp(self):
+        web_search._CACHE.clear()
+
+    def test_missing_key_fails_soft_without_network(self):
+        with mock.patch.dict(os.environ, {}, clear=True), \
+                mock.patch.object(web_search.urllib.request, "urlopen") as fake:
+            out = web_search.web_search("knee protocol")
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["results"], [])
+        self.assertEqual(out["answer"], "")
+        self.assertIn("TAVILY_API_KEY", out["error"])
+        fake.assert_not_called()
+
+    def test_parses_and_filters_results(self):
+        patcher, calls = _patch_tavily_post()
+        with patcher, mock.patch.dict(os.environ, {"TAVILY_API_KEY": "tvly-test"}):
+            out = web_search.web_search("knee protocol")
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["provider"], "tavily")
+        self.assertEqual(out["answer"],
+                         "The Quiet Knee Protocol is a conservative post-TKA recovery method.")
+        urls = [r["url"] for r in out["results"]]
+        self.assertEqual(urls, ["https://news.hss.edu/quiet-knee",
+                                "https://corycalendinemd.com/blog/quiet-knee-protocol/"])
+        self.assertIn("opioid", out["results"][0]["snippet"].lower())
+        self.assertEqual(len(calls), 1)
+
+    def test_request_sanitizes_and_bears_key(self):
+        patcher, calls = _patch_tavily_post()
+        with patcher, mock.patch.dict(os.environ, {"TAVILY_API_KEY": "tvly-test"}):
+            out = web_search.web_search("search knee 0551234567 a@b.com")
+        self.assertTrue(out["ok"])
+        request = calls[0]
+        self.assertEqual(request.full_url, "https://api.tavily.com/search")
+        self.assertEqual(request.get_method(), "POST")
+        self.assertEqual(request.get_header("Authorization"), "Bearer tvly-test")
+        body = json.loads(request.data.decode("utf-8"))
+        self.assertEqual(body["query"], "search knee")
+        self.assertNotIn("0551234567", body["query"])
+        self.assertNotIn("a@b.com", body["query"])
+        self.assertEqual(body["search_depth"], "basic")
+        self.assertEqual(body["topic"], "general")
+        self.assertTrue(body["include_answer"])
+
+    def test_custom_base_url_and_depth_normalization(self):
+        patcher, calls = _patch_tavily_post()
+        with patcher, mock.patch.dict(os.environ,
+                                      {"TAVILY_API_KEY": "k",
+                                       "TAVILY_BASE_URL": "https://tv.example.com/v1"}):
+            out = web_search.web_search("knee", search_depth="  ADVANCED ", topic="NEWS")
+        self.assertTrue(out["ok"])
+        self.assertEqual(calls[0].full_url, "https://tv.example.com/v1/search")
+        body = json.loads(calls[0].data.decode("utf-8"))
+        self.assertEqual(body["search_depth"], "advanced")
+        self.assertEqual(body["topic"], "news")
+
+    def test_http_error_fails_soft(self):
+        exc = web_search.urllib.error.HTTPError("u", 401, "bad key", {}, None)
+        patcher, _ = _patch_tavily_post(exc=exc)
+        with patcher, mock.patch.dict(os.environ, {"TAVILY_API_KEY": "tvly-test"}):
+            out = web_search.web_search("knee")
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["results"], [])
+        self.assertIn("tavily", out["error"])
+        self.assertIn("401", out["error"])
+
+    def test_results_are_cached(self):
+        patcher, calls = _patch_tavily_post()
+        with patcher, mock.patch.dict(os.environ, {"TAVILY_API_KEY": "tvly-test"}):
+            first = web_search.web_search("knee protocol")
+            second = web_search.web_search("knee protocol")
+        self.assertTrue(first["ok"] and second["ok"])
+        self.assertEqual(second["provider"], "tavily+cache")
+        self.assertEqual(len(calls), 1)
+
+    def test_empty_query_short_circuits(self):
+        out = web_search.web_search("   ")
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["results"], [])
+
+
+class WebIntentTests(unittest.TestCase):
+    def test_explicit_research_triggers(self):
+        for text in ("ابحث عن بروتوكول الركبة", "Search knee protocol",
+                     "قارن بين بروتوكولي التعافي", "latest TKA outcomes report",
+                     "ابحث عن مصادر لبروتوكول الركبة", "compare the two knee protocols"):
+            self.assertTrue(web_search.is_web_search_request(text), text)
+
+    def test_video_requests_do_not_trigger(self):
+        for text in ("أرسل روابط يوتيوب عن العادات", "send youtube links about knees",
+                     "ابحث عن فيديو بروتوكول الركبة"):
+            self.assertFalse(web_search.is_web_search_request(text), text)
+
+    def test_normal_chat_does_not_trigger(self):
+        for text in ("وش الوقت؟", "ما مواعيد اليوم؟", "متى جلسة العلاج؟",
+                     "ما هو أفضل وقت للتدرب؟", "hi"):
+            self.assertFalse(web_search.is_web_search_request(text), text)
+
+
+class WebFormatTests(unittest.TestCase):
+    RESULTS = [{"title": "HSS Study", "url": "https://news.hss.edu/quiet-knee",
+                "snippet": "Conservative recovery reduces opioids.", "score": 0.9},
+               {"title": "Explainer",
+                "url": "https://corycalendinemd.com/blog/quiet-knee-protocol/",
+                "snippet": "", "score": 0.8}]
+
+    def test_web_section_lists_sources(self):
+        section = web_search.format_web_section(self.RESULTS, "knee protocol")
+        self.assertIn("نتائج ويب موثقة (2)", section)
+        self.assertIn("https://news.hss.edu/quiet-knee", section)
+        self.assertIn("Conservative recovery reduces opioids.", section)
+
+    def test_empty_results_give_empty_section(self):
+        self.assertEqual(web_search.format_web_section([]), "")
+        self.assertEqual(web_search.web_context_block([]), "")
+
+    def test_web_context_block_grounds_the_model(self):
+        block = web_search.web_context_block(self.RESULTS, "knee", "answer text")
+        self.assertIn("VERIFIED WEB SEARCH RESULTS", block)
+        self.assertIn("answer text", block)
+        self.assertIn("https://news.hss.edu/quiet-knee", block)
+
+    def test_providers_status_reports_configuration(self):
+        with mock.patch.dict(os.environ, {"TAVILY_API_KEY": "k", "YOUTUBE_API_KEY": "y"}):
+            status = web_search.providers_status()
+        self.assertEqual(status["web"], {"provider": "tavily", "configured": True})
+        self.assertTrue(status["video"]["youtube_api"])
+        with mock.patch.dict(os.environ, {}, clear=True):
+            status = web_search.providers_status()
+        self.assertFalse(status["web"]["configured"])
+        self.assertFalse(status["video"]["youtube_api"])
+
+
+class WebBotWiringTests(unittest.TestCase):
+    PAYLOAD = {"ok": True, "provider": "tavily",
+               "answer": "Quiet Knee protocol summary.",
+               "results": WebFormatTests.RESULTS, "error": ""}
+
+    def test_web_lookup_returns_block_for_research_requests(self):
+        from connectors import telegram_bot_legacy
+        with mock.patch.object(web_search, "web_search", return_value=self.PAYLOAD), \
+                mock.patch.dict(os.environ, {"TAVILY_API_KEY": "k"}):
+            block, results, answer = telegram_bot_legacy._verified_web_lookup(
+                "ابحث عن بروتوكول الركبة")
+        self.assertEqual(len(results), 2)
+        self.assertIn("VERIFIED WEB SEARCH RESULTS", block)
+        self.assertEqual(answer, "Quiet Knee protocol summary.")
+
+    def test_web_lookup_stays_silent_without_key(self):
+        from connectors import telegram_bot_legacy
+        with mock.patch.object(web_search, "web_search") as fake, \
+                mock.patch.dict(os.environ, {}, clear=True):
+            block, results, answer = telegram_bot_legacy._verified_web_lookup(
+                "ابحث عن بروتوكول الركبة")
+        self.assertEqual((block, results, answer), ("", [], ""))
+        fake.assert_not_called()
+
+    def test_web_lookup_ignores_normal_messages(self):
+        from connectors import telegram_bot_legacy
+        with mock.patch.object(web_search, "web_search") as fake, \
+                mock.patch.dict(os.environ, {"TAVILY_API_KEY": "k"}):
+            block, results, answer = telegram_bot_legacy._verified_web_lookup(
+                "ما مواعيد اليوم؟")
+        self.assertEqual((block, results, answer), ("", [], ""))
+        fake.assert_not_called()
+
+    def test_web_lookup_is_fail_soft(self):
+        from connectors import telegram_bot_legacy
+        with mock.patch.object(web_search, "web_search", side_effect=Exception("boom")), \
+                mock.patch.dict(os.environ, {"TAVILY_API_KEY": "k"}):
+            self.assertEqual(
+                telegram_bot_legacy._verified_web_lookup("search knee protocol"),
+                ("", [], ""))
+
+    def test_websearch_command_sends_sources_and_answer(self):
+        from connectors import telegram_bot_legacy
+        with mock.patch.object(web_search, "web_search", return_value=self.PAYLOAD), \
+                mock.patch.dict(os.environ, {"TAVILY_API_KEY": "k"}), \
+                mock.patch.object(telegram_bot_legacy, "send") as fake_send:
+            telegram_bot_legacy.command_websearch(1, "knee protocol")
+        combined = "\n".join(c.args[1] for c in fake_send.call_args_list)
+        self.assertIn("https://news.hss.edu/quiet-knee", combined)
+        self.assertIn("Quiet Knee protocol summary.", combined)
+
+    def test_websearch_command_requires_key(self):
+        from connectors import telegram_bot_legacy
+        with mock.patch.dict(os.environ, {}, clear=True), \
+                mock.patch.object(telegram_bot_legacy, "send") as fake_send:
+            telegram_bot_legacy.command_websearch(1, "knee protocol")
+        combined = "\n".join(c.args[1] for c in fake_send.call_args_list)
+        self.assertIn("TAVILY_API_KEY", combined)
+
+    def test_websearch_command_needs_a_query(self):
+        from connectors import telegram_bot_legacy
+        with mock.patch.object(telegram_bot_legacy, "send") as fake_send:
+            telegram_bot_legacy.command_websearch(1, "   ")
+        self.assertIn("/websearch", fake_send.call_args[0][1])
+
+    def test_handle_message_routes_websearch_command(self):
+        from connectors import telegram_bot_legacy
+        with mock.patch.object(web_search, "web_search", return_value=self.PAYLOAD), \
+                mock.patch.dict(os.environ, {"TAVILY_API_KEY": "k"}), \
+                mock.patch.object(telegram_bot_legacy, "_authorized", return_value=True), \
+                mock.patch.object(telegram_bot_legacy, "_local_capture", return_value="TG-1"), \
+                mock.patch.object(telegram_bot_legacy, "_save_intake", return_value=True), \
+                mock.patch.object(telegram_bot_legacy, "send") as fake_send:
+            telegram_bot_legacy.handle_message({
+                "chat": {"id": 1, "type": "private"},
+                "text": "/websearch بروتوكول الركبة",
+            })
+        combined = "\n".join(c.args[1] for c in fake_send.call_args_list)
+        self.assertIn("https://news.hss.edu/quiet-knee", combined)
+        self.assertNotIn("أمر غير معروف", combined)
+
+    def test_natural_research_request_injects_web_context(self):
+        from connectors import telegram_bot_legacy
+        with mock.patch.object(web_search, "web_search", return_value=self.PAYLOAD), \
+                mock.patch.dict(os.environ, {"TAVILY_API_KEY": "k"}), \
+                mock.patch.object(telegram_bot_legacy, "_authorized", return_value=True), \
+                mock.patch.object(telegram_bot_legacy, "_local_capture", return_value="TG-1"), \
+                mock.patch.object(telegram_bot_legacy, "_save_intake", return_value=True), \
+                mock.patch.object(telegram_bot_legacy, "_save_conversation", return_value=True), \
+                mock.patch.object(telegram_bot_legacy, "api", return_value={}), \
+                mock.patch("agent_runtime.remember"), \
+                mock.patch.object(
+                    telegram_bot_legacy, "ask_bedrock",
+                    return_value=("إجابة بدون روابط.", {}, 1, []),
+                ) as fake_ask, \
+                mock.patch.object(telegram_bot_legacy, "send") as fake_send:
+            telegram_bot_legacy.handle_message({
+                "chat": {"id": 1, "type": "private", "message_id": 9},
+                "message_id": 9,
+                "text": "ابحث عن بروتوكول الركبة",
+            })
+        self.assertIn("VERIFIED WEB SEARCH RESULTS", fake_ask.call_args.kwargs["sheet_context"])
+        sent = fake_send.call_args[0][1]
+        self.assertIn("https://news.hss.edu/quiet-knee", sent)
+
+    def test_natural_request_without_key_skips_web_lookup(self):
+        from connectors import telegram_bot_legacy
+        with mock.patch.object(web_search, "web_search") as fake_web, \
+                mock.patch.object(web_search, "search_videos") as fake_video, \
+                mock.patch.dict(os.environ, {}, clear=True), \
+                mock.patch.object(telegram_bot_legacy, "_authorized", return_value=True), \
+                mock.patch.object(telegram_bot_legacy, "_local_capture", return_value="TG-1"), \
+                mock.patch.object(telegram_bot_legacy, "_save_intake", return_value=True), \
+                mock.patch.object(telegram_bot_legacy, "_save_conversation", return_value=True), \
+                mock.patch.object(telegram_bot_legacy, "api", return_value={}), \
+                mock.patch("agent_runtime.remember"), \
+                mock.patch.object(
+                    telegram_bot_legacy, "ask_bedrock",
+                    return_value=("إجابة عادية.", {}, 1, []),
+                ) as fake_ask, \
+                mock.patch.object(telegram_bot_legacy, "send") as fake_send:
+            telegram_bot_legacy.handle_message({
+                "chat": {"id": 1, "type": "private", "message_id": 9},
+                "message_id": 9,
+                "text": "ابحث عن بروتوكول الركبة",
+            })
+        fake_web.assert_not_called()
+        fake_video.assert_not_called()
+        self.assertNotIn("VERIFIED WEB SEARCH RESULTS", fake_ask.call_args.kwargs["sheet_context"])
+        self.assertEqual(fake_send.call_args[0][1], "إجابة عادية.")
+
+
+class WebCliTests(unittest.TestCase):
+    def setUp(self):
+        web_search._CACHE.clear()
+
+    def test_web_flag_prints_sources_and_answer(self):
+        patcher, _ = _patch_tavily_post()
+        with patcher, mock.patch.dict(os.environ, {"TAVILY_API_KEY": "tvly-test"}), \
+                mock.patch("sys.stdout", new=io.StringIO()) as out:
+            rc = web_search.main(["--web", "knee protocol"])
+        self.assertEqual(rc, 0)
+        text = out.getvalue()
+        self.assertIn("https://news.hss.edu/quiet-knee", text)
+        self.assertIn("Quiet Knee Protocol", text)
+
+    def test_web_flag_without_key_fails(self):
+        with mock.patch.dict(os.environ, {}, clear=True), \
+                mock.patch("sys.stdout", new=io.StringIO()) as out:
+            rc = web_search.main(["--web", "knee protocol"])
+        self.assertEqual(rc, 1)
+        self.assertIn("TAVILY_API_KEY", out.getvalue())
+
+    def test_check_reports_providers(self):
+        with mock.patch.dict(os.environ, {"TAVILY_API_KEY": "tvly-test"}), \
+                mock.patch.object(web_search, "web_search", return_value={
+                    "ok": True, "provider": "tavily", "answer": "",
+                    "results": [{"url": "u"}], "error": ""}), \
+                mock.patch.object(web_search, "search_videos", return_value={
+                    "ok": True, "provider": "ddg", "results": [{"url": "u"}],
+                    "answer": "", "error": ""}), \
+                mock.patch("sys.stdout", new=io.StringIO()) as out:
+            rc = web_search.main(["--check"])
+        self.assertEqual(rc, 0)
+        text = out.getvalue()
+        self.assertIn("tavily", text)
+        self.assertIn("video", text)
+
+
 class GuideTests(unittest.TestCase):
     def test_videosearch_guide_is_registered(self):
         from connectors import connection_setup
@@ -280,6 +612,14 @@ class GuideTests(unittest.TestCase):
         text = "\n".join(str(call.args[0]) for call in printer.call_args_list)
         self.assertIn("YOUTUBE_API_KEY", text)
         self.assertIn("/youtube", text)
+
+    def test_websearch_guide_is_registered(self):
+        from connectors import connection_setup
+        with mock.patch("builtins.print") as printer:
+            self.assertEqual(connection_setup.main(["--guide", "websearch"]), 0)
+        text = "\n".join(str(call.args[0]) for call in printer.call_args_list)
+        self.assertIn("TAVILY_API_KEY", text)
+        self.assertIn("/websearch", text)
 
 
 if __name__ == "__main__":

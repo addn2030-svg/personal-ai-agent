@@ -109,7 +109,8 @@ def _command_start(chat_id: int):
         "/delegate auto المهمة — المدير يختار الوكيل\n"
         "/delegate claude|gpt|gemini المهمة — تكليف مباشر\n"
         "/council السؤال — مراجعة من الفريق\n"
-        "/mission [lean|standard|deep] الهدف — مهمة بميزانية tokens\n\n"
+        "/mission [lean|standard|deep] الهدف — مهمة بميزانية tokens\n"
+        "/websearch الكلمات — بحث ويب عام بمصادر موثقة (Tavily)\n\n"
         "🧭 لوحة Master OS (v0.9):\n"
         "/masteros — ملخص البنية المعمارية والحالة\n"
         "/schedule — جدول الأتمتة المجدول (بتوقيت الرياض)\n"
@@ -500,6 +501,7 @@ def _configure_commands():
         additions = [
             {"command": "youtube", "description": "بحث يوتيوب بروابط watch?v= موثقة"},
             {"command": "search", "description": "بحث يوتيوب موثّق (نفس /youtube)"},
+            {"command": "websearch", "description": "بحث ويب عام بمصادر موثقة (Tavily)"},
             {"command": "books", "description": "قائمة كتبك من شيت «المصادر والتعلم» مباشرة"},
             {"command": "masteros", "description": "ملخص بنية وحالة Master OS"},
             {"command": "schedule", "description": "جدول الأتمتة المجدول (الرياض)"},

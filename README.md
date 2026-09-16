@@ -184,6 +184,7 @@ python3 engine/chief_of_staff.py
 - `/sources`: عدّ مصادر المعرفة والمهارات والمواد.
 - `/selftest`: فحص Telegram ومكونات النظام الأساسية.
 - `/youtube كلمات` (أو `/search`): بحث يوتيوب بروابط `watch?v=` موثّقة — لا روابط مخترعة.
+- `/websearch كلمات`: بحث ويب عام (Tavily) بمصادر موثّقة + إجابة ملخصة.
 - `/storage_status`: فحص اتصال الحفظ عند الطلب.
 - `/content [platform] الفكرة`: تشغيل أوركسترا المحتوى (باحث ← ناقد ← منشئ) وإرجاع Preview.
 - `/approve_content ID CODE`: إرسال النسخة المعتمدة إلى Buffer مع حفظ الإيصال.
@@ -223,6 +224,14 @@ python3 -u connectors/telegram_bot.py
 - بلا مفاتيح افتراضيًا (DuckDuckGo، قراءة فقط)؛ للدقة الأعلى اختياريًا: `YOUTUBE_API_KEY` (YouTube Data API v3) مع تراجع تلقائي عند أي خطأ.
 - الخصوصية: تُجرد أرقام الهواتف والإيميلات والهويات من الاستعلام قبل أي اتصال خارجي.
 - الفحص من بيئة البوت (تحتاج إنترنت): `python3 -m connectors.web_search --check`.
+
+## 🌐 بحث الويب العام (Tavily)
+
+- `/websearch كلمات البحث`: نتائج ويب موثّقة (عنوان + رابط + مقتطف) مع إجابة ملخصة من Tavily — قراءة فقط.
+- يعمل تلقائيًا: أي رسالة فيها طلب بحث صريح («ابحث عن…»، «search…»، «قارن…»، «تقرير…»…) تُرفق بمصادر موثّقة في سياق النموذج، والنموذج ملزم بالاقتباس من الروابط المعطاة فقط — ولا يُضاف الرابط مرتين إذا اقتبسها النموذج.
+- التفعيل: `TAVILY_API_KEY` من tavily.com → API keys (لا تضعه في chat أو git). اختياري: `TAVILY_BASE_URL` للوكلاء/البدائل.
+- بلا مفتاح: `/websearch` والبحث التلقائي يبلغان أن البحث غير مفعّل — بحث يوتيوب لا يتأثر إطلاقًا.
+- الفحص من بيئة البوت (تحتاج إنترنت): `python3 -m connectors.web_search --check` (يفحص Tavily إن وُجد مفتاحه) أو `python3 -m connectors.connection_setup --guide websearch`.
 
 ## Executive brief discovery and supervisor reports
 
