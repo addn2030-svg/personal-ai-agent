@@ -323,12 +323,24 @@ def ask_bedrock(chat_id: int, text: str, sheet_context: str = ""):
     context, sources = build_context(chat_id, text)
     if sheet_context:
         context += "\n\nLIVE GOOGLE SHEETS CONTEXT (read-only evidence):\n" + sheet_context
-    response = client.converse(
-        modelId=BEDROCK_MODEL_ID,
-        system=[{"text": SYSTEM_PROMPT + "\n\n" + context}],
-        messages=bedrock_messages(chat_id, text),
-        inferenceConfig={"maxTokens": 1200, "temperature": 0.2},
-    )
+    try:
+        response = client.converse(
+            modelId=BEDROCK_MODEL_ID,
+            system=[{"text": SYSTEM_PROMPT + "\n\n" + context}],
+            messages=bedrock_messages(chat_id, text),
+            inferenceConfig={"maxTokens": 1200, "temperature": 0.2},
+        )
+    except Exception as exc:
+        # Humanize common Bedrock errors for Telegram users
+        try:
+            from connectors import model_gateway as _mg
+            raw = _mg._safe_error(exc)
+            hint = _mg._explain_bedrock_error(raw)
+            if hint:
+                raise RuntimeError(f"{raw}\n\n{hint}") from exc
+        except Exception:
+            pass
+        raise
     blocks = response.get("output", {}).get("message", {}).get("content", [])
     answer = "\n".join(block.get("text", "") for block in blocks if block.get("text"))
     if not answer:
@@ -1293,7 +1305,16 @@ def run():
                     except Exception as exc:
                         chat_id = (update["message"].get("chat") or {}).get("id")
                         if chat_id is not None:
-                            send(chat_id, f"❌ تعذر تنفيذ الطلب: {str(exc)[:220]}")
+                            try:
+                                from connectors import model_gateway as _mg
+                                raw = _mg._safe_error(exc)
+                                hint = _mg._explain_bedrock_error(raw) or _mg._explain_openrouter_error(raw)
+                                if hint:
+                                    send(chat_id, f"❌ تعذر تنفيذ الطلب: {raw[:320]}\n\n{hint}")
+                                else:
+                                    send(chat_id, f"❌ تعذر تنفيذ الطلب: {raw[:380]}\n\n💡 جرّب /ai_status و /bedrock_test")
+                            except Exception:
+                                send(chat_id, f"❌ تعذر تنفيذ الطلب: {str(exc)[:380]}")
         except KeyboardInterrupt:
             return
         except Exception as exc:

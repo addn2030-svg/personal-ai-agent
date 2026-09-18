@@ -164,7 +164,66 @@ def _safe_error(exc: Exception) -> str:
     ):
         if secret:
             value = value.replace(secret, "[REDACTED]")
-    return value[:240]
+    return value[:600]
+
+
+def _explain_bedrock_error(raw: str) -> str:
+    """Map common Bedrock AccessDenied messages to actionable Arabic hints."""
+    low = (raw or "").lower()
+    if "api key is valid" in low or "authentication failed" in low:
+        return (
+            "🔑 Bedrock API Key غير صالح أو منتهي. "
+            "أنشئ مفتاح جديد من AWS Console > Bedrock > API keys، "
+            "ثم حدّث AWS_BEARER_TOKEN_BEDROCK في Railway Variables وأعد النشر."
+        )
+    if "being verified" in low or "verification" in low:
+        return (
+            "⏳ حساب AWS قيد التحقق للوصول إلى Bedrock. "
+            "التحقق يستغرق عادة أقل من ساعتين. "
+            "راجع AWS Console > Bedrock > Model access وتأكد من تفعيل النماذج، "
+            "أو انتظر اكتمال التحقق."
+        )
+    if "not authorized" in low and "bedrock:" in low:
+        return (
+            "⛔ IAM المستخدم BedrockAPIKey ليس لديه صلاحية bedrock:Converse / InvokeModel. "
+            "في IAM Console أضف سياسة AmazonBedrockFullAccess أو سياسة مخصصة تسمح بـ "
+            "bedrock:Converse, bedrock:InvokeModel, bedrock:ListFoundationModels "
+            "للموديل " + BEDROCK_MODEL_ID + ". "
+            "ثم تأكد من Model access في Bedrock Console مفعل لنفس الموديل."
+        )
+    if "accessdenied" in low or "access denied" in low:
+        return (
+            "⛔ Bedrock AccessDenied: تحقق من (1) صلاحيات IAM، (2) تفعيل الموديل في Model access، "
+            "(3) أن المنطقة AWS_REGION تطابق مكان تفعيل الموديل (حالياً: " + AWS_REGION + ")."
+        )
+    if "model access" in low or "model id" in low:
+        return (
+            "🧩 الموديل " + BEDROCK_MODEL_ID + " غير مفعل في Bedrock Model access. "
+            "افتح AWS Console > Bedrock > Model access > Manage model access وفعّله."
+        )
+    return ""
+
+
+def _explain_openrouter_error(raw: str) -> str:
+    low = (raw or "").lower()
+    if "401" in low or "unauthorized" in low or "invalid api key" in low:
+        return (
+            "🔑 OPENROUTER_API_KEY غير صالح أو منتهي. "
+            "حدّث المفتاح من openrouter.ai/keys ثم Railway Variables."
+        )
+    if "402" in low or "credit" in low or "insufficient" in low:
+        return "💳 رصيد OpenRouter منخفض. اشحن الرصيد من openrouter.ai/credits."
+    if "429" in low or "rate limit" in low:
+        return "⏳ تم تجاوز حد طلبات OpenRouter. سيعود تلقائياً بعد دقائق."
+    return ""
+
+
+def _humanized_error_detail(raw_detail: str) -> str:
+    """Return raw detail plus Arabic hint if matched."""
+    hint = _explain_bedrock_error(raw_detail) or _explain_openrouter_error(raw_detail)
+    if hint:
+        return f"{raw_detail[:500]}\n\n{hint}"
+    return raw_detail[:600]
 
 
 def probe_openrouter() -> dict:
@@ -187,7 +246,14 @@ def probe_openrouter() -> dict:
             "usage": usage,
         }
     except Exception as exc:  # noqa: BLE001 - diagnostic boundary
-        return {"configured": True, "ok": False, "detail": _safe_error(exc), "model": AI_MANAGER_MODEL}
+        raw = _safe_error(exc)
+        return {
+            "configured": True,
+            "ok": False,
+            "detail": _humanized_error_detail(raw),
+            "model": AI_MANAGER_MODEL,
+            "hint": _explain_openrouter_error(raw),
+        }
 
 
 def probe_bedrock() -> dict:
@@ -214,7 +280,14 @@ def probe_bedrock() -> dict:
             "usage": response.get("usage", {}),
         }
     except Exception as exc:  # noqa: BLE001 - diagnostic boundary
-        return {"configured": True, "ok": False, "detail": _safe_error(exc), "model": BEDROCK_MODEL_ID}
+        raw = _safe_error(exc)
+        return {
+            "configured": True,
+            "ok": False,
+            "detail": _humanized_error_detail(raw),
+            "model": BEDROCK_MODEL_ID,
+            "hint": _explain_bedrock_error(raw),
+        }
 
 
 def live_probe() -> dict:
@@ -239,13 +312,22 @@ def ask(chat_id: int, text: str, *, system_prompt: str, sheet_context: str = "",
     if provider == "bedrock":
         if bedrock_fallback is None:
             raise RuntimeError("Bedrock fallback is not available")
-        result = bedrock_fallback(chat_id, text, sheet_context=sheet_context)
+        try:
+            result = bedrock_fallback(chat_id, text, sheet_context=sheet_context)
+        except Exception as exc:
+            raw = _safe_error(exc)
+            hint = _explain_bedrock_error(raw)
+            if hint:
+                raise RuntimeError(f"{raw}\n\n{hint}") from exc
+            raise
         _set_route("bedrock", BEDROCK_MODEL_ID)
         return result
 
     context, sources = build_context(chat_id, text)
     if sheet_context:
         context += "\n\nLIVE GOOGLE SHEETS CONTEXT (read-only evidence):\n" + sheet_context
+    openrouter_exc = None
+    openrouter_raw = ""
     try:
         answer, usage, latency_ms = openrouter_chat(
             model=AI_MANAGER_MODEL,
@@ -253,12 +335,34 @@ def ask(chat_id: int, text: str, *, system_prompt: str, sheet_context: str = "",
             sensitive=sensitive,
         )
         return answer, usage, latency_ms, sources
-    except Exception:
-        if not OPENROUTER_FALLBACK_BEDROCK or bedrock_fallback is None:
-            raise
+    except Exception as exc:
+        openrouter_exc = exc
+        openrouter_raw = _safe_error(exc)
+
+    # OpenRouter failed — try Bedrock fallback if enabled
+    if not OPENROUTER_FALLBACK_BEDROCK or bedrock_fallback is None:
+        hint = _explain_openrouter_error(openrouter_raw)
+        if hint:
+            raise RuntimeError(f"{openrouter_raw}\n\n{hint}") from openrouter_exc
+        raise openrouter_exc
+
+    try:
         result = bedrock_fallback(chat_id, text, sheet_context=sheet_context)
         _set_route("bedrock", BEDROCK_MODEL_ID, fallback=True)
         return result
+    except Exception as bedrock_exc:
+        bedrock_raw = _safe_error(bedrock_exc)
+        # Combined diagnostics: show both failures with hints
+        or_hint = _explain_openrouter_error(openrouter_raw)
+        br_hint = _explain_bedrock_error(bedrock_raw)
+        combined = (
+            f"OpenRouter failed: {openrouter_raw[:400]}\n"
+            + (f"Hint: {or_hint}\n" if or_hint else "")
+            + f"\nBedrock fallback also failed: {bedrock_raw[:400]}\n"
+            + (f"Hint: {br_hint}\n" if br_hint else "")
+            + "\n— تحقق من OPENROUTER_API_KEY و AWS_BEARER_TOKEN_BEDROCK / Model access في Railway Variables."
+        )
+        raise RuntimeError(combined) from bedrock_exc
 
 
 def status() -> dict:

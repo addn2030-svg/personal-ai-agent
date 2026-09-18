@@ -165,6 +165,47 @@ def _complete_update(update_id: int):
         _recent_updates.append(update_id)
 
 
+def _friendly_error_message(exc: Exception) -> str:
+    raw = str(exc)
+    low = raw.lower()
+    # Try to use gateway's humanizer if available
+    try:
+        from connectors import model_gateway as _mg
+        hint = _mg._explain_bedrock_error(raw) or _mg._explain_openrouter_error(raw)
+        if hint:
+            # Keep raw short + hint
+            return f"❌ تعذر تنفيذ الطلب: {raw[:320]}\n\n{hint}\n\n💡 جرّب /ai_status لفحص المسارات، وراجع docs/bedrock-troubleshooting.md"
+    except Exception:
+        pass
+
+    if "api key is valid" in low or "authentication failed" in low:
+        return (
+            "❌ تعذر تنفيذ الطلب: مفتاح Bedrock غير صالح.\n\n"
+            "🔑 الحل: أنشئ مفتاح جديد من AWS Console > Bedrock > API keys، "
+            "ثم حدّث AWS_BEARER_TOKEN_BEDROCK في Railway Variables وأعد النشر.\n"
+            "راجع /ai_status بعد التحديث."
+        )
+    if "being verified" in low or "verification" in low:
+        return (
+            "❌ تعذر تنفيذ الطلب: حساب AWS قيد التحقق للوصول إلى Bedrock.\n\n"
+            "⏳ التحقق يستغرق عادة أقل من ساعتين. راجع AWS Console > Bedrock > Model access "
+            "وتأكد من تفعيل النماذج. إذا استمر، تواصل مع AWS Support.\n"
+            "💡 كحل مؤقت، فعّل OPENROUTER_API_KEY ليستخدم البوت OpenRouter بدل Bedrock."
+        )
+    if "not authorized" in low and "bedrock" in low:
+        return (
+            "❌ تعذر تنفيذ الطلب: صلاحيات IAM ناقصة لـ Bedrock.\n\n"
+            "⛔ المستخدم الحالي ليس لديه bedrock:Converse / InvokeModel. "
+            "في IAM Console أضف AmazonBedrockFullAccess أو سياسة تسمح بـ "
+            "bedrock:Converse, InvokeModel, ListFoundationModels. "
+            "ثم فعّل الموديل في Bedrock > Model access.\n"
+            "راجع docs/bedrock-troubleshooting.md"
+        )
+    if "openrouter" in low:
+        return f"❌ تعذر تنفيذ الطلب عبر OpenRouter: {raw[:320]}\n\n💡 تحقق من OPENROUTER_API_KEY والرصيد، ثم /ai_status"
+    return f"❌ تعذر تنفيذ الطلب: {raw[:380]}\n\n💡 جرّب /ai_status و /bedrock_test للتشخيص."
+
+
 def _process_update(update_id: int, message: dict | None, callback_query: dict | None = None):
     """Run slow bot work after Telegram has already received HTTP 200.
 
@@ -180,13 +221,13 @@ def _process_update(update_id: int, message: dict | None, callback_query: dict |
             if hasattr(bot, "handle_callback"):
                 bot.handle_callback(callback_query)
     except Exception as exc:  # noqa: BLE001
-        print(f"Telegram background processing error: {str(exc)[:300]}", flush=True)
+        print(f"Telegram background processing error: {str(exc)[:600]}", flush=True)
         chat_id = ((message or {}).get("chat") or {}).get("id")
         if chat_id is None and callback_query:
             chat_id = ((callback_query.get("message") or {}).get("chat") or {}).get("id")
         if chat_id is not None:
             try:
-                bot.send(chat_id, f"❌ تعذر تنفيذ الطلب: {str(exc)[:180]}")
+                bot.send(chat_id, _friendly_error_message(exc))
             except Exception as send_exc:  # noqa: BLE001
                 print(f"Telegram error notification failed: {send_exc}", flush=True)
     finally:

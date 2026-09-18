@@ -76,7 +76,10 @@ def converse_text(*, model_id: str, system: str, prompt: str,
     if system:
         kwargs["system"] = [{"text": str(system)}]
 
-    response = _client().converse(**kwargs)
+    try:
+        response = _client().converse(**kwargs)
+    except Exception as exc:
+        raise _wrap_bedrock_error(exc) from exc
     blocks = response.get("output", {}).get("message", {}).get("content", [])
     answer = "\n".join(
         str(block.get("text", "")).strip()
@@ -195,12 +198,22 @@ def _probe_one(model_id: str, role: str) -> dict:
             "usage": result.usage,
         }
     except Exception as exc:
+        raw = models._safe_error(exc)
         return {
             "ok": False,
             "model": model_id,
             "latency_ms": int((time.monotonic() - started) * 1000),
-            "error": models._safe_error(exc),
+            "error": models._humanized_error_detail(raw),
+            "hint": models._explain_bedrock_error(raw),
         }
+
+
+def _wrap_bedrock_error(exc: Exception) -> Exception:
+    raw = models._safe_error(exc)
+    hint = models._explain_bedrock_error(raw)
+    if hint and hint not in raw:
+        return RuntimeError(f"{raw}\n\n{hint}")
+    return exc
 
 
 def probe() -> dict:

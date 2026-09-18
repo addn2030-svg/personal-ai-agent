@@ -82,17 +82,38 @@ def _command_ai_status(chat_id: int):
     status = _models.status()
     role_models = status["models"]
     lines = [
-        "🤖 Model Gateway",
+        "🤖 Model Gateway — الحالة العامة",
         f"General: {status['desired_general_provider']}",
         f"Clinical: {status['desired_clinical_provider']}",
-        f"OpenRouter: {'configured ✅' if status['openrouter_configured'] else 'not configured'}",
+        f"OpenRouter: {'configured ✅' if status['openrouter_configured'] else 'not configured ❌'}",
+        f"Bedrock: {'configured ✅' if status['bedrock_configured'] else 'not configured ❌'}",
         f"Manager: {role_models['manager']}",
         f"Critic: {role_models['critic']}",
         f"Google adviser: {role_models['google']}",
+        f"Bedrock model: {status.get('bedrock_model', '—')}",
+        f"Fallback OpenRouter→Bedrock: {status.get('general_policy', {}).get('allow_fallbacks', True)}",
     ]
     if status["clinical_policy"].get("zdr"):
         lines.append("Clinical OpenRouter policy (if enabled): ZDR + data_collection=deny")
     _impl.send(chat_id, "\n".join(lines))
+
+    # Live probe — tiny paid calls to prove routes actually work
+    _impl.send(chat_id, "🧪 أجري فحص حي للمسارات (OpenRouter + Bedrock)... قد يستغرق ثوانٍ.")
+    try:
+        live = _models.live_probe()
+        or_item = live.get("openrouter") or {}
+        br_item = live.get("bedrock") or {}
+        probe_lines = [
+            "🧪 Live Probe Results:",
+            _format_probe_item("OpenRouter", or_item),
+            _format_probe_item("Bedrock", br_item),
+            f"Policy: general={live.get('policy', {}).get('general_primary')} "
+            f"clinical={live.get('policy', {}).get('clinical_primary')} "
+            f"fallback={live.get('policy', {}).get('openrouter_to_bedrock_fallback')}",
+        ]
+        _impl.send(chat_id, "\n\n".join(probe_lines))
+    except Exception as exc:
+        _impl.send(chat_id, f"⚠️ تعذر إكمال Live Probe: {str(exc)[:300]}")
 
 
 def _command_start(chat_id: int):
@@ -147,8 +168,8 @@ def _format_probe_item(label: str, item: dict) -> str:
         if usage:
             token_text = f" | in={usage.get('inputTokens', '?')} out={usage.get('outputTokens', '?')}"
         return f"✅ {label}: {model} | {item.get('latency_ms', '?')} ms{token_text}"
-    error = str(item.get("error", "unknown error"))[:500]
-    return f"❌ {label}: {model}\n{error}"
+    detail = str(item.get("detail") or item.get("error") or "unknown error")
+    return f"❌ {label}: {model}\n{detail[:800]}"
 
 
 def _command_bedrock_test(chat_id: int):
