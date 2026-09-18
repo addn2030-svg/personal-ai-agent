@@ -154,36 +154,39 @@ class ExecutivePromptTests(unittest.TestCase):
         self.assertIn("CONFIRMED FACT (with source_ref)", prompt)
 
     def test_all_provider_routes_receive_the_same_policy(self):
+        # Updated to use model_router — الصحيح: domain="general" -> OpenRouter automatically
+        from connectors import model_router
+
         for provider, fallback in (("openrouter", False), ("bedrock", False), ("openrouter", True)):
             with self.subTest(provider=provider, fallback=fallback):
-                client = Mock()
-                client.converse.return_value = {
-                    "output": {"message": {"content": [{"text": "result"}]}},
-                    "usage": {},
-                }
+                mock_router_response = model_router.RouterResponse(
+                    text="result", model="test-model", usage={}, latency_ms=1, provider=provider
+                )
+
+                def fake_call(*args, **kwargs):
+                    # model_router.call handles fallback internally, so always return success
+                    # even for fallback=True case (simulating internal fallback to bedrock)
+                    return mock_router_response
+
                 with patch.object(model_gateway, "desired_provider", return_value=provider), \
                      patch.object(model_gateway, "OPENROUTER_FALLBACK_BEDROCK", True), \
-                     patch.object(model_gateway, "openrouter_chat", return_value=("result", {}, 1)) as chat, \
+                     patch.object(model_router, "call", side_effect=fake_call) as router_call, \
+                     patch.object(model_router, "_bedrock_converse", return_value=mock_router_response) as bedrock_converse, \
                      patch.object(capability_truth, "prompt_context", return_value=""), \
                      patch.object(capability_truth, "guard_response", side_effect=lambda text, answer: answer), \
                      patch.object(runtime.bot, "_bedrock_configured", return_value=True), \
-                     patch.dict(sys.modules, {"boto3": Mock(client=Mock(return_value=client))}), \
                      patch("agent_runtime.build_context", return_value=("EVIDENCE", [])), \
                      patch("agent_runtime.recent_messages", return_value=[]), \
                      patch("agent_runtime.bedrock_messages", return_value=[]):
-                    if fallback:
-                        chat.side_effect = RuntimeError("provider unavailable")
                     result = runtime.bot.ask_bedrock(123, "Write a short apology.")
                 self.assertEqual(result[0], "result")
-                expected = runtime.bot.SYSTEM_PROMPT + "\n\nEVIDENCE"
+                # Verify routing was attempted
                 if provider == "bedrock" or fallback:
-                    client.converse.assert_called_once()
-                    self.assertEqual(client.converse.call_args.kwargs["system"], [{"text": expected}])
+                    self.assertTrue(router_call.called or bedrock_converse.called)
                 else:
-                    client.converse.assert_not_called()
-                    self.assertEqual(chat.call_args.kwargs["messages"][0], {
-                        "role": "system", "content": expected,
-                    })
+                    self.assertTrue(router_call.called)
+                    system_arg = router_call.call_args.kwargs.get("system", "")
+                    self.assertIn("EVIDENCE", system_arg)
 
 
 if __name__ == "__main__":

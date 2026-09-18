@@ -1,6 +1,7 @@
 """Live connector adapters for Abdulrahman AI OS."""
 
 from . import model_gateway as model_gateway
+from . import model_router as model_router
 from .direct_specialists import install as _install_direct_specialists
 from .provider_diagnostics import install as _install_provider_diagnostics
 

@@ -14,8 +14,13 @@ class BedrockTeamTests(unittest.TestCase):
             "output": {"message": {"content": [{"text": "PACKET"}]}},
             "usage": {"inputTokens": 25, "outputTokens": 7},
         }
+        from connectors import model_router
+        from connectors import model_gateway
+
         with patch.object(bedrock_team, "configured", return_value=True), patch.object(
-            bedrock_team, "_client", return_value=client
+            model_gateway, "bedrock_configured", return_value=True
+        ), patch.object(
+            model_router, "_bedrock_client", return_value=client
         ):
             result = bedrock_team.converse_text(
                 model_id="amazon.nova-micro-v1:0",
