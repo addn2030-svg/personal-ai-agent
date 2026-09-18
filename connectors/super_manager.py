@@ -244,12 +244,36 @@ def manager(chat_id: int, objective: str, *, bedrock_fallback=None) -> str:
 
     context = build_context(goal)
     prompt = build_prompt(goal, context)
-    answer, provider, model, usage = lean._bedrock_manager(
-        prompt,
-        max_tokens=MAX_TOKENS,
-        chat_id=chat_id,
-        bedrock_fallback=bedrock_fallback,
-    )
+
+    # الصحيح: استخدام model_router.call مع domain="general" -> OpenRouter تلقائياً
+    # مع fallback إلى Bedrock إذا لزم الأمر
+    try:
+        from connectors import model_router
+        import os
+
+        result = model_router.call(
+            domain="general",
+            prompt=prompt,
+            system="",  # prompt already contains evidence + contracts
+            model=os.getenv("AI_MODEL_MANAGER", os.getenv("AI_MANAGER_MODEL", "anthropic/claude-sonnet-4.6")),
+            max_tokens=MAX_TOKENS,
+            temperature=0.15,
+            chat_id=chat_id,
+            sensitive=False,
+        )
+        answer = result.text
+        provider = result.provider
+        model = result.model
+        usage = result.usage
+    except Exception:
+        # Fallback to legacy bedrock path if router fails
+        answer, provider, model, usage = lean._bedrock_manager(
+            prompt,
+            max_tokens=MAX_TOKENS,
+            chat_id=chat_id,
+            bedrock_fallback=bedrock_fallback,
+        )
+
     usage = usage or {}
     sources = "+".join(context.sources) if context.sources else "none"
     warning = ""
