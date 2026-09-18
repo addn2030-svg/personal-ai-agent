@@ -1,9 +1,13 @@
 # -*- coding: utf-8 -*-
 """Lightweight Bedrock-first calls for the AI team.
 
-Unlike the general Telegram Bedrock path, these calls intentionally do not load
-conversation history, Sheets, or the full personal context. They are for small
-mission packets where the caller supplies the exact evidence needed.
+Refactored to use model_router as the single source of truth for model calls.
+Direct bedrock_client.converse is now encapsulated only inside model_router.
+
+الصحيح:
+    response = model_router.call(domain="general", prompt=..., model=...)
+الخطأ:
+    bedrock_client.converse(...)
 """
 from __future__ import annotations
 
@@ -46,51 +50,47 @@ def configured() -> bool:
 
 
 def _client():
-    import boto3
-
-    return boto3.client("bedrock-runtime", region_name=AWS_REGION)
+    """Backward-compat shim — new code should use model_router._bedrock_client()."""
+    try:
+        from . import model_router
+        return model_router._bedrock_client()
+    except Exception:
+        import boto3
+        return boto3.client("bedrock-runtime", region_name=AWS_REGION)
 
 
 def converse_text(*, model_id: str, system: str, prompt: str,
                   max_tokens: int = 600, temperature: float = 0.1,
                   role: str = "mission") -> BedrockTeamResult:
-    """One compact Bedrock Converse call with no implicit history/context."""
+    """One compact call — now routed through model_router (domain=bedrock).
+
+    الصحيح:
+        response = model_router.call(domain="general", prompt=..., model=...)
+    الخطأ:
+        bedrock_client.converse(...)
+    """
     if not configured():
         raise RuntimeError("AWS Bedrock credentials/model are not configured")
     if not model_id:
         raise RuntimeError("Bedrock team model ID is empty")
 
-    started = time.monotonic()
-    kwargs = {
-        "modelId": model_id,
-        "messages": [{"role": "user", "content": [{"text": str(prompt)}]}],
-        "inferenceConfig": {
-            "maxTokens": int(max_tokens),
-            "temperature": float(temperature),
-        },
-        "requestMetadata": {
-            "app": "abdulrahman-ai-os",
-            "workload": str(role)[:64],
-        },
-    }
-    if system:
-        kwargs["system"] = [{"text": str(system)}]
+    # الصحيح: استخدام model_router بدلاً من bedrock_client.converse مباشرة
+    from . import model_router
 
-    response = _client().converse(**kwargs)
-    blocks = response.get("output", {}).get("message", {}).get("content", [])
-    answer = "\n".join(
-        str(block.get("text", "")).strip()
-        for block in blocks
-        if isinstance(block, dict) and block.get("text")
-    ).strip()
-    if not answer:
-        raise RuntimeError("Bedrock team model returned an empty response")
-
+    result = model_router._bedrock_converse(
+        model_id=model_id,
+        system=system,
+        prompt=prompt,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        role=role,
+    )
     return BedrockTeamResult(
-        text=answer,
-        model=model_id,
-        usage=dict(response.get("usage", {}) or {}),
-        latency_ms=int((time.monotonic() - started) * 1000),
+        text=result.text,
+        model=result.model,
+        usage=result.usage,
+        latency_ms=result.latency_ms,
+        provider=result.provider,
     )
 
 

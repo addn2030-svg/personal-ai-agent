@@ -191,27 +191,32 @@ def probe_openrouter() -> dict:
 
 
 def probe_bedrock() -> dict:
-    """Perform one tiny Bedrock Converse call against the configured fallback model."""
+    """Perform one tiny Bedrock call — now via model_router (single source of truth).
+
+    الصحيح:
+        response = model_router.call(domain="general", prompt=..., model=...)
+    الخطأ:
+        bedrock_client.converse(...)
+    """
     if not bedrock_configured():
         return {"configured": False, "ok": False, "detail": "AWS Bedrock credentials/model are not configured"}
-    started = time.monotonic()
     try:
-        import boto3
+        from . import model_router
 
-        client = boto3.client("bedrock-runtime", region_name=AWS_REGION)
-        response = client.converse(
-            modelId=BEDROCK_MODEL_ID,
-            messages=[{"role": "user", "content": [{"text": "Reply with exactly: OK"}]}],
-            inferenceConfig={"maxTokens": 16, "temperature": 0},
+        result = model_router._bedrock_converse(
+            model_id=BEDROCK_MODEL_ID,
+            system="Reply only with OK.",
+            prompt="Reply with exactly: OK",
+            max_tokens=16,
+            temperature=0,
+            role="probe-bedrock",
         )
-        blocks = response.get("output", {}).get("message", {}).get("content", [])
-        answer = "\n".join(block.get("text", "") for block in blocks if block.get("text"))
         return {
             "configured": True,
-            "ok": bool(answer),
-            "model": BEDROCK_MODEL_ID,
-            "latency_ms": int((time.monotonic() - started) * 1000),
-            "usage": response.get("usage", {}),
+            "ok": bool(result.text),
+            "model": result.model,
+            "latency_ms": result.latency_ms,
+            "usage": result.usage,
         }
     except Exception as exc:  # noqa: BLE001 - diagnostic boundary
         return {"configured": True, "ok": False, "detail": _safe_error(exc), "model": BEDROCK_MODEL_ID}

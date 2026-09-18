@@ -313,27 +313,46 @@ def _save_status(component, status, detail):
 
 
 def ask_bedrock(chat_id: int, text: str, sheet_context: str = ""):
-    if not _bedrock_configured():
-        raise RuntimeError("AWS Bedrock variables are not configured")
-    import boto3
+    """
+    Refactored to use model_router — الصحيح:
+        response = model_router.call(domain="general", prompt=..., model=...)
+    بدلاً من bedrock_client.converse مباشرة.
+    """
+    # Lazy import to avoid circular
+    try:
+        from connectors import model_router
+    except ImportError:
+        from . import model_router  # type: ignore
 
-    started = time.monotonic()
-    client = boto3.client("bedrock-runtime", region_name=AWS_REGION)
-    from agent_runtime import build_context, bedrock_messages
+    from agent_runtime import build_context
+
     context, sources = build_context(chat_id, text)
     if sheet_context:
         context += "\n\nLIVE GOOGLE SHEETS CONTEXT (read-only evidence):\n" + sheet_context
-    response = client.converse(
-        modelId=BEDROCK_MODEL_ID,
-        system=[{"text": SYSTEM_PROMPT + "\n\n" + context}],
-        messages=bedrock_messages(chat_id, text),
-        inferenceConfig={"maxTokens": 1200, "temperature": 0.2},
+
+    system = SYSTEM_PROMPT + "\n\n" + context
+    # domain selection: clinical -> bedrock, otherwise general -> OpenRouter automatically
+    domain = "clinical" if _clinical_hint(text) else "general"
+    model_name = os.getenv("AI_MODEL_MANAGER", "anthropic/claude-sonnet-4.6") if domain == "general" else BEDROCK_MODEL_ID
+
+    # الصحيح: استخدام model_router.call مع domain
+    result = model_router.call(
+        domain=domain,
+        prompt=text,
+        model=model_name,
+        system=system,
+        max_tokens=1200,
+        temperature=0.2,
+        chat_id=chat_id,
+        sheet_context=sheet_context,
+        sensitive=_clinical_hint(text),
     )
-    blocks = response.get("output", {}).get("message", {}).get("content", [])
-    answer = "\n".join(block.get("text", "") for block in blocks if block.get("text"))
-    if not answer:
-        raise RuntimeError("Claude returned an empty response")
-    return answer, response.get("usage", {}), int((time.monotonic() - started) * 1000), sources
+
+    # result is RouterResponse — نحافظ على نفس توقيع الإرجاع القديم (answer, usage, latency, sources)
+    answer = result.text if hasattr(result, "text") else str(result)
+    usage = getattr(result, "usage", {}) or {}
+    latency = getattr(result, "latency_ms", 0) or 0
+    return answer, usage, latency, sources
 
 
 

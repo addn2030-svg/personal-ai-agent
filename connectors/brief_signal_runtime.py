@@ -50,7 +50,24 @@ def install():
             + "\n\nSTATESTORE EXECUTIVE SIGNALS (read-only evidence; preserve evidence_status):\n" + compact_state
             + "\n\nCURRENT SHEETS SNAPSHOT:\n" + legacy._sheet_context()
         )
-        answer, _, _, _ = legacy.ask_bedrock(chat_id, prompt, sheet_context=context)
+        # الصحيح: استخدام model_router.call مع domain="general" -> يوجه تلقائياً إلى OpenRouter
+        import os
+
+        try:
+            from connectors import model_router
+
+            brief_prompt = prompt
+            result = model_router.call(
+                domain="general",
+                prompt=brief_prompt,
+                system=context,
+                model=os.getenv("AI_MODEL_MANAGER", "anthropic/claude-sonnet-4.6"),
+                max_tokens=3500,
+                temperature=0.2,
+            )
+            answer = result.text if hasattr(result, "text") else str(result)
+        except ImportError:
+            answer, _, _, _ = legacy.ask_bedrock(chat_id, prompt, sheet_context=context)
 
         dashboard_updated = True
         try:

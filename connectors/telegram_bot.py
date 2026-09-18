@@ -47,14 +47,52 @@ def _guarded_run():
 
 
 def _unified_ask(chat_id: int, text: str, sheet_context: str = ""):
-    return _models.ask(
-        chat_id,
-        text,
-        system_prompt=_impl.SYSTEM_PROMPT,
-        sheet_context=sheet_context,
-        sensitive=_impl._clinical_hint(text),
-        bedrock_fallback=_legacy_ask_bedrock,
-    )
+    """
+    Unified ask — now uses model_router.call with domain routing.
+    domain="general" -> OpenRouter automatically (الصحيح)
+    """
+    try:
+        from connectors import model_router
+        import os
+
+        sensitive = _impl._clinical_hint(text)
+        domain = "clinical" if sensitive else "general"
+        model_name = (
+            os.getenv("AI_MODEL_MANAGER", "anthropic/claude-sonnet-4.6")
+            if domain == "general"
+            else os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-6")
+        )
+
+        # Build context via agent_runtime for sources
+        try:
+            from agent_runtime import build_context
+
+            _, sources = build_context(chat_id, text)
+        except Exception:
+            sources = []
+
+        result = model_router.call(
+            domain=domain,
+            prompt=text,
+            model=model_name,
+            system=_impl.SYSTEM_PROMPT,
+            chat_id=chat_id,
+            sheet_context=sheet_context,
+            sensitive=sensitive,
+            max_tokens=1200,
+            temperature=0.2,
+        )
+        return result.text, result.usage, result.latency_ms, sources
+    except ImportError:
+        # Fallback to old gateway if router not available
+        return _models.ask(
+            chat_id,
+            text,
+            system_prompt=_impl.SYSTEM_PROMPT,
+            sheet_context=sheet_context,
+            sensitive=_impl._clinical_hint(text),
+            bedrock_fallback=_legacy_ask_bedrock,
+        )
 
 
 def _save_conversation(cid, iid, question, answer, usage, latency_ms, status, error=""):
