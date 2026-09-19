@@ -1,5 +1,8 @@
 # Railway Agent Runtime — Memory, Sheets, Bedrock and Voice
 
+For the complete migration checklist, environment-variable inventory, safe transfer
+commands, and the 24-hour expiry diagnosis, see [`docs/railway-migration.md`](railway-migration.md).
+
 ## Entrypoint invocation (crash-loop guard)
 
 The container entrypoint is `connectors/telegram_webhook_runtime_memory.py`. It

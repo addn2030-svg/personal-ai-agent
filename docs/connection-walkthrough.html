@@ -272,11 +272,11 @@
         <span class="lbl what">What</span> In Buffer Publish, connect the social channels you want (LinkedIn, X, …). Each connected channel has a <b>profile id</b> the API uses.</span></li>
       <li><input type="checkbox" class="chk"><span class="num"></span><span class="txt">
         <span class="lbl where">Where</span> Railway → your service → <b>Variables</b> → add:<br>
-        <span class="pill">BUFFER_ACCESS_TOKEN</span> = the <b>fresh</b> token (not the one pasted in chat)</span></li>
+        <span class="pill">BUFFER_API_KEY</span> = the <b>fresh</b> token (not the one pasted in chat)</span></li>
     </ol>
-    <div class="okbox"><b>Status:</b> the Buffer <i>connector code</i> is the next build step (bot's Priority 3 list).
-      The env var is where it will read from — ask me to build it and posts will go out as
-      <b>drafts → preview → /confirm</b>, never automatically.</div>
+    <div class="okbox"><b>Status:</b> the Buffer connector reads <code>BUFFER_API_KEY</code>.
+      Posts go out only through the approval flow as <b>drafts → preview → /confirm</b>,
+      never automatically.</div>
   </div>
 
   <!-- ═══════════ FINAL CHECK ═══════════ -->
