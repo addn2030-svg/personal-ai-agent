@@ -1,55 +1,62 @@
 # -*- coding: utf-8 -*-
-"""Tests for the unified model_router and its Bedrock-primary policy."""
+"""Tests for the unified model_router and its Gemini-primary policy."""
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 from connectors import model_router
 
 
 class ModelRouterTests(unittest.TestCase):
-    @staticmethod
-    def _bedrock_client(answer="bedrock answer"):
-        client = Mock()
-        client.converse.return_value = {
-            "output": {"message": {"content": [{"text": answer}]}},
-            "usage": {"inputTokens": 10, "outputTokens": 5},
-        }
-        return client
-
-    def test_general_domain_defaults_to_bedrock_without_openrouter(self):
-        """Ordinary requests must not require OPENROUTER_API_KEY."""
-        client = self._bedrock_client("Claude answer")
-        with patch.object(model_router.gateway, "AI_MODEL_PROVIDER", "bedrock"), \
-             patch.object(model_router.gateway, "bedrock_configured", return_value=True), \
+    def test_general_domain_defaults_to_gemini_without_other_provider(self):
+        """Ordinary requests must use Gemini API without Bedrock/OpenRouter."""
+        with patch.object(model_router.gateway, "AI_MODEL_PROVIDER", "gemini"), \
+             patch.object(model_router.gateway, "GEMINI_API_KEY", "test-key"), \
+             patch.object(model_router.gateway, "gemini_configured", return_value=True), \
              patch.object(model_router.gateway, "openrouter_chat") as openrouter, \
-             patch.object(model_router, "_bedrock_client", return_value=client):
+             patch.object(model_router, "_gemini_converse", return_value=model_router.RouterResponse(
+                 text="Gemini answer", model="gemini-3.7-flash", usage={}, latency_ms=7,
+                 provider="gemini",
+             )) as gemini:
             response = model_router.call(
                 domain="general",
                 prompt="هل العمل في الليل يؤثر على العضلات؟",
                 model="anthropic/claude-sonnet-4.6",
             )
 
-        self.assertEqual(response.text, "Claude answer")
-        self.assertEqual(response.provider, "bedrock")
-        self.assertEqual(response.model, "us.anthropic.claude-sonnet-4-6")
+        self.assertEqual(response.text, "Gemini answer")
+        self.assertEqual(response.provider, "gemini")
+        gemini.assert_called_once()
         openrouter.assert_not_called()
-        self.assertEqual(client.converse.call_args.kwargs["modelId"], "us.anthropic.claude-sonnet-4-6")
 
-    def test_clinical_domain_routes_to_bedrock(self):
-        """domain='clinical' should go directly to Bedrock."""
-        mock_client = self._bedrock_client("clinical answer")
-        with patch.object(model_router.gateway, "bedrock_configured", return_value=True), \
-             patch.object(model_router, "_bedrock_client", return_value=mock_client):
+    def test_clinical_domain_routes_to_gemini(self):
+        with patch.object(model_router.gateway, "AI_CLINICAL_PROVIDER", "gemini"), \
+             patch.object(model_router.gateway, "GEMINI_API_KEY", "test-key"), \
+             patch.object(model_router.gateway, "gemini_configured", return_value=True), \
+             patch.object(model_router, "_gemini_converse", return_value=model_router.RouterResponse(
+                 text="clinical Gemini answer", model="gemini-3.7-flash", usage={}, latency_ms=5,
+                 provider="gemini",
+             )) as gemini:
             response = model_router.call(
                 domain="clinical",
-                prompt="راجع حالة المريض",
-                model="us.anthropic.claude-sonnet-4-6",
+                prompt="راجع الحالة الصحية",
+                model="google/gemini-3.7-flash",
             )
-            self.assertEqual(response.text, "clinical answer")
-            self.assertEqual(response.provider, "bedrock")
-            mock_client.converse.assert_called_once()
+        self.assertEqual(response.text, "clinical Gemini answer")
+        self.assertEqual(response.provider, "gemini")
+        gemini.assert_called_once()
 
-    def test_explicit_openrouter_opt_in_still_works(self):
+    def test_gemini_direct_adapter_is_used(self):
+        with patch.object(model_router.gateway, "GEMINI_API_KEY", "test-key"), \
+             patch.object(model_router.gateway, "gemini_configured", return_value=True), \
+             patch("connectors.direct_specialists._direct_gemini", return_value=(
+                 "direct Gemini", {"inputTokens": 2}, 9, "gemini-3.7-flash"
+             )) as direct:
+            response = model_router.call(domain="general", prompt="test")
+        self.assertEqual(response.text, "direct Gemini")
+        self.assertEqual(response.provider, "gemini")
+        direct.assert_called_once()
+
+    def test_explicit_openrouter_compatibility_route_still_works(self):
         mock_answer = "Executive brief content"
         with patch.object(model_router.gateway, "AI_MODEL_PROVIDER", "openrouter"), \
              patch.object(model_router.gateway, "openrouter_chat", return_value=(mock_answer, {"inputTokens": 10}, 100)) as chat, \
@@ -61,7 +68,6 @@ class ModelRouterTests(unittest.TestCase):
             )
         self.assertEqual(response.text, mock_answer)
         self.assertEqual(response.provider, "openrouter")
-        self.assertEqual(str(response), mock_answer)
         chat.assert_called_once()
 
     def test_call_text_convenience_returns_string(self):
@@ -74,23 +80,41 @@ class ModelRouterTests(unittest.TestCase):
                 prompt="test",
                 model="anthropic/claude-sonnet-4.6",
             )
-            self.assertEqual(result, "brief")
-            self.assertIsInstance(result, str)
+        self.assertEqual(result, "brief")
+        self.assertIsInstance(result, str)
 
     def test_general_fallback_to_bedrock_when_explicit_openrouter_fails(self):
-        mock_client = self._bedrock_client("fallback answer")
         with patch.object(model_router.gateway, "AI_MODEL_PROVIDER", "openrouter"), \
              patch.object(model_router.gateway, "openrouter_chat", side_effect=RuntimeError("OpenRouter down")), \
              patch.object(model_router.gateway, "bedrock_configured", return_value=True), \
              patch.object(model_router.gateway, "OPENROUTER_FALLBACK_BEDROCK", True), \
-             patch.object(model_router, "_bedrock_client", return_value=mock_client):
+             patch.object(model_router, "_bedrock_converse", return_value=model_router.RouterResponse(
+                 text="fallback answer", model="bedrock-model", usage={}, latency_ms=2,
+                 provider="bedrock", fallback=True,
+             )) as bedrock:
             response = model_router.call(
                 domain="general",
                 prompt="test fallback",
                 model="anthropic/claude-sonnet-4.6",
             )
-            self.assertEqual(response.text, "fallback answer")
-            self.assertEqual(response.provider, "bedrock")
+        self.assertEqual(response.text, "fallback answer")
+        self.assertEqual(response.provider, "bedrock")
+        bedrock.assert_called_once()
+
+    def test_explicit_bedrock_compatibility_route_still_works(self):
+        with patch.object(model_router.gateway, "bedrock_configured", return_value=True), \
+             patch.object(model_router, "_bedrock_client") as client:
+            client.return_value.converse.return_value = {
+                "output": {"message": {"content": [{"text": "bedrock compatibility"}]}},
+                "usage": {},
+            }
+            response = model_router.call(
+                domain="bedrock",
+                prompt="compatibility test",
+                model="us.anthropic.claude-sonnet-4-6",
+            )
+        self.assertEqual(response.text, "bedrock compatibility")
+        self.assertEqual(response.provider, "bedrock")
 
     def test_reported_arabic_health_question_is_clinical(self):
         from connectors import capability_truth

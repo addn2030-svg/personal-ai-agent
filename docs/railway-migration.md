@@ -83,11 +83,10 @@ service does not inherit them):
 | `TELEGRAM_WEBHOOK_SECRET` | recommended | A new random HTTPS-safe secret; keep it stable across restarts |
 | `AI_OS_DATA_DIR` | yes | `/data` |
 | `MANAGER_TIMEZONE` | recommended | `Asia/Riyadh` |
-| `AI_MODEL_PROVIDER` | yes | `bedrock` — Claude on AWS is the normal provider |
-| `AI_CLINICAL_PROVIDER` | yes | `bedrock` — keep clinical cases on Bedrock |
-| `AWS_BEARER_TOKEN_BEDROCK` **or** AWS access-key pair | for Bedrock | Secret Bedrock authentication; use one supported auth path |
-| `AWS_REGION` | for Bedrock | `us-east-1` (or the region where the model is enabled) |
-| `BEDROCK_MODEL_ID` | for Bedrock | `us.anthropic.claude-sonnet-4-6`, or an enabled model ID |
+| `AI_MODEL_PROVIDER` | yes | `gemini` — Gemini API is the only normal AI route |
+| `AI_CLINICAL_PROVIDER` | yes | `gemini` — clinical cases also use Gemini API |
+| `GEMINI_API_KEY` | for Gemini | Google Gemini API key; secret |
+| `GEMINI_MODEL` | recommended | `google/gemini-3.7-flash` or an enabled Gemini model ID |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | for direct Google access | Complete service-account JSON, preferably pasted as one value or base64; secret |
 | `GOOGLE_SHEET_ID` | for operational Sheets | ID between `/d/` and `/edit` in the general workbook URL |
 | `CLINICAL_SHEET_ID` | for clinical cases | `1Te-dD6B9USOzURbTjMoZQgYtDeoygwR6QRGeHHGAzaQ` |
@@ -150,26 +149,17 @@ stays disabled or uses its documented no-key fallback.
 ### Model providers
 
 ```text
-AI_MODEL_PROVIDER=bedrock          # normal route; OpenRouter is not required
-AI_CLINICAL_PROVIDER=bedrock       # privacy-preserving clinical route
-AWS_REGION=us-east-1
-BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-6
-AWS_BEARER_TOKEN_BEDROCK           # secret, or AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY
-
-# Optional legacy/explicit alternate route only:
-OPENROUTER_API_KEY                 # secret; not needed for ordinary questions
-OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
-OPENROUTER_FALLBACK_BEDROCK=1
-OPENROUTER_REQUIRE_ZDR=0
-AI_MANAGER_MODEL=anthropic/claude-sonnet-4.6
-AI_CRITIC_MODEL=openai/gpt-5.6-sol
-AI_GOOGLE_MODEL=google/gemini-3.7-flash
+AI_MODEL_PROVIDER=gemini          # only normal AI route
+AI_CLINICAL_PROVIDER=gemini       # clinical route uses Gemini too
+GEMINI_API_KEY                    # secret
+GEMINI_MODEL=google/gemini-3.7-flash
 ```
 
-The router defaults to Bedrock even when `OPENROUTER_API_KEY` is absent. Keep
-clinical content on Bedrock; an OpenRouter clinical fallback requires an
-explicit `AI_CLINICAL_PROVIDER=openrouter` opt-in and is not part of the normal
-Railway configuration.
+OpenRouter and Claude/Bedrock are not required for normal operation and are not
+used by the primary Telegram route. Do not add `OPENROUTER_API_KEY` for this
+configuration. The direct Gemini adapter uses the Gemini API and falls back
+between its supported Gemini endpoints only; it does not fall back to another
+provider.
 
 ### Project memory and scheduling
 
@@ -205,7 +195,7 @@ BUFFER_DEFAULT_MODE=draft
 CONTENT_DEFAULT_PLATFORM=linkedin
 CONTENT_SHEET_ID
 CONTENT_QUEUE_TAB=PUBLISH_QUEUE
-GEMINI_API_KEY                       # optional content image/video; secret
+GEMINI_API_KEY                       # primary Gemini key; also used by optional media tools
 CONTENT_MEDIA_FOLDER_ID              # Drive folder for generated media
 GEMINI_IMAGE_MODEL=gemini-3.1-flash-image
 GEMINI_VIDEO_MODEL=gemini-omni-1.1-flash
@@ -263,8 +253,10 @@ That avoids putting a secret in shell history or command-line arguments.
    railway variable set \
      AI_OS_DATA_DIR=/data \
      MANAGER_TIMEZONE=Asia/Riyadh \
-     AWS_REGION=us-east-1 \
-     BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-6 \
+     AI_MODEL_PROVIDER=gemini \
+     AI_CLINICAL_PROVIDER=gemini \
+     GEMINI_MODEL=google/gemini-3.7-flash \
+     CLINICAL_SHEET_ID=1Te-dD6B9USOzURbTjMoZQgYtDeoygwR6QRGeHHGAzaQ \
      --skip-deploys
    ```
 
@@ -290,9 +282,9 @@ changes are saved in a single batch.
   `getWebhookInfo` or send `/time` to the bot.
 - **Google:** share every asset with the new/current service-account email and
   confirm API enablement.
-- **AWS:** grant only the Bedrock permissions needed by the selected Claude
-  model and verify that the model is enabled in the selected region. Telegram
-  audio transcription is disabled and needs no S3/Transcribe permissions.
+- **Google Gemini:** set `GEMINI_API_KEY` as a Railway secret and verify the
+  selected Gemini model/API is enabled. Telegram audio transcription is disabled
+  and needs no S3/Transcribe permissions.
 - **GitHub:** use a fresh least-privilege token if the previous one was ever
   pasted into a chat or committed.
 - **Buffer/ElevenLabs/OpenRouter/etc.:** revoke an exposed key and create a new
@@ -336,7 +328,7 @@ survives a restart but loses `data/state.json` is not fully migrated.
 
 ## Repository references
 
-- `docs/railway-agent-runtime.md` — production entrypoint, volume, Bedrock,
+- `docs/railway-agent-runtime.md` — production entrypoint, volume, Gemini API,
   separated operational/clinical Sheets, and text-only Telegram input.
 - `docs/connection-guide.md` — provider-by-provider setup and live probes.
 - `docs/runtime-time-memory.md` — `/health`, `/time`, persistence, and post-deploy

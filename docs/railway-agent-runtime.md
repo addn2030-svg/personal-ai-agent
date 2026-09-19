@@ -1,4 +1,4 @@
-# Railway Agent Runtime — Memory, separated Sheets, and Bedrock
+# Railway Agent Runtime — Memory, separated Sheets, and Gemini API
 
 For the complete migration checklist, environment-variable inventory, safe transfer
 commands, and the 24-hour expiry diagnosis, see [`docs/railway-migration.md`](railway-migration.md).
@@ -26,11 +26,10 @@ If you override the start command in Railway, keep the `-m` form.
 ### Core
 - TELEGRAM_BOT_TOKEN
 - TELEGRAM_ALLOWED_CHAT_ID
-- AI_MODEL_PROVIDER=bedrock
-- AI_CLINICAL_PROVIDER=bedrock
-- AWS_BEARER_TOKEN_BEDROCK **or** AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY
-- AWS_REGION=us-east-1
-- BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-6
+- AI_MODEL_PROVIDER=gemini
+- AI_CLINICAL_PROVIDER=gemini
+- GEMINI_API_KEY=<secret>
+- GEMINI_MODEL=google/gemini-3.7-flash
 
 ### Persistent state ⚠️ REQUIRED — deploy will lose all state without it
 
@@ -85,7 +84,7 @@ text-only response and are not sent to any transcription provider or model.
 ## Runtime flow
 
 Telegram -> privacy/category -> local Unified Inbox -> bounded conversation
-memory -> state + lexical knowledge retrieval -> Claude/Bedrock -> Telegram ->
+memory -> state + lexical knowledge retrieval -> Gemini API -> Telegram ->
 Google Sheets audit.
 
 Voice/audio is intentionally outside the runtime; resend the request as text.

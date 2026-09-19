@@ -171,12 +171,13 @@ class TelegramBotTests(unittest.TestCase):
 
     def test_selftest_does_not_report_voice_or_transcribe(self):
         with patch.object(telegram_bot, "api", return_value={"username": "testbot"}), \
-             patch.object(telegram_bot, "_bedrock_configured", return_value=True), \
+             patch.object(telegram_bot, "_gemini_configured", return_value=True), \
              patch.object(telegram_bot, "_sheets_configured", return_value=True):
             result = telegram_bot._selftest()
 
         self.assertNotIn("Voice / Transcribe", result)
         self.assertNotIn("Amazon Transcribe", result)
+        self.assertIn("Gemini API", result)
         self.assertIn("Clinical Sheets route", result)
 
     def test_callback_query_handled_in_delegated_bot(self):

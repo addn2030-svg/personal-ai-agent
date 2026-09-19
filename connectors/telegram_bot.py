@@ -15,7 +15,6 @@ if str(BASE) not in sys.path:
 from connectors import telegram_bot_legacy as _impl
 from connectors import model_gateway as _models
 from connectors import task_delegation as _team
-from connectors import bedrock_team as _bedrock_team
 from connectors import ops_context as _ops_context
 from connectors import super_manager as _super_manager
 
@@ -27,7 +26,7 @@ _legacy_configure_commands = _impl.configure_commands
 _legacy_command_start = _impl.command_start
 
 _MANAGER_COMMANDS = {"/manager", "/manager_shadow", "/manager_status"}
-_TEAM_COMMANDS = {"/agents", "/bedrock_test", "/context_test", "/delegate", "/council", "/mission"} | _MANAGER_COMMANDS
+_TEAM_COMMANDS = {"/agents", "/gemini_test", "/context_test", "/delegate", "/council", "/mission"} | _MANAGER_COMMANDS
 _MASTEROS_COMMANDS = {
     "/masteros", "/schedule", "/today-actions", "/today_actions",
     "/mindmaps", "/mind_maps", "/digests", "/audio_digests",
@@ -49,8 +48,8 @@ def _guarded_run():
 def _unified_ask(chat_id: int, text: str, sheet_context: str = ""):
     """
     Unified ask — all ordinary and clinical questions use model_router.call.
-    Claude on AWS Bedrock is the default for both domains; OpenRouter is never
-    required for the normal Telegram path.
+    Gemini API is the only normal Telegram AI route; Claude/Bedrock and
+    OpenRouter are not used by the primary path.
     """
     try:
         from connectors import model_router
@@ -58,9 +57,12 @@ def _unified_ask(chat_id: int, text: str, sheet_context: str = ""):
 
         sensitive = _impl._clinical_hint(text)
         domain = "clinical" if sensitive else "general"
+        provider = _models.desired_provider(sensitive=sensitive)
         model_name = (
-            _models.BEDROCK_MODEL_ID
-            if _models.desired_provider(sensitive=sensitive) == "bedrock"
+            _models.GEMINI_MODEL
+            if provider == "gemini"
+            else _models.BEDROCK_MODEL_ID
+            if provider == "bedrock"
             else os.getenv("AI_MODEL_MANAGER", "anthropic/claude-sonnet-4.6")
         )
 
@@ -128,14 +130,16 @@ def _command_ai_status(chat_id: int):
         "🤖 Model Gateway",
         f"General: {status['desired_general_provider']}",
         f"Clinical: {status['desired_clinical_provider']}",
-        f"Bedrock: {'configured ✅' if status['bedrock_configured'] else 'not configured'}",
-        f"OpenRouter (optional): {'configured ✅' if status['openrouter_configured'] else 'not configured'}",
+        f"Gemini API: {'configured ✅' if status['gemini_configured'] else 'not configured'}",
+        f"Gemini model: {status['gemini_model']}",
+        f"Claude/Bedrock compatibility: {'configured' if status['bedrock_configured'] else 'not configured'}",
+        f"OpenRouter compatibility: {'configured' if status['openrouter_configured'] else 'not configured'}",
         f"Manager: {role_models['manager']}",
         f"Critic: {role_models['critic']}",
         f"Google adviser: {role_models['google']}",
     ]
     if status["clinical_policy"].get("zdr"):
-        lines.append("Clinical OpenRouter policy (if enabled): ZDR + data_collection=deny")
+        lines.append("Clinical OpenRouter compatibility policy: ZDR + data_collection=deny")
     _impl.send(chat_id, "\n".join(lines))
 
 
@@ -148,7 +152,7 @@ def _command_start(chat_id: int):
         "/manager_shadow الطلب — مقارنة Legacy مع Super Manager بلا أثر خارجي\n"
         "/manager_status — حالة طبقة المدير\n"
         "/agents — حالة فريق النماذج ومساراته\n"
-        "/bedrock_test — اختبار صغير لـ Claude والـLean specialist على Bedrock\n"
+        "/gemini_test — اختبار صغير لـ Gemini API\n"
         "/context_test tomorrow — اختبار Calendar/Sheets بدون AI tokens\n"
         "/delegate auto المهمة — المدير يختار الوكيل\n"
         "/delegate claude|gpt|gemini المهمة — تكليف مباشر\n"
@@ -195,13 +199,12 @@ def _format_probe_item(label: str, item: dict) -> str:
     return f"❌ {label}: {model}\n{error}"
 
 
-def _command_bedrock_test(chat_id: int):
-    result = _bedrock_team.probe()
+def _command_gemini_test(chat_id: int):
+    result = _models.probe_gemini()
     lines = [
-        "🧪 Bedrock Team Test v0.9.2",
-        _format_probe_item("Manager / Claude", result.get("manager") or {}),
-        _format_probe_item("Lean specialist", result.get("lean") or {}),
-        "This test uses tiny prompts only; no conversation history or Sheets context is sent.",
+        "🧪 Gemini API Test",
+        _format_probe_item("Gemini API", result),
+        "This test uses a tiny prompt only; no conversation history or Sheets context is sent.",
     ]
     _impl.send(chat_id, "\n\n".join(lines))
 
@@ -440,8 +443,8 @@ def _delegated_handle_message(message: dict):
         elif command == "/agents":
             answer = _team.agents_status_text()
             _impl.send(chat_id, answer)
-        elif command == "/bedrock_test":
-            _command_bedrock_test(chat_id)
+        elif command == "/gemini_test":
+            _command_gemini_test(chat_id)
         elif command == "/context_test":
             _command_context_test(chat_id, text[len(command):].strip())
         elif command == "/delegate":
@@ -566,7 +569,7 @@ def _configure_commands():
             {"command": "manager_shadow", "description": "قارن Legacy وSuper Manager بلا تنفيذ"},
             {"command": "manager_status", "description": "حالة Super Manager"},
             {"command": "agents", "description": "حالة فريق النماذج ومساراته"},
-            {"command": "bedrock_test", "description": "اختبار Claude والـLean specialist على Bedrock"},
+            {"command": "gemini_test", "description": "اختبار Gemini API"},
             {"command": "context_test", "description": "اختبار سياق Calendar/Sheets بدون AI"},
             {"command": "delegate", "description": "تكليف وكيل أو اختيار تلقائي"},
             {"command": "council", "description": "مراجعة سؤال بواسطة فريق الذكاء"},

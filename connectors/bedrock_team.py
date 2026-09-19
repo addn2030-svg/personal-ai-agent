@@ -177,7 +177,7 @@ def critic(prompt: str, *, max_tokens: int = 500,
 
 
 def _probe_one(model_id: str, role: str) -> dict:
-    """Tiny paid inference used only by the explicit /bedrock_test command."""
+    """Tiny Bedrock compatibility inference for explicit specialist tests."""
     started = time.monotonic()
     try:
         result = converse_text(

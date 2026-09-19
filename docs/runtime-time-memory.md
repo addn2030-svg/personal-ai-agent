@@ -27,7 +27,7 @@ MANAGER_TIMEZONE=Asia/Riyadh
 ### 1.1 The model clock (`engine/runtime_clock.py`)
 
 The scheduler's timezone is not the same thing as the model knowing what day it
-is. Nothing used to tell Claude/OpenRouter the current date, so the agent
+is. Nothing used to tell the model the current date, so the agent
 answered "what day is today?" from training priors and named the wrong date.
 
 `engine/runtime_clock.py` is now the single source of truth for "now". It reads
@@ -37,7 +37,7 @@ import. Two consumers:
 
 - `runtime_time_context()` — injected as the **first** block of
   `engine/agent_runtime.build_context()`, so it survives context truncation and
-  reaches both the Bedrock and OpenRouter paths.
+  reaches the Gemini API path.
 - `status_text()` — the `/time` Telegram reply (see §1.2).
 
 The system prompt also instructs the model to refuse to guess a date when the
@@ -61,7 +61,7 @@ Triage when the agent goes quiet — run these in order:
 
 | Result | Meaning | Next step |
 | --- | --- | --- |
-| `/time` answers | Process is alive and the webhook is serving | The fault is a provider: run `/ai_status` (Bedrock), `/storage_status` (Sheets), `/selftest` |
+| `/time` answers | Process is alive and the webhook is serving | The fault is a provider: run `/ai_status` (Gemini), `/storage_status` (Sheets), `/selftest` |
 | `/time` silent, uptime small on a later reply | Container is crash-looping | Open Railway → Deployments → Logs; check startup exceptions |
 | `/time` silent, no reply at all | Webhook not reaching the app | `curl https://<host>/health`; check `RAILWAY_PUBLIC_DOMAIN`/`TELEGRAM_WEBHOOK_BASE_URL` and that Railway did not change the domain |
 | `/health` 200 but Telegram silent | Telegram cannot deliver, or the secret mismatches | Re-run startup `setWebhook`; confirm `TELEGRAM_WEBHOOK_SECRET` |

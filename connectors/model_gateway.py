@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """Unified model gateway for Abdulrahman AI OS.
 
-Claude on AWS Bedrock is the default model gateway for ordinary and clinical
-requests. OpenRouter remains an explicit opt-in/legacy fallback only. This file
-never stores API keys.
+Gemini API is the default model gateway for ordinary and clinical requests.
+Claude/Bedrock and OpenRouter remain explicit compatibility routes only. This
+file never stores API keys.
 """
 from __future__ import annotations
 
@@ -17,13 +17,18 @@ import urllib.request
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "").strip()
 OPENROUTER_BASE_URL = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").strip().rstrip("/")
 OPENROUTER_TIMEOUT_SECONDS = int(os.environ.get("OPENROUTER_TIMEOUT_SECONDS", "90"))
-# Bedrock is the safe default. Set AI_MODEL_PROVIDER=openrouter (or auto) only
-# when an operator deliberately opts into the OpenRouter route.
-AI_MODEL_PROVIDER = os.environ.get("AI_MODEL_PROVIDER", "bedrock").strip().lower()
-AI_CLINICAL_PROVIDER = os.environ.get("AI_CLINICAL_PROVIDER", "bedrock").strip().lower()
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
+GEMINI_MODEL = os.environ.get(
+    "GEMINI_MODEL",
+    os.environ.get("AI_GOOGLE_MODEL", "google/gemini-3.7-flash"),
+).strip()
+# Gemini is the only normal-operation route. Bedrock/OpenRouter are retained
+# only for explicit compatibility tests or deliberate legacy overrides.
+AI_MODEL_PROVIDER = os.environ.get("AI_MODEL_PROVIDER", "gemini").strip().lower()
+AI_CLINICAL_PROVIDER = os.environ.get("AI_CLINICAL_PROVIDER", "gemini").strip().lower()
 AI_MANAGER_MODEL = os.environ.get("AI_MANAGER_MODEL", "anthropic/claude-sonnet-4.6").strip()
 AI_CRITIC_MODEL = os.environ.get("AI_CRITIC_MODEL", "openai/gpt-5.6-sol").strip()
-AI_GOOGLE_MODEL = os.environ.get("AI_GOOGLE_MODEL", "google/gemini-3.7-flash").strip()
+AI_GOOGLE_MODEL = GEMINI_MODEL
 OPENROUTER_REQUIRE_ZDR = os.environ.get("OPENROUTER_REQUIRE_ZDR", "0").strip() == "1"
 OPENROUTER_FALLBACK_BEDROCK = os.environ.get("OPENROUTER_FALLBACK_BEDROCK", "1").strip() == "1"
 AWS_REGION = os.environ.get("AWS_REGION", "us-east-1").strip()
@@ -44,6 +49,10 @@ def bedrock_configured() -> bool:
     return auth and bool(AWS_REGION) and bool(BEDROCK_MODEL_ID)
 
 
+def gemini_configured() -> bool:
+    return bool(GEMINI_API_KEY and GEMINI_MODEL)
+
+
 def models_for_roles() -> dict[str, str]:
     return {
         "manager": AI_MANAGER_MODEL,
@@ -61,10 +70,15 @@ def _provider_policy(sensitive: bool = False) -> dict:
 
 def desired_provider(sensitive: bool = False) -> str:
     if sensitive:
-        return AI_CLINICAL_PROVIDER or "bedrock"
-    if AI_MODEL_PROVIDER in {"openrouter", "bedrock"}:
+        return AI_CLINICAL_PROVIDER or "gemini"
+    if AI_MODEL_PROVIDER in {"gemini", "openrouter", "bedrock"}:
         return AI_MODEL_PROVIDER
-    return "openrouter" if configured() else "bedrock"
+    # `auto` is retained only for old deployments: prefer the old OpenRouter
+    # path when explicitly configured, otherwise use Gemini. The default is
+    # never auto; it is Gemini.
+    if configured():
+        return "openrouter"
+    return "gemini"
 
 
 def last_route() -> dict:
@@ -161,6 +175,7 @@ def _safe_error(exc: Exception) -> str:
     value = str(exc)
     for secret in (
         OPENROUTER_API_KEY,
+        GEMINI_API_KEY,
         os.environ.get("AWS_BEARER_TOKEN_BEDROCK", ""),
         os.environ.get("AWS_SECRET_ACCESS_KEY", ""),
     ):
@@ -223,9 +238,37 @@ def probe_bedrock() -> dict:
         return {"configured": True, "ok": False, "detail": _safe_error(exc), "model": BEDROCK_MODEL_ID}
 
 
+def probe_gemini() -> dict:
+    """Perform one tiny direct Gemini call for explicit diagnostics."""
+    if not gemini_configured():
+        return {"configured": False, "ok": False, "detail": "GEMINI_API_KEY is not configured"}
+    try:
+        from . import model_router
+
+        result = model_router._gemini_converse(
+            model_id=GEMINI_MODEL,
+            system="Reply only with OK.",
+            prompt="Reply with exactly: OK",
+            max_tokens=16,
+            temperature=0,
+            chat_id=None,
+            sheet_context="",
+        )
+        return {
+            "configured": True,
+            "ok": bool(result.text),
+            "model": result.model,
+            "latency_ms": result.latency_ms,
+            "usage": result.usage,
+        }
+    except Exception as exc:  # noqa: BLE001 - diagnostic boundary
+        return {"configured": True, "ok": False, "detail": _safe_error(exc), "model": GEMINI_MODEL}
+
+
 def live_probe() -> dict:
     """Explicit live connectivity test. It never returns credentials or prompt content."""
     return {
+        "gemini": probe_gemini(),
         "openrouter": probe_openrouter(),
         "bedrock": probe_bedrock(),
         "policy": {
@@ -242,6 +285,21 @@ def ask(chat_id: int, text: str, *, system_prompt: str, sheet_context: str = "",
     from agent_runtime import build_context
 
     provider = desired_provider(sensitive)
+    if provider == "gemini":
+        from . import model_router
+
+        result = model_router.call(
+            domain="clinical" if sensitive else "general",
+            prompt=text,
+            model=GEMINI_MODEL,
+            system=system_prompt,
+            chat_id=chat_id,
+            sheet_context=sheet_context,
+            sensitive=sensitive,
+        )
+        _, sources = build_context(chat_id, text)
+        return result.text, result.usage, result.latency_ms, sources
+
     if provider == "bedrock":
         if bedrock_fallback is None:
             raise RuntimeError("Bedrock fallback is not available")
@@ -269,6 +327,8 @@ def ask(chat_id: int, text: str, *, system_prompt: str, sheet_context: str = "",
 
 def status() -> dict:
     return {
+        "gemini_configured": gemini_configured(),
+        "gemini_model": GEMINI_MODEL,
         "openrouter_configured": configured(),
         "bedrock_configured": bedrock_configured(),
         "desired_general_provider": desired_provider(False),

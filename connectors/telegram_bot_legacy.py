@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Secure Telegram + Claude/Bedrock + Google Sheets intake pipeline."""
+"""Secure Telegram + Gemini API + Google Sheets intake pipeline."""
 from __future__ import annotations
 
 import datetime as dt
@@ -21,6 +21,10 @@ TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 ALLOWED_CHAT_ID = os.environ.get("TELEGRAM_ALLOWED_CHAT_ID", "").strip()
 AWS_REGION = os.environ.get("AWS_REGION", "us-east-1").strip()
 BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-6").strip()
+GEMINI_MODEL_ID = os.environ.get(
+    "GEMINI_MODEL",
+    os.environ.get("AI_GOOGLE_MODEL", "google/gemini-3.7-flash"),
+).strip()
 GOOGLE_SHEET_ID = os.environ.get("GOOGLE_SHEET_ID", "1ZXmC_3_OTYYtXglNMXRQiSWu2rjDDIzoqaK0SQuWcWc").strip()
 GOOGLE_SERVICE_ACCOUNT_JSON = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
 GOOGLE_SHEETS_WEBHOOK_URL = os.environ.get("GOOGLE_SHEETS_WEBHOOK_URL", "").strip()
@@ -141,6 +145,10 @@ def _bedrock_configured():
         or (os.environ.get("AWS_ACCESS_KEY_ID") and os.environ.get("AWS_SECRET_ACCESS_KEY"))
     )
     return auth and bool(AWS_REGION) and bool(BEDROCK_MODEL_ID)
+
+
+def _gemini_configured():
+    return bool(os.environ.get("GEMINI_API_KEY", "").strip() and GEMINI_MODEL_ID)
 
 
 def _sheets_configured():
@@ -364,7 +372,7 @@ def _save_status(component, status, detail):
 def ask_bedrock(chat_id: int, text: str, sheet_context: str = ""):
     """
     Refactored to use model_router — ordinary and clinical requests default to
-    Claude on AWS Bedrock; direct bedrock_client.converse calls stay centralized.
+    Gemini API; provider-specific calls stay centralized in the router.
     """
     # Lazy import to avoid circular
     try:
@@ -379,10 +387,10 @@ def ask_bedrock(chat_id: int, text: str, sheet_context: str = ""):
         context += "\n\nLIVE GOOGLE SHEETS CONTEXT (read-only evidence):\n" + sheet_context
 
     system = SYSTEM_PROMPT + "\n\n" + context
-    # Both ordinary and clinical Telegram questions use the Bedrock-primary
-    # policy; model_router handles any explicit provider override.
+    # Both ordinary and clinical Telegram questions use the Gemini-primary
+    # policy; model_router handles any explicit compatibility override.
     domain = "clinical" if _clinical_hint(text) else "general"
-    model_name = BEDROCK_MODEL_ID
+    model_name = GEMINI_MODEL_ID
 
     # الصحيح: استخدام model_router.call مع domain
     result = model_router.call(
@@ -955,7 +963,7 @@ def command_start(chat_id: int):
         "المدخلات والإجابات تُحفظ في Google Sheets بعد فحص الخصوصية.\n\n"
         "/profile — الملف المهني\n/sources — المصادر\n/time — الوقت الآن وفحص فوري\n"
         "/selftest — فحص كامل\n"
-        "/ai_status — فحص Claude على Bedrock\n/storage_status — فحص الحفظ\n"
+        "/ai_status — فحص Gemini API\n/storage_status — فحص الحفظ\n"
         "/clinical_status — فحص المصنف السريري المنفصل\n"
         "/sheet — الشيتات المتصلة\n/find كلمة — البحث في الشيت\n"
         "/youtube كلمات — بحث يوتيوب بروابط موثقة\n/search كلمات — نفس بحث اليوتيوب\n"
@@ -998,10 +1006,10 @@ def command_sources(chat_id: int):
 
 
 def command_ai_status(chat_id: int):
-    if _bedrock_configured():
-        send(chat_id, f"🤖 Claude on AWS Bedrock: configured ✅\nRegion: {AWS_REGION}\nModel: {BEDROCK_MODEL_ID}")
+    if _gemini_configured():
+        send(chat_id, f"🤖 Gemini API: configured ✅\nModel: {GEMINI_MODEL_ID}")
     else:
-        send(chat_id, "❌ إعداد AWS Bedrock غير مكتمل في Railway Variables.")
+        send(chat_id, "❌ إعداد GEMINI_API_KEY أو GEMINI_MODEL غير مكتمل في Railway Variables.")
 
 
 def command_storage_status(chat_id: int):
@@ -1063,7 +1071,7 @@ def _selftest():
                        ("Store", BASE/"engine"/"store.py"),
                        ("Knowledge", BASE/"knowledge"), ("Skills", BASE/"skills")]:
         checks.append((name, path.exists(), "موجود" if path.exists() else "مفقود"))
-    checks.append(("Claude / Bedrock", _bedrock_configured(), "مهيأ" if _bedrock_configured() else "غير مهيأ"))
+    checks.append(("Gemini API", _gemini_configured(), "مهيأ" if _gemini_configured() else "غير مهيأ"))
     checks.append(("Google Sheets", _sheets_configured(), "مهيأ" if _sheets_configured() else "غير مهيأ"))
     try:
         from connectors import clinical_sheet
@@ -1337,7 +1345,7 @@ def configure_commands():
         {"command":"profile","description":"عرض الملف المهني"},
         {"command":"sources","description":"عرض مصادر المعرفة"},
         {"command":"selftest","description":"فحص المكونات"},
-        {"command":"ai_status","description":"فحص Claude على AWS Bedrock"},
+        {"command":"ai_status","description":"فحص Gemini API"},
         {"command":"storage_status","description":"فحص حفظ Google Sheets"},
         {"command":"clinical_status","description":"فحص المصنف السريري المنفصل"},
         {"command":"sheet","description":"عرض الشيتات المتصلة"},
