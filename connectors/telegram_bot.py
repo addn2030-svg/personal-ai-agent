@@ -389,7 +389,10 @@ def _delegated_handle_message(message: dict):
                     from engine.learning_engine import cmd_answer
                     cmd_answer(rid, score)
                     _impl.send(chat_id, f"✅ سُجلت {rid} = {score}%")
-                except Exception as e:
+                except (Exception, SystemExit) as e:
+                    # learning_engine.cmd_answer is also a CLI entry point and
+                    # reports an invalid review with SystemExit. Never let that
+                    # terminate the webhook's background update thread.
                     _impl.send(chat_id, f"صيغة: /answer LR-001 85\n{e}")
             elif command == "/okr":
                 import subprocess

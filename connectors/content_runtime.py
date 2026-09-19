@@ -181,7 +181,10 @@ def install():
                 answer = content_creator.render_preview(row)
             legacy.send(chat_id, answer)
             legacy._save_intake(iid, message, text, kind, attachment, "COMPLETED")
-        except Exception as exc:
+        except (Exception, SystemExit) as exc:
+            # Buffer's CLI-compatible connector historically raises SystemExit
+            # for missing/invalid credentials. Convert that into a Telegram error
+            # instead of silently terminating the webhook worker thread.
             legacy.send(chat_id, "❌ " + str(exc)[:1200])
             legacy._save_intake(iid, message, text, kind, attachment, "ERROR", error=exc)
 
