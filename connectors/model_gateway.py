@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """Unified model gateway for Abdulrahman AI OS.
 
-OpenRouter is the preferred non-clinical model gateway when configured. The existing
-Bedrock path stays available as a fallback and remains the default for clinical
-content unless explicitly overridden. This file never stores API keys.
+Claude on AWS Bedrock is the default model gateway for ordinary and clinical
+requests. OpenRouter remains an explicit opt-in/legacy fallback only. This file
+never stores API keys.
 """
 from __future__ import annotations
 
@@ -17,7 +17,9 @@ import urllib.request
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "").strip()
 OPENROUTER_BASE_URL = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").strip().rstrip("/")
 OPENROUTER_TIMEOUT_SECONDS = int(os.environ.get("OPENROUTER_TIMEOUT_SECONDS", "90"))
-AI_MODEL_PROVIDER = os.environ.get("AI_MODEL_PROVIDER", "auto").strip().lower()
+# Bedrock is the safe default. Set AI_MODEL_PROVIDER=openrouter (or auto) only
+# when an operator deliberately opts into the OpenRouter route.
+AI_MODEL_PROVIDER = os.environ.get("AI_MODEL_PROVIDER", "bedrock").strip().lower()
 AI_CLINICAL_PROVIDER = os.environ.get("AI_CLINICAL_PROVIDER", "bedrock").strip().lower()
 AI_MANAGER_MODEL = os.environ.get("AI_MANAGER_MODEL", "anthropic/claude-sonnet-4.6").strip()
 AI_CRITIC_MODEL = os.environ.get("AI_CRITIC_MODEL", "openai/gpt-5.6-sol").strip()
@@ -195,8 +197,7 @@ def probe_bedrock() -> dict:
 
     الصحيح:
         response = model_router.call(domain="general", prompt=..., model=...)
-    الخطأ:
-        bedrock_client.converse(...)
+    The router's normal policy now resolves this general request to Bedrock.
     """
     if not bedrock_configured():
         return {"configured": False, "ok": False, "detail": "AWS Bedrock credentials/model are not configured"}

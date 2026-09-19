@@ -48,8 +48,9 @@ def _guarded_run():
 
 def _unified_ask(chat_id: int, text: str, sheet_context: str = ""):
     """
-    Unified ask — now uses model_router.call with domain routing.
-    domain="general" -> OpenRouter automatically (الصحيح)
+    Unified ask — all ordinary and clinical questions use model_router.call.
+    Claude on AWS Bedrock is the default for both domains; OpenRouter is never
+    required for the normal Telegram path.
     """
     try:
         from connectors import model_router
@@ -58,9 +59,9 @@ def _unified_ask(chat_id: int, text: str, sheet_context: str = ""):
         sensitive = _impl._clinical_hint(text)
         domain = "clinical" if sensitive else "general"
         model_name = (
-            os.getenv("AI_MODEL_MANAGER", "anthropic/claude-sonnet-4.6")
-            if domain == "general"
-            else os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-6")
+            _models.BEDROCK_MODEL_ID
+            if _models.desired_provider(sensitive=sensitive) == "bedrock"
+            else os.getenv("AI_MODEL_MANAGER", "anthropic/claude-sonnet-4.6")
         )
 
         # Build context via agent_runtime for sources
@@ -96,12 +97,16 @@ def _unified_ask(chat_id: int, text: str, sheet_context: str = ""):
 
 
 def _save_conversation(cid, iid, question, answer, usage, latency_ms, status, error=""):
+    # Clinical cases always use the dedicated restricted workbook, regardless of
+    # which provider produced the response. They never enter the operational row.
+    if _impl._category(question) == "CLINICAL_PRIVATE":
+        return _legacy_save_conversation(cid, iid, question, answer, usage, latency_ms, status, error)
+
     route = _models.last_route()
     if route.get("provider") != "openrouter":
         return _legacy_save_conversation(cid, iid, question, answer, usage, latency_ms, status, error)
 
-    clinical = _impl._category(question) == "CLINICAL_PRIVATE"
-    review = "PENDING" if clinical else "NOT_REQUIRED"
+    review = "NOT_REQUIRED"
     row = [
         cid, iid, _impl._now(), "OPENROUTER", route.get("model", _models.AI_MANAGER_MODEL),
         _impl._redact(question), _impl._redact(answer),
@@ -123,7 +128,8 @@ def _command_ai_status(chat_id: int):
         "🤖 Model Gateway",
         f"General: {status['desired_general_provider']}",
         f"Clinical: {status['desired_clinical_provider']}",
-        f"OpenRouter: {'configured ✅' if status['openrouter_configured'] else 'not configured'}",
+        f"Bedrock: {'configured ✅' if status['bedrock_configured'] else 'not configured'}",
+        f"OpenRouter (optional): {'configured ✅' if status['openrouter_configured'] else 'not configured'}",
         f"Manager: {role_models['manager']}",
         f"Critic: {role_models['critic']}",
         f"Google adviser: {role_models['google']}",
@@ -412,7 +418,7 @@ def _delegated_handle_message(message: dict):
         return _legacy_handle_message(message)
 
     if kind != "TEXT":
-        _impl.send(chat_id, "استخدم أوامر الفريق/المدير كنص. الصوت يبقى في مسار التفريغ الحالي.")
+        _impl.send(chat_id, "استخدم أوامر الفريق/المدير كنص. استقبال الصوت والتفريغ غير مفعّل حاليًا.")
         _impl._save_intake(iid, message, text, kind, attachment, "ERROR", error="TEAM_COMMAND_TEXT_ONLY")
         return
 

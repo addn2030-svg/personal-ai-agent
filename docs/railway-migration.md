@@ -83,11 +83,15 @@ service does not inherit them):
 | `TELEGRAM_WEBHOOK_SECRET` | recommended | A new random HTTPS-safe secret; keep it stable across restarts |
 | `AI_OS_DATA_DIR` | yes | `/data` |
 | `MANAGER_TIMEZONE` | recommended | `Asia/Riyadh` |
-| `AWS_BEARER_TOKEN_BEDROCK` | for Bedrock | Bedrock bearer token; secret |
+| `AI_MODEL_PROVIDER` | yes | `bedrock` — Claude on AWS is the normal provider |
+| `AI_CLINICAL_PROVIDER` | yes | `bedrock` — keep clinical cases on Bedrock |
+| `AWS_BEARER_TOKEN_BEDROCK` **or** AWS access-key pair | for Bedrock | Secret Bedrock authentication; use one supported auth path |
 | `AWS_REGION` | for Bedrock | `us-east-1` (or the region where the model is enabled) |
 | `BEDROCK_MODEL_ID` | for Bedrock | `us.anthropic.claude-sonnet-4-6`, or an enabled model ID |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | for direct Google access | Complete service-account JSON, preferably pasted as one value or base64; secret |
-| `GOOGLE_SHEET_ID` | for Sheets | ID between `/d/` and `/edit` in the Sheet URL |
+| `GOOGLE_SHEET_ID` | for operational Sheets | ID between `/d/` and `/edit` in the general workbook URL |
+| `CLINICAL_SHEET_ID` | for clinical cases | `1Te-dD6B9USOzURbTjMoZQgYtDeoygwR6QRGeHHGAzaQ` |
+| `CLINICAL_SHEET_TAB` | recommended | Approved clinical tab name; if omitted, the connector uses the workbook's first existing tab |
 | `GOOGLE_CALENDAR_ID` | for Calendar actions | Real Calendar ID from **Integrate calendar**; do not use `primary` with a service account |
 
 The webhook secret is derived from the Telegram token when omitted, but an
@@ -105,9 +109,19 @@ GOOGLE_CALENDAR_SERVICE_ACCOUNT_JSON  # optional; otherwise the general JSON is 
 ```
 
 Share each target Sheet, Drive folder, Doc, and Calendar with the
-`client_email` inside `GOOGLE_SERVICE_ACCOUNT_JSON`. Calendar permission must be
-**Make changes to events**. Enable the corresponding Google Sheets, Drive, Docs,
-and Calendar APIs in the Google Cloud project.
+`client_email` inside `GOOGLE_SERVICE_ACCOUNT_JSON`. This includes the dedicated
+clinical workbook:
+
+```text
+https://docs.google.com/spreadsheets/d/1Te-dD6B9USOzURbTjMoZQgYtDeoygwR6QRGeHHGAzaQ/edit
+```
+
+Give the service account Editor access to that workbook and set
+`CLINICAL_SHEET_TAB` to the approved restricted tab name when one has been
+created. Never point `GOOGLE_SHEET_ID` at this clinical workbook; the two IDs
+must remain separate. Calendar permission must be **Make changes to events**.
+Enable the corresponding Google Sheets, Drive, Docs, and Calendar APIs in the
+Google Cloud project.
 
 The Apps Script Sheets gateway is an alternative/fallback path, not a second
 credential:
@@ -120,24 +134,13 @@ GOOGLE_SHEETS_WEBHOOK_SECRET
 If these two are used, the matching `AGENT_SECRET` and `SPREADSHEET_ID` must be
 set in the Apps Script project as well.
 
-### 4. Add voice transcription variables only if voice messages are needed
+### 4. Telegram input is text-only
 
-The Bedrock bearer token does **not** authorize S3 or Amazon Transcribe. Use a
-least-privilege AWS access-key pair for the audio path:
-
-```text
-AWS_ACCESS_KEY_ID
-AWS_SECRET_ACCESS_KEY
-AWS_S3_AUDIO_BUCKET
-AWS_TRANSCRIBE_LANGUAGE_CODE=ar-SA
-AWS_TRANSCRIBE_POLL_SECONDS=2
-AWS_TRANSCRIBE_TIMEOUT_SECONDS=120
-```
-
-The required IAM permissions are limited to the Telegram-audio S3 prefix and
-`transcribe:StartTranscriptionJob`, `GetTranscriptionJob`, and
-`DeleteTranscriptionJob`. The runtime deletes the temporary S3 object and job
-in a `finally` block.
+Telegram voice/audio transcription is intentionally disabled in the production
+route. Do **not** add S3 or Amazon Transcribe variables or IAM permissions for
+this bot. An incoming voice/audio message is handled safely and receives a
+clear request to resend the question as text; it is not sent to a transcription
+provider and is not listed as a self-test capability.
 
 ## Optional connector variables
 
@@ -147,20 +150,26 @@ stays disabled or uses its documented no-key fallback.
 ### Model providers
 
 ```text
-OPENROUTER_API_KEY                 # non-clinical model route; secret
+AI_MODEL_PROVIDER=bedrock          # normal route; OpenRouter is not required
+AI_CLINICAL_PROVIDER=bedrock       # privacy-preserving clinical route
+AWS_REGION=us-east-1
+BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-6
+AWS_BEARER_TOKEN_BEDROCK           # secret, or AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY
+
+# Optional legacy/explicit alternate route only:
+OPENROUTER_API_KEY                 # secret; not needed for ordinary questions
 OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
-AI_MODEL_PROVIDER=auto             # auto, openrouter, or bedrock
-AI_CLINICAL_PROVIDER=bedrock
 OPENROUTER_FALLBACK_BEDROCK=1
-OPENROUTER_REQUIRE_ZDR=0           # set 1 only when the OpenRouter account supports it
+OPENROUTER_REQUIRE_ZDR=0
 AI_MANAGER_MODEL=anthropic/claude-sonnet-4.6
 AI_CRITIC_MODEL=openai/gpt-5.6-sol
 AI_GOOGLE_MODEL=google/gemini-3.7-flash
 ```
 
-Keep Bedrock configured for the clinical/private route. Do not send clinical
-content to a provider unless its privacy policy and the application's routing
-policy allow it.
+The router defaults to Bedrock even when `OPENROUTER_API_KEY` is absent. Keep
+clinical content on Bedrock; an OpenRouter clinical fallback requires an
+explicit `AI_CLINICAL_PROVIDER=openrouter` opt-in and is not part of the normal
+Railway configuration.
 
 ### Project memory and scheduling
 
@@ -281,9 +290,9 @@ changes are saved in a single batch.
   `getWebhookInfo` or send `/time` to the bot.
 - **Google:** share every asset with the new/current service-account email and
   confirm API enablement.
-- **AWS:** use separate least-privilege permissions for Bedrock and
-  S3/Transcribe where possible; verify the model is enabled in the selected
-  region.
+- **AWS:** grant only the Bedrock permissions needed by the selected Claude
+  model and verify that the model is enabled in the selected region. Telegram
+  audio transcription is disabled and needs no S3/Transcribe permissions.
 - **GitHub:** use a fresh least-privilege token if the previous one was ever
   pasted into a chat or committed.
 - **Buffer/ElevenLabs/OpenRouter/etc.:** revoke an exposed key and create a new
@@ -328,7 +337,7 @@ survives a restart but loses `data/state.json` is not fully migrated.
 ## Repository references
 
 - `docs/railway-agent-runtime.md` — production entrypoint, volume, Bedrock,
-  Sheets, Calendar, and voice details.
+  separated operational/clinical Sheets, and text-only Telegram input.
 - `docs/connection-guide.md` — provider-by-provider setup and live probes.
 - `docs/runtime-time-memory.md` — `/health`, `/time`, persistence, and post-deploy
   acceptance checks.

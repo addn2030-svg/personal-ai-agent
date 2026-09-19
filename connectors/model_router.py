@@ -3,9 +3,9 @@
 
 الصحيح:
     response = model_router.call(
-        domain="general",  # يوجه تلقائياً إلى OpenRouter
+        domain="general",  # يوجه افتراضياً إلى Claude على Bedrock
         prompt=brief_prompt,
-        model=os.getenv("AI_MODEL_MANAGER", "anthropic/claude-sonnet-4.6")
+        model=os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-6")
     )
 
 الخطأ:
@@ -202,6 +202,30 @@ def _build_messages(
     return msgs, sources
 
 
+def _bedrock_system(
+    *,
+    system: str,
+    prompt: str,
+    chat_id: int | None,
+    sheet_context: str,
+) -> str:
+    """Build the privacy-bounded context sent to the Bedrock route."""
+    parts = [str(system or "").strip()]
+    if chat_id is not None:
+        try:
+            from agent_runtime import build_context
+
+            context, _ = build_context(chat_id, prompt)
+            if context:
+                parts.append(context)
+        except Exception:
+            # Context retrieval is best-effort; the model request remains usable.
+            pass
+    if sheet_context:
+        parts.append("LIVE GOOGLE SHEETS CONTEXT (read-only evidence):\n" + str(sheet_context))
+    return "\n\n".join(part for part in parts if part)
+
+
 def call(
     *,
     domain: str = "general",
@@ -221,9 +245,8 @@ def call(
     Unified entry point.
 
     domain:
-      - "general"  -> OpenRouter automatically (الصحيح)
-      - "manager"  -> OpenRouter with manager model
-      - "critic"   -> OpenRouter with critic model
+      - "general" / "manager" / "critic" -> the configured primary provider;
+        Bedrock by default, OpenRouter only when explicitly selected
       - "clinical" / "bedrock" / "sensitive" -> Bedrock directly
       - any other -> general behavior
 
@@ -231,16 +254,22 @@ def call(
     """
     domain = (domain or "general").strip().lower()
 
-    # Resolve model default per domain
+    clinical_domain = domain in {"clinical", "bedrock", "sensitive"} or sensitive
+    provider = gateway.desired_provider(sensitive=clinical_domain)
+
+    # Resolve model default per domain. A Bedrock-selected route must never receive
+    # an OpenRouter model slug such as anthropic/claude-sonnet-4.6.
     if model is None:
-        if domain == "manager":
+        if clinical_domain:
+            model = BEDROCK_MODEL_ID
+        elif domain == "manager":
             model = AI_MANAGER_MODEL
         elif domain == "critic":
             model = AI_CRITIC_MODEL
-        elif domain in {"clinical", "bedrock", "sensitive"} or sensitive:
-            model = BEDROCK_MODEL_ID
-        else:  # general and others
-            model = os.getenv("AI_MODEL_MANAGER", AI_MODEL_MANAGER) or AI_MODEL_MANAGER
+        else:
+            model = os.getenv("AI_MODEL_MANAGER", AI_MANAGER_MODEL) or AI_MANAGER_MODEL
+    if provider == "bedrock" and not clinical_domain:
+        model = BEDROCK_MODEL_ID
 
     model = str(model).strip()
 
@@ -249,21 +278,32 @@ def call(
         try:
             return _bedrock_converse(
                 model_id=model,
-                system=system,
+                system=_bedrock_system(
+                    system=system,
+                    prompt=prompt,
+                    chat_id=chat_id,
+                    sheet_context=sheet_context,
+                ),
                 prompt=prompt,
                 max_tokens=max_tokens,
                 temperature=temperature,
                 role=domain,
             )
         except Exception as exc:
-            # إذا فشل Bedrock بـ AccessDeniedException أو explicit deny، جرّب OpenRouter كـ fallback
-            # هذا يعالج حالة: User is not authorized to perform: bedrock:CallWithBearerToken with explicit deny
+            # Keep the privacy boundary: clinical fallback is available only after
+            # an explicit AI_CLINICAL_PROVIDER=openrouter opt-in. The default is
+            # Bedrock-only, so missing Bedrock credentials cannot silently leak the
+            # case to another provider.
             err_text = str(exc).lower()
             is_access_denied = any(
                 x in err_text
                 for x in ("accessdenied", "explicit deny", "not authorized", "forbidden", "unauthorized")
             )
-            if is_access_denied and gateway.configured():
+            if (
+                is_access_denied
+                and gateway.AI_CLINICAL_PROVIDER == "openrouter"
+                and gateway.configured()
+            ):
                 try:
                     if messages is None:
                         messages, _ = _build_messages(
@@ -285,7 +325,26 @@ def call(
                     pass
             raise
 
-    # General path: OpenRouter first, fallback to Bedrock if configured
+    # The normal path is Claude/Bedrock by default. This branch is reached even
+    # when OPENROUTER_API_KEY is absent; OpenRouter is not a normal-operation
+    # prerequisite.
+    if provider == "bedrock":
+        return _bedrock_converse(
+            model_id=BEDROCK_MODEL_ID,
+            system=_bedrock_system(
+                system=system,
+                prompt=prompt,
+                chat_id=chat_id,
+                sheet_context=sheet_context,
+            ),
+            prompt=prompt,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            role=domain,
+        )
+
+    # Explicit OpenRouter path, with optional Bedrock fallback for operators who
+    # deliberately selected OpenRouter/auto.
     try:
         if messages is None:
             messages, _ = _build_messages(
@@ -304,10 +363,12 @@ def call(
         if gateway.OPENROUTER_FALLBACK_BEDROCK and gateway.bedrock_configured():
             try:
                 fb_model = BEDROCK_MODEL_ID
-                # keep original system+prompt for bedrock
-                combined_system = system
-                if sheet_context and sheet_context not in combined_system:
-                    combined_system = (combined_system + "\n\n" + sheet_context) if combined_system else sheet_context
+                combined_system = _bedrock_system(
+                    system=system,
+                    prompt=prompt,
+                    chat_id=chat_id,
+                    sheet_context=sheet_context,
+                )
                 return _bedrock_converse(
                     model_id=fb_model,
                     system=combined_system,

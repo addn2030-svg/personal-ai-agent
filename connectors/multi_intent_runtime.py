@@ -44,11 +44,11 @@ def install() -> None:
             return f"TG-{(message.get('chat') or {}).get('id','')}-{message.get('message_id','')}"
 
     def multi_save_intake(iid, message, text, kind, attachment, status, response_id="", error=""):
-        # Voice/audio are initially captured as *_PENDING_TRANSCRIPTION. Once the
-        # transcript exists, this second idempotent pass records its real intents.
+        # Text-only Telegram capture is idempotently classified before the
+        # privacy-separated Sheets write. Voice/audio never reach this path.
         try:
             value = str(text or "").strip()
-            if value and not value.startswith("[VOICE_PENDING_") and not value.startswith("[AUDIO_PENDING_"):
+            if value and not value.startswith("[VOICE_DISABLED]") and not value.startswith("[AUDIO_DISABLED]"):
                 from unified_inbox import classify_and_record
 
                 ref = f"telegram:{message.get('message_id', '')}"

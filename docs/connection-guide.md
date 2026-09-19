@@ -44,6 +44,25 @@ Code: `connectors/sheet_intelligence.py` (read/search/update through the approva
 
 Fallback: `GOOGLE_SHEETS_WEBHOOK_URL` + `GOOGLE_SHEETS_WEBHOOK_SECRET` (Apps Script in `connectors/google_sheets_webhook.gs`).
 
+### Dedicated clinical workbook (required for clinical cases)
+
+Clinical questions/cases use a separate direct Sheets route and never write to
+`GOOGLE_SHEET_ID`. Set:
+
+| Variable | Value |
+|---|---|
+| `CLINICAL_SHEET_ID` | `1Te-dD6B9USOzURbTjMoZQgYtDeoygwR6QRGeHHGAzaQ` |
+| `CLINICAL_SHEET_TAB` | approved restricted tab name; optional, otherwise the first existing tab is resolved |
+
+Share this workbook with the same service-account email as **Editor**:
+
+`https://docs.google.com/spreadsheets/d/1Te-dD6B9USOzURbTjMoZQgYtDeoygwR6QRGeHHGAzaQ/edit`
+
+The clinical connector uses `GOOGLE_SERVICE_ACCOUNT_JSON` directly. It does not
+use the general operational webhook as a fallback, so a sharing/API error must
+be fixed on this workbook rather than silently mixing the data into the general
+sheet.
+
 ## 3️⃣ Google Drive — ⚠️ verify share
 Code: v0.8 read sync (`connectors/google_workspace.py`, OAuth) + service-account folder probe.
 
@@ -128,12 +147,13 @@ phones/e-mails/ID runs stripped from queries before any external call).
 | Integration | Required | Optional |
 |---|---|---|
 | Telegram | `TELEGRAM_BOT_TOKEN` | — |
-| Sheets | `GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_SHEET_ID` | webhook pair |
+| Operational Sheets | `GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_SHEET_ID` | webhook pair |
+| Clinical Sheets | `GOOGLE_SERVICE_ACCOUNT_JSON`, `CLINICAL_SHEET_ID` | `CLINICAL_SHEET_TAB` |
 | Drive | `GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_DRIVE_FOLDER_ID` | — |
 | Docs | `GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_DOCS_DOCUMENT_ID` | `GOOGLE_DRIVE_FOLDER_ID` |
 | Calendar | `GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_CALENDAR_ID` | `MANAGER_TIMEZONE` |
 | GitHub | `GITHUB_TOKEN` | `AI_OS_GITHUB_REPO` |
-| Voice (ElevenLabs) | `ELEVENLABS_API_KEY` | `ELEVENLABS_VOICE_ID` (default built in) |
+| Audio-digest narration (optional) | `ELEVENLABS_API_KEY` | `ELEVENLABS_VOICE_ID` (default built in); not Telegram transcription |
 | YouTube search | — | `YOUTUBE_API_KEY` |
 
 ## 🎯 Setup order

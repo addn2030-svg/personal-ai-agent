@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Tests for the unified model_router — الصحيح vs الخطأ."""
-import os
+"""Tests for the unified model_router and its Bedrock-primary policy."""
 import unittest
 from unittest.mock import Mock, patch
 
@@ -8,35 +7,37 @@ from connectors import model_router
 
 
 class ModelRouterTests(unittest.TestCase):
-    def test_general_domain_routes_to_openrouter_automatically(self):
-        """الصحيح: domain='general' يوجه تلقائياً إلى OpenRouter."""
-        mock_answer = "Executive brief content"
-        with patch.object(model_router.gateway, "openrouter_chat", return_value=(mock_answer, {"inputTokens": 10}, 100)) as chat, \
+    @staticmethod
+    def _bedrock_client(answer="bedrock answer"):
+        client = Mock()
+        client.converse.return_value = {
+            "output": {"message": {"content": [{"text": answer}]}},
+            "usage": {"inputTokens": 10, "outputTokens": 5},
+        }
+        return client
+
+    def test_general_domain_defaults_to_bedrock_without_openrouter(self):
+        """Ordinary requests must not require OPENROUTER_API_KEY."""
+        client = self._bedrock_client("Claude answer")
+        with patch.object(model_router.gateway, "AI_MODEL_PROVIDER", "bedrock"), \
              patch.object(model_router.gateway, "bedrock_configured", return_value=True), \
-             patch.object(model_router.gateway, "last_route", return_value={"provider": "openrouter", "model": "anthropic/claude-sonnet-4.6"}):
-            brief_prompt = "أنشئ ملخص تنفيذي"
+             patch.object(model_router.gateway, "openrouter_chat") as openrouter, \
+             patch.object(model_router, "_bedrock_client", return_value=client):
             response = model_router.call(
                 domain="general",
-                prompt=brief_prompt,
-                model=os.getenv("AI_MODEL_MANAGER", "anthropic/claude-sonnet-4.6"),
+                prompt="هل العمل في الليل يؤثر على العضلات؟",
+                model="anthropic/claude-sonnet-4.6",
             )
-            # response should be RouterResponse with text
-            self.assertEqual(response.text, mock_answer)
-            self.assertEqual(response.provider, "openrouter")
-            self.assertEqual(str(response), mock_answer)
-            chat.assert_called_once()
-            # Ensure model used is from AI_MODEL_MANAGER env or default
-            called_model = chat.call_args.kwargs.get("model") or chat.call_args[1].get("model") if len(chat.call_args) > 1 else chat.call_args.kwargs.get("model")
-            # The model param should be passed through
-            self.assertIn("claude", chat.call_args.kwargs["model"].lower() if "model" in chat.call_args.kwargs else mock_answer)
+
+        self.assertEqual(response.text, "Claude answer")
+        self.assertEqual(response.provider, "bedrock")
+        self.assertEqual(response.model, "us.anthropic.claude-sonnet-4-6")
+        openrouter.assert_not_called()
+        self.assertEqual(client.converse.call_args.kwargs["modelId"], "us.anthropic.claude-sonnet-4-6")
 
     def test_clinical_domain_routes_to_bedrock(self):
         """domain='clinical' should go directly to Bedrock."""
-        mock_client = Mock()
-        mock_client.converse.return_value = {
-            "output": {"message": {"content": [{"text": "clinical answer"}]}},
-            "usage": {"inputTokens": 5, "outputTokens": 5},
-        }
+        mock_client = self._bedrock_client("clinical answer")
         with patch.object(model_router.gateway, "bedrock_configured", return_value=True), \
              patch.object(model_router, "_bedrock_client", return_value=mock_client):
             response = model_router.call(
@@ -48,9 +49,25 @@ class ModelRouterTests(unittest.TestCase):
             self.assertEqual(response.provider, "bedrock")
             mock_client.converse.assert_called_once()
 
+    def test_explicit_openrouter_opt_in_still_works(self):
+        mock_answer = "Executive brief content"
+        with patch.object(model_router.gateway, "AI_MODEL_PROVIDER", "openrouter"), \
+             patch.object(model_router.gateway, "openrouter_chat", return_value=(mock_answer, {"inputTokens": 10}, 100)) as chat, \
+             patch.object(model_router.gateway, "last_route", return_value={"provider": "openrouter", "model": "anthropic/claude-sonnet-4.6"}):
+            response = model_router.call(
+                domain="general",
+                prompt="أنشئ ملخص تنفيذي",
+                model="anthropic/claude-sonnet-4.6",
+            )
+        self.assertEqual(response.text, mock_answer)
+        self.assertEqual(response.provider, "openrouter")
+        self.assertEqual(str(response), mock_answer)
+        chat.assert_called_once()
+
     def test_call_text_convenience_returns_string(self):
         mock_answer = "brief"
-        with patch.object(model_router.gateway, "openrouter_chat", return_value=(mock_answer, {}, 10)), \
+        with patch.object(model_router.gateway, "AI_MODEL_PROVIDER", "openrouter"), \
+             patch.object(model_router.gateway, "openrouter_chat", return_value=(mock_answer, {}, 10)), \
              patch.object(model_router.gateway, "last_route", return_value={"provider": "openrouter", "model": "test"}):
             result = model_router.call_text(
                 domain="general",
@@ -60,13 +77,10 @@ class ModelRouterTests(unittest.TestCase):
             self.assertEqual(result, "brief")
             self.assertIsInstance(result, str)
 
-    def test_general_fallback_to_bedrock_when_openrouter_fails(self):
-        mock_client = Mock()
-        mock_client.converse.return_value = {
-            "output": {"message": {"content": [{"text": "fallback answer"}]}},
-            "usage": {},
-        }
-        with patch.object(model_router.gateway, "openrouter_chat", side_effect=RuntimeError("OpenRouter down")), \
+    def test_general_fallback_to_bedrock_when_explicit_openrouter_fails(self):
+        mock_client = self._bedrock_client("fallback answer")
+        with patch.object(model_router.gateway, "AI_MODEL_PROVIDER", "openrouter"), \
+             patch.object(model_router.gateway, "openrouter_chat", side_effect=RuntimeError("OpenRouter down")), \
              patch.object(model_router.gateway, "bedrock_configured", return_value=True), \
              patch.object(model_router.gateway, "OPENROUTER_FALLBACK_BEDROCK", True), \
              patch.object(model_router, "_bedrock_client", return_value=mock_client):
@@ -78,18 +92,10 @@ class ModelRouterTests(unittest.TestCase):
             self.assertEqual(response.text, "fallback answer")
             self.assertEqual(response.provider, "bedrock")
 
-    def test_example_from_user_request(self):
-        """Example from the user prompt should work."""
-        mock_answer = "ملخص تنفيذي"
-        with patch.object(model_router.gateway, "openrouter_chat", return_value=(mock_answer, {}, 5)), \
-             patch.object(model_router.gateway, "last_route", return_value={"provider": "openrouter", "model": "anthropic/claude-sonnet-4.6"}):
-            brief_prompt = "أنشئ ملخص"
-            response = model_router.call(
-                domain="general",  # يوجه تلقائياً إلى OpenRouter
-                prompt=brief_prompt,
-                model=os.getenv("AI_MODEL_MANAGER", "anthropic/claude-sonnet-4.6"),
-            )
-            self.assertEqual(response.text, "ملخص تنفيذي")
+    def test_reported_arabic_health_question_is_clinical(self):
+        from connectors import capability_truth
+
+        self.assertTrue(capability_truth.clinical_private("هل العمل في الليل يؤثر على العضلات"))
 
 
 if __name__ == "__main__":

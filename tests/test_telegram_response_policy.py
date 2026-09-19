@@ -154,7 +154,7 @@ class ExecutivePromptTests(unittest.TestCase):
         self.assertIn("CONFIRMED FACT (with source_ref)", prompt)
 
     def test_all_provider_routes_receive_the_same_policy(self):
-        # Updated to use model_router — الصحيح: domain="general" -> OpenRouter automatically
+        # Updated to use model_router — general requests use Bedrock by default
         from connectors import model_router
 
         for provider, fallback in (("openrouter", False), ("bedrock", False), ("openrouter", True)):

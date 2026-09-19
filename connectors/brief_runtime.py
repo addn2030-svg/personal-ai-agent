@@ -125,7 +125,7 @@ def install(bot):
             ai_error = ""
             stage = "model"
             try:
-                # الصحيح: استخدام model_router.call مع domain="general" -> يوجه تلقائياً إلى OpenRouter
+                # الصحيح: استخدام model_router.call مع domain="general" -> Bedrock by default
                 import os
 
                 try:
