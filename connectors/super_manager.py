@@ -245,7 +245,7 @@ def manager(chat_id: int, objective: str, *, bedrock_fallback=None) -> str:
     context = build_context(goal)
     prompt = build_prompt(goal, context)
 
-    # الصحيح: استخدام model_router.call مع domain="general" -> OpenRouter تلقائياً
+    # الصحيح: استخدام model_router.call مع domain="general" -> Bedrock by default
     # مع fallback إلى Bedrock إذا لزم الأمر
     try:
         from connectors import model_router

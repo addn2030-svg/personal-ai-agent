@@ -28,6 +28,11 @@ class CapabilityTruthTests(unittest.TestCase):
         self.assertTrue(truth.clinical_private("راجع المريض وتشخيصه"))
         self.assertTrue(legacy._clinical_hint("راجع المريض وتشخيصه"))
 
+    def test_health_question_without_patient_word_is_private(self):
+        question = "هل العمل في الليل يؤثر على العضلات"
+        self.assertTrue(truth.clinical_private(question))
+        self.assertEqual(legacy._category(question), "CLINICAL_PRIVATE")
+
     def test_exact_failed_request_gets_deterministic_preflight(self):
         request = "I want you to update the sheets information and memory"
         with patch.object(truth, "snapshot", return_value=self._live_snapshot()):

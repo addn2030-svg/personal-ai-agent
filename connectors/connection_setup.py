@@ -64,11 +64,11 @@ GUIDES = {
         "Set GITHUB_TOKEN locally / in the deployment variables — never in chat or git.",
         "Set AI_OS_GITHUB_REPO (default: addn2030-svg/personal-ai-agent).",
     ],
-    "voice": [
-        "elevenlabs.io → profile → API keys → create a key.",
-        "Set ELEVENLABS_API_KEY in the deployment variables — never in chat or git.",
-        "Optional: ELEVENLABS_VOICE_ID for a custom narrator voice (a default is built in).",
-        "Verify: python3 -m connectors.connection_setup --live (voices count, read-only).",
+    "gemini": [
+        "console.cloud.google.com → enable the Gemini API for the selected project.",
+        "Create a Gemini API key and set GEMINI_API_KEY in Railway — never in chat or git.",
+        "Set GEMINI_MODEL (default: google/gemini-3.7-flash) if a different enabled model is required.",
+        "Verify: python3 -m connectors.connection_setup --live.",
     ],
     "buffer": [
         "publish.buffer.com/settings/api → create a personal API key.",
@@ -197,19 +197,16 @@ def check_github(env=None) -> dict:
     }
 
 
-def check_voice(env=None) -> dict:
+def check_gemini(env=None) -> dict:
     env = env if env is not None else _env
-    key = env("ELEVENLABS_API_KEY")
-    voice_id = env("ELEVENLABS_VOICE_ID")
-    if not key:
-        status, detail = "missing", "ELEVENLABS_API_KEY is not set (audio stops at the narrative script)"
-    elif not voice_id:
-        status, detail = "ok", "API key set — default narrator voice (ELEVENLABS_VOICE_ID optional)"
-    else:
-        status, detail = "ok", "API key + custom voice id set"
-    return {"key": "voice", "name": "ElevenLabs Voice",
-            "env": ["ELEVENLABS_API_KEY", "ELEVENLABS_VOICE_ID"],
-            "status": status, "detail": detail}
+    key = env("GEMINI_API_KEY")
+    model = env("GEMINI_MODEL") or env("AI_GOOGLE_MODEL") or "google/gemini-3.7-flash"
+    return {
+        "key": "gemini", "name": "Gemini API",
+        "env": ["GEMINI_API_KEY", "GEMINI_MODEL"],
+        "status": "ok" if key else "missing",
+        "detail": f"API key set — model {model}" if key else "GEMINI_API_KEY is not set",
+    }
 
 
 def check_buffer(env=None) -> dict:
@@ -225,7 +222,7 @@ def check_buffer(env=None) -> dict:
 
 
 CHECKS = [check_telegram, check_sheets, check_drive, check_docs, check_calendar, check_github,
-          check_voice, check_buffer]
+          check_gemini, check_buffer]
 
 
 # ---------------------------------------------------------------- live probes
@@ -278,16 +275,9 @@ def _probe_calendar():
     return {"summary": cal.get("summary", ""), "timeZone": cal.get("timeZone", "")}
 
 
-def _probe_voice():
-    """Read-only: list account voices (does not consume synthesis characters)."""
-    import urllib.request
-    req = urllib.request.Request(
-        "https://api.elevenlabs.io/v1/voices",
-        headers={"xi-api-key": _env("ELEVENLABS_API_KEY")},
-    )
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        payload = json.loads(resp.read())
-    return {"voices": len(payload.get("voices", []))}
+def _probe_gemini():
+    from . import model_gateway
+    return model_gateway.probe_gemini()
 
 
 PROBES = {
@@ -297,7 +287,7 @@ PROBES = {
     "docs": _probe_docs,
     "calendar": _probe_calendar,
     "github": _probe_github,
-    "voice": _probe_voice,
+    "gemini": _probe_gemini,
 }
 
 STATUS_ICON = {"ok": "✅", "partial": "⚠️", "missing": "❌", "invalid": "❌"}
@@ -333,7 +323,7 @@ def render(results, live: bool = False) -> str:
     if pending:
         lines.append("")
         lines.append("Next steps (priority: " + " → ".join(PRIORITY_ORDER) + "):")
-        for key in PRIORITY_ORDER + ["sheets", "drive", "telegram", "voice", "buffer"]:
+        for key in PRIORITY_ORDER + ["sheets", "drive", "telegram", "gemini", "buffer"]:
             row = next((r for r in results if r["key"] == key and r["status"] != "ok"), None)
             if row:
                 lines.append(f"  • {row['name']}: python3 -m connectors.connection_setup --guide {key}")

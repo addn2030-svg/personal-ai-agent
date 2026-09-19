@@ -179,7 +179,10 @@ def _process_update(update_id: int, message: dict | None, callback_query: dict |
         elif callback_query:
             if hasattr(bot, "handle_callback"):
                 bot.handle_callback(callback_query)
-    except Exception as exc:  # noqa: BLE001
+    except (Exception, SystemExit) as exc:  # noqa: BLE001
+        # Some older CLI-oriented helpers use SystemExit for validation/provider
+        # errors. A webhook update runs in a daemon thread, so an uncaught
+        # SystemExit would silently kill that update with no Telegram reply.
         print(f"Telegram background processing error: {str(exc)[:300]}", flush=True)
         chat_id = ((message or {}).get("chat") or {}).get("id")
         if chat_id is None and callback_query:

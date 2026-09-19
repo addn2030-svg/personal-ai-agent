@@ -145,6 +145,7 @@ python3 engine/chief_of_staff.py
 ## الربط بالخدمات الخارجية (Sheets · Drive · Docs · Calendar · GitHub)
 - فحص فوري لحالة كل القنوات: `python3 -m connectors.connection_setup` (أضف `--live` للفحص الحي عبر الشبكة، و`--guide calendar` لخطوات قناة محددة).
 - خطوات الربط كاملة مع متغيرات البيئة المطلوبة: `docs/connection-guide.md` — **مفاتيح الربط توضع في متغيرات البيئة فقط، ولا تُرسل في أي محادثة**.
+- نقل التشغيل إلى Railway، المتغيرات، الـVolume، وتشخيص انتهاء بيئة 24 ساعة: `docs/railway-migration.md`.
 - خطابات وتقارير رسمية عبر Google Docs: `python3 -m connectors.google_docs_service create "العنوان" "النص"` (تُنشأ كمسودات — الإرسال الخارجي يبقى خلف بوابة الاعتماد).
 
 ## لوحة القيادة (للحفظ على سطح المكتب)

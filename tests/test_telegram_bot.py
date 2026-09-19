@@ -129,6 +129,57 @@ class TelegramBotTests(unittest.TestCase):
                 telegram_bot.handle_message({"chat": {"id": 123, "type": "private"}, "text": "/proactive_test"})
                 self.assertIn("TELEGRAM_ALLOWED_CHAT_ID", sent_messages[-1][1])
 
+    def test_invalid_learning_answer_does_not_kill_webhook_handler(self):
+        sent_messages = []
+
+        def fake_send(chat_id, text, reply_markup=None):
+            sent_messages.append((chat_id, text, reply_markup))
+
+        with patch.object(telegram_bot, "_authorized", return_value=True), \
+             patch.object(telegram_bot, "send", fake_send), \
+             patch.object(telegram_bot, "_save_intake", return_value=True), \
+             patch.object(telegram_bot, "_local_capture", return_value="TG-1"), \
+             patch("engine.learning_engine.cmd_answer", side_effect=SystemExit("review unavailable")):
+            telegram_bot.handle_message({
+                "chat": {"id": 123, "type": "private"},
+                "message_id": 1,
+                "text": "/answer LR-001 85",
+            })
+
+        self.assertTrue(sent_messages)
+        self.assertIn("review unavailable", sent_messages[-1][1])
+
+    def test_voice_message_gets_text_only_response_without_transcription(self):
+        sent_messages = []
+
+        def fake_send(chat_id, text, reply_markup=None):
+            sent_messages.append((chat_id, text, reply_markup))
+
+        with patch.object(telegram_bot, "_authorized", return_value=True), \
+             patch.object(telegram_bot, "send", fake_send), \
+             patch.object(telegram_bot, "_save_intake", return_value=True), \
+             patch.object(telegram_bot, "_local_capture", return_value="TG-VOICE-1"):
+            telegram_bot.handle_message({
+                "chat": {"id": 123, "type": "private"},
+                "message_id": 2,
+                "voice": {"file_id": "file-1"},
+            })
+
+        self.assertTrue(sent_messages)
+        self.assertIn("غير مفعّل", sent_messages[-1][1])
+        self.assertNotIn("التفريغ والتحليل", sent_messages[-1][1])
+
+    def test_selftest_does_not_report_voice_or_transcribe(self):
+        with patch.object(telegram_bot, "api", return_value={"username": "testbot"}), \
+             patch.object(telegram_bot, "_gemini_configured", return_value=True), \
+             patch.object(telegram_bot, "_sheets_configured", return_value=True):
+            result = telegram_bot._selftest()
+
+        self.assertNotIn("Voice / Transcribe", result)
+        self.assertNotIn("Amazon Transcribe", result)
+        self.assertIn("Gemini API", result)
+        self.assertIn("Clinical Sheets route", result)
+
     def test_callback_query_handled_in_delegated_bot(self):
         answered = []
         sent_messages = []

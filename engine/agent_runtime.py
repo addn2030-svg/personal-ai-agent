@@ -37,7 +37,17 @@ def _safe(text):
 
 def route_domain(query):
     q = query.lower()
-    if re.search(r"patient|مريض|pain|ألم|علاج|clinical|تشخيص|movement|حركة", q):
+    generic_professional = re.search(
+        r"world\s+physical\s+therapy\s+day|physical\s+therapy\s+day|"
+        r"اليوم\s+العالمي\s+للعلاج\s+الطبيعي",
+        q,
+    )
+    if not generic_professional and re.search(
+        r"patient|مريض|pain|ألم|علاج|clinical|تشخيص|movement|حركة|"
+        r"muscle|muscles|sleep|night\s*work|shift\s*work|injury|medication|symptom|"
+        r"عضل|العضلات|النوم|الليل|ورديات|إصابة|دواء|أعراض|تمارين",
+        q,
+    ):
         return "clinical"
     if re.search(r"project|مشروع|task|مهمة|قرار|decision|meeting|اجتماع", q):
         return "management"

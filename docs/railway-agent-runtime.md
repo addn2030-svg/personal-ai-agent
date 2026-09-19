@@ -1,4 +1,7 @@
-# Railway Agent Runtime — Memory, Sheets, Bedrock and Voice
+# Railway Agent Runtime — Memory, separated Sheets, and Gemini API
+
+For the complete migration checklist, environment-variable inventory, safe transfer
+commands, and the 24-hour expiry diagnosis, see [`docs/railway-migration.md`](railway-migration.md).
 
 ## Entrypoint invocation (crash-loop guard)
 
@@ -23,9 +26,10 @@ If you override the start command in Railway, keep the `-m` form.
 ### Core
 - TELEGRAM_BOT_TOKEN
 - TELEGRAM_ALLOWED_CHAT_ID
-- AWS_BEARER_TOKEN_BEDROCK
-- AWS_REGION=us-east-1
-- BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-6
+- AI_MODEL_PROVIDER=gemini
+- AI_CLINICAL_PROVIDER=gemini
+- GEMINI_API_KEY=<secret>
+- GEMINI_MODEL=google/gemini-3.7-flash
 
 ### Persistent state ⚠️ REQUIRED — deploy will lose all state without it
 
@@ -42,9 +46,14 @@ Attach a Railway Volume mounted at `/data`, then set:
 
 ### Google Sheets
 - GOOGLE_SERVICE_ACCOUNT_JSON=<complete service account JSON>
-- GOOGLE_SHEET_ID=1ZXmC_3_OTYYtXglNMXRQiSWu2rjDDIzoqaK0SQuWcWc
+- GOOGLE_SHEET_ID=<operational workbook ID>
+- CLINICAL_SHEET_ID=1Te-dD6B9USOzURbTjMoZQgYtDeoygwR6QRGeHHGAzaQ
+- CLINICAL_SHEET_TAB=<approved restricted tab name, recommended>
 
-Share the workbook with the service-account email as Editor.
+Share both workbooks with the service-account email as Editor. Clinical intake and
+conversation rows use the dedicated clinical ID and never fall back to
+`GOOGLE_SHEET_ID`; the connector resolves the first existing tab only when
+`CLINICAL_SHEET_TAB` is not set.
 
 ### Google Calendar actions and Telegram reminders
 Recommended on Railway: use the same service account, then:
@@ -68,38 +77,23 @@ Calendar safety:
 - The polling runtime checks due reminders every minute and records sent alerts
   in the persistent data directory to prevent duplicates.
 
-### Voice transcription
-The Bedrock bearer key does not authorize S3 or Transcribe. Use a dedicated
-least-privilege IAM principal:
-- AWS_ACCESS_KEY_ID
-- AWS_SECRET_ACCESS_KEY
-- AWS_S3_AUDIO_BUCKET
-- AWS_TRANSCRIBE_LANGUAGE_CODE=ar-SA (or auto)
-- AWS_TRANSCRIBE_TIMEOUT_SECONDS=120
-
-Minimum permissions should be limited to:
-- s3:PutObject, s3:GetObject, s3:DeleteObject on
-  arn:aws:s3:::BUCKET/telegram-audio/*
-- transcribe:StartTranscriptionJob
-- transcribe:GetTranscriptionJob
-- transcribe:DeleteTranscriptionJob
-
-The runtime uploads audio with S3 AES256 encryption and deletes both the S3
-object and transcription job in a finally block.
-
+### Telegram input is text-only
+Telegram voice/audio transcription is disabled in the production runtime. Do not
+configure S3 or Amazon Transcribe for this bot. Voice/audio updates receive a
+text-only response and are not sent to any transcription provider or model.
 ## Runtime flow
 
 Telegram -> privacy/category -> local Unified Inbox -> bounded conversation
-memory -> state + lexical knowledge retrieval -> Claude/Bedrock -> Telegram ->
+memory -> state + lexical knowledge retrieval -> Gemini API -> Telegram ->
 Google Sheets audit.
 
-Voice adds: Telegram getFile -> temporary local file -> private S3 -> Amazon
-Transcribe -> delete temporary objects -> normal text flow.
+Voice/audio is intentionally outside the runtime; resend the request as text.
 
 ## Health commands
 - /selftest
 - /ai_status
 - /storage_status
+- /clinical_status
 
 Clinical content is tagged CLINICAL_PRIVATE; email, Saudi mobile, MRN and similar
 identifiers are redacted before Sheets logging. Human review remains required.

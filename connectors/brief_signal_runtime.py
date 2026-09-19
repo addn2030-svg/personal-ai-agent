@@ -50,7 +50,7 @@ def install():
             + "\n\nSTATESTORE EXECUTIVE SIGNALS (read-only evidence; preserve evidence_status):\n" + compact_state
             + "\n\nCURRENT SHEETS SNAPSHOT:\n" + legacy._sheet_context()
         )
-        # الصحيح: استخدام model_router.call مع domain="general" -> يوجه تلقائياً إلى OpenRouter
+        # الصحيح: استخدام model_router.call مع domain="general" -> Bedrock by default
         import os
 
         try:

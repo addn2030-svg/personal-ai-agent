@@ -23,11 +23,12 @@ FULL_ENV = {
     "GOOGLE_CALENDAR_ID": "abdulrahman@group.calendar.google.com",
     "GITHUB_TOKEN": "ghp_example",
     "AI_OS_GITHUB_REPO": "addn2030-svg/personal-ai-agent",
-    "ELEVENLABS_API_KEY": "eleven-test",
+    "GEMINI_API_KEY": "gemini-test",
+    "GEMINI_MODEL": "google/gemini-3.7-flash",
     "BUFFER_API_KEY": "buffer-test",
 }
 
-ALL_KEYS = ["telegram", "sheets", "drive", "docs", "calendar", "github", "voice", "buffer"]
+ALL_KEYS = ["telegram", "sheets", "drive", "docs", "calendar", "github", "gemini", "buffer"]
 
 
 class ConfigCheckTests(unittest.TestCase):
@@ -94,6 +95,8 @@ class OutputTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {}, clear=True):
             output = connection_setup.render(connection_setup.run())
         self.assertIn("calendar → docs → github", output)
+        self.assertIn("Gemini API", output)
+        self.assertNotIn("Voice / Transcribe", output)
         for key in ALL_KEYS:
             self.assertIn(f"--guide {key}", output)
 

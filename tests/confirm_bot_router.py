@@ -5,9 +5,9 @@ Bot confirmation test — يثبت أن البوت يستخدم model_router.cal
 
 الصحيح:
     response = model_router.call(
-        domain="general",  # يوجه تلقائياً إلى OpenRouter
+        domain="general",  # يوجه افتراضياً إلى Bedrock
         prompt=brief_prompt,
-        model=os.getenv("AI_MODEL_MANAGER", "anthropic/claude-sonnet-4.6")
+        model=os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-6")
     )
 
 الخطأ:
@@ -34,14 +34,15 @@ print("="*70)
 print("🤖 Bot Router Confirmation Test")
 print("="*70)
 
-# 1. Test model_router general -> OpenRouter
-print("\n1) Testing model_router.call(domain='general') -> OpenRouter")
+# 1. Test explicit OpenRouter opt-in for a general request
+print("\n1) Testing model_router.call(domain='general') -> Bedrock")
 mock_answer = "✅ Executive Brief: 3 أولويات مؤكدة"
-with patch.object(model_router.gateway, "openrouter_chat", return_value=(mock_answer, {"inputTokens": 100, "outputTokens": 50}, 123)), \
+with patch.object(model_router.gateway, "AI_MODEL_PROVIDER", "openrouter"), \
+     patch.object(model_router.gateway, "openrouter_chat", return_value=(mock_answer, {"inputTokens": 100, "outputTokens": 50}, 123)), \
      patch.object(model_router.gateway, "last_route", return_value={"provider": "openrouter", "model": "anthropic/claude-sonnet-4.6"}):
     brief_prompt = "أنشئ Executive Brief عربيًا مختصرًا"
     response = model_router.call(
-        domain="general",  # يوجه تلقائياً إلى OpenRouter
+        domain="general",  # يوجه افتراضياً إلى Bedrock
         prompt=brief_prompt,
         model=os.getenv("AI_MODEL_MANAGER", "anthropic/claude-sonnet-4.6")
     )

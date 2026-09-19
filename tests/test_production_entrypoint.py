@@ -18,6 +18,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 ENTRYPOINT = "connectors.telegram_webhook_runtime_memory"
@@ -71,6 +72,20 @@ class ProductionEntrypointTests(unittest.TestCase):
             proc = _run([sys.executable, "-u", str(ROOT / "connectors" / "telegram_webhook_runtime.py")], data_dir=tmp)
         self.assertNotIn(IMPORT_FAILURE, proc.stderr)
         self.assertIn(STARTUP_REACHED, proc.stderr)
+
+    def test_background_system_exit_is_reported_instead_of_killing_update(self):
+        """CLI-oriented helpers must not silently terminate a webhook update thread."""
+        from connectors import telegram_webhook as webhook
+
+        message = {"chat": {"id": 42, "type": "private"}}
+        with patch.object(webhook.bot, "handle_message", side_effect=SystemExit("review unavailable")), \
+             patch.object(webhook.bot, "send") as send, \
+             patch.object(webhook, "_complete_update") as complete, \
+             patch("builtins.print"):
+            webhook._process_update(123, message)
+
+        send.assert_called_once_with(42, "❌ تعذر تنفيذ الطلب: review unavailable")
+        complete.assert_called_once_with(123)
 
 
 class DockerfileTests(unittest.TestCase):

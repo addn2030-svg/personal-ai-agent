@@ -3,9 +3,9 @@
 
 الصحيح:
     response = model_router.call(
-        domain="general",  # يوجه تلقائياً إلى OpenRouter
+        domain="general",  # يوجه افتراضياً إلى Gemini API
         prompt=brief_prompt,
-        model=os.getenv("AI_MODEL_MANAGER", "anthropic/claude-sonnet-4.6")
+        model=os.getenv("GEMINI_MODEL", "google/gemini-3.7-flash")
     )
 
 الخطأ:
@@ -30,7 +30,10 @@ BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "us.anthropic.claude-sonne
 AI_MODEL_MANAGER = os.environ.get("AI_MODEL_MANAGER", "anthropic/claude-sonnet-4.6").strip()
 AI_MANAGER_MODEL = os.environ.get("AI_MANAGER_MODEL", AI_MODEL_MANAGER).strip()
 AI_CRITIC_MODEL = os.environ.get("AI_CRITIC_MODEL", "openai/gpt-5.6-sol").strip()
-AI_GOOGLE_MODEL = os.environ.get("AI_GOOGLE_MODEL", "google/gemini-3.7-flash").strip()
+AI_GEMINI_MODEL = os.environ.get(
+    "GEMINI_MODEL",
+    os.environ.get("AI_GOOGLE_MODEL", "google/gemini-3.7-flash"),
+).strip()
 
 _ROUTE = threading.local()
 
@@ -41,7 +44,7 @@ class RouterResponse:
     model: str = ""
     usage: dict = field(default_factory=dict)
     latency_ms: int = 0
-    provider: str = "openrouter"
+    provider: str = "gemini"
     fallback: bool = False
 
     def __str__(self) -> str:
@@ -128,6 +131,56 @@ def _bedrock_converse(
     )
 
 
+def _gemini_converse(
+    *,
+    model_id: str,
+    system: str,
+    prompt: str,
+    max_tokens: int = 1200,
+    temperature: float = 0.2,
+    chat_id: int | None = None,
+    sheet_context: str = "",
+    messages: list[dict] | None = None,
+) -> RouterResponse:
+    """Call Gemini's direct API; this is the normal primary route."""
+    if not gateway.gemini_configured():
+        raise RuntimeError("GEMINI_API_KEY is not configured")
+
+    from . import direct_specialists
+
+    # direct_specialists is also used by the older specialist adapter. Keep its
+    # key/model view synchronized with the gateway when tests or process setup
+    # provide the variable after module import.
+    direct_specialists.GEMINI_API_KEY = gateway.GEMINI_API_KEY
+    if messages is None:
+        combined_system = _bedrock_system(
+            system=system,
+            prompt=prompt,
+            chat_id=chat_id,
+            sheet_context=sheet_context,
+        )
+        messages, _ = _build_messages(
+            system=combined_system,
+            prompt=prompt,
+            chat_id=chat_id,
+            sheet_context="",
+        )
+
+    answer, usage, latency_ms, actual_model = direct_specialists._direct_gemini(
+        model=model_id,
+        messages=messages,
+        max_tokens=max_tokens,
+    )
+    _set_route("gemini", actual_model)
+    return RouterResponse(
+        text=answer,
+        model=actual_model,
+        usage=usage,
+        latency_ms=latency_ms,
+        provider="gemini",
+    )
+
+
 def _openrouter_converse(
     *,
     model: str,
@@ -202,6 +255,30 @@ def _build_messages(
     return msgs, sources
 
 
+def _bedrock_system(
+    *,
+    system: str,
+    prompt: str,
+    chat_id: int | None,
+    sheet_context: str,
+) -> str:
+    """Build the privacy-bounded context sent to the Bedrock route."""
+    parts = [str(system or "").strip()]
+    if chat_id is not None:
+        try:
+            from agent_runtime import build_context
+
+            context, _ = build_context(chat_id, prompt)
+            if context:
+                parts.append(context)
+        except Exception:
+            # Context retrieval is best-effort; the model request remains usable.
+            pass
+    if sheet_context:
+        parts.append("LIVE GOOGLE SHEETS CONTEXT (read-only evidence):\n" + str(sheet_context))
+    return "\n\n".join(part for part in parts if part)
+
+
 def call(
     *,
     domain: str = "general",
@@ -221,49 +298,93 @@ def call(
     Unified entry point.
 
     domain:
-      - "general"  -> OpenRouter automatically (الصحيح)
-      - "manager"  -> OpenRouter with manager model
-      - "critic"   -> OpenRouter with critic model
-      - "clinical" / "bedrock" / "sensitive" -> Bedrock directly
+      - "general" / "manager" / "critic" -> Gemini API by default
+      - "clinical" / "sensitive" -> Gemini API by default; explicit legacy
+        provider overrides remain available for compatibility
+      - "bedrock" -> explicit Claude/Bedrock compatibility route
       - any other -> general behavior
 
     Returns RouterResponse (str() gives text).
     """
     domain = (domain or "general").strip().lower()
 
-    # Resolve model default per domain
+    clinical_domain = domain in {"clinical", "bedrock", "sensitive"} or sensitive
+    provider = (
+        "bedrock" if domain == "bedrock"
+        else gateway.desired_provider(sensitive=clinical_domain)
+    )
+    # Preserve the old clinical policy semantics: an explicit clinical
+    # OpenRouter override first attempts Bedrock, then may use its opt-in fallback.
+    if clinical_domain and provider == "openrouter":
+        provider = "bedrock"
+
+    # Resolve model default per domain. A selected provider must never receive a
+    # model slug for a different provider.
     if model is None:
-        if domain == "manager":
+        if provider == "gemini":
+            model = AI_GEMINI_MODEL
+        elif clinical_domain:
+            model = BEDROCK_MODEL_ID
+        elif domain == "manager":
             model = AI_MANAGER_MODEL
         elif domain == "critic":
             model = AI_CRITIC_MODEL
-        elif domain in {"clinical", "bedrock", "sensitive"} or sensitive:
-            model = BEDROCK_MODEL_ID
-        else:  # general and others
-            model = os.getenv("AI_MODEL_MANAGER", AI_MODEL_MANAGER) or AI_MODEL_MANAGER
+        else:
+            model = os.getenv("AI_MODEL_MANAGER", AI_MANAGER_MODEL) or AI_MANAGER_MODEL
+    if provider == "gemini" and not str(model).startswith(("gemini", "google/")):
+        model = AI_GEMINI_MODEL
+    elif provider == "bedrock" and not clinical_domain:
+        model = BEDROCK_MODEL_ID
 
     model = str(model).strip()
 
-    # Clinical / Bedrock explicit path - with fallback to OpenRouter on AccessDenied
-    if domain in {"clinical", "bedrock", "sensitive"} or sensitive:
+    # Gemini is the only normal route and has no silent Bedrock/OpenRouter
+    # fallback. This also covers clinical questions when AI_CLINICAL_PROVIDER is
+    # set to its normal value, gemini.
+    if provider == "gemini":
+        return _gemini_converse(
+            model_id=model,
+            system=system,
+            prompt=prompt,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            chat_id=chat_id,
+            sheet_context=sheet_context,
+            messages=messages,
+        )
+
+    # Explicit Bedrock compatibility path - with fallback to OpenRouter only
+    # when the old clinical policy explicitly requests it.
+    if clinical_domain and provider == "bedrock":
         try:
             return _bedrock_converse(
                 model_id=model,
-                system=system,
+                system=_bedrock_system(
+                    system=system,
+                    prompt=prompt,
+                    chat_id=chat_id,
+                    sheet_context=sheet_context,
+                ),
                 prompt=prompt,
                 max_tokens=max_tokens,
                 temperature=temperature,
                 role=domain,
             )
         except Exception as exc:
-            # إذا فشل Bedrock بـ AccessDeniedException أو explicit deny، جرّب OpenRouter كـ fallback
-            # هذا يعالج حالة: User is not authorized to perform: bedrock:CallWithBearerToken with explicit deny
+            # Keep the privacy boundary: clinical fallback is available only after
+            # an explicit AI_CLINICAL_PROVIDER=openrouter opt-in. The default is
+            # Bedrock-only, so missing Bedrock credentials cannot silently leak the
+            # case to another provider.
             err_text = str(exc).lower()
             is_access_denied = any(
                 x in err_text
                 for x in ("accessdenied", "explicit deny", "not authorized", "forbidden", "unauthorized")
             )
-            if is_access_denied and gateway.configured():
+            if (
+                is_access_denied
+                and gateway.AI_CLINICAL_PROVIDER == "openrouter"
+                and gateway.configured()
+            ):
                 try:
                     if messages is None:
                         messages, _ = _build_messages(
@@ -285,7 +406,24 @@ def call(
                     pass
             raise
 
-    # General path: OpenRouter first, fallback to Bedrock if configured
+    # Explicit Claude/Bedrock compatibility route.
+    if provider == "bedrock":
+        return _bedrock_converse(
+            model_id=BEDROCK_MODEL_ID,
+            system=_bedrock_system(
+                system=system,
+                prompt=prompt,
+                chat_id=chat_id,
+                sheet_context=sheet_context,
+            ),
+            prompt=prompt,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            role=domain,
+        )
+
+    # Legacy explicit OpenRouter path. The normal Gemini route never reaches
+    # this branch and never falls back here.
     try:
         if messages is None:
             messages, _ = _build_messages(
@@ -304,10 +442,12 @@ def call(
         if gateway.OPENROUTER_FALLBACK_BEDROCK and gateway.bedrock_configured():
             try:
                 fb_model = BEDROCK_MODEL_ID
-                # keep original system+prompt for bedrock
-                combined_system = system
-                if sheet_context and sheet_context not in combined_system:
-                    combined_system = (combined_system + "\n\n" + sheet_context) if combined_system else sheet_context
+                combined_system = _bedrock_system(
+                    system=system,
+                    prompt=prompt,
+                    chat_id=chat_id,
+                    sheet_context=sheet_context,
+                )
                 return _bedrock_converse(
                     model_id=fb_model,
                     system=combined_system,

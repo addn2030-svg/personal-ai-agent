@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Secure Telegram + Claude/Bedrock + Google Sheets intake pipeline."""
+"""Secure Telegram + Gemini API + Google Sheets intake pipeline."""
 from __future__ import annotations
 
 import datetime as dt
@@ -21,6 +21,10 @@ TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 ALLOWED_CHAT_ID = os.environ.get("TELEGRAM_ALLOWED_CHAT_ID", "").strip()
 AWS_REGION = os.environ.get("AWS_REGION", "us-east-1").strip()
 BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-6").strip()
+GEMINI_MODEL_ID = os.environ.get(
+    "GEMINI_MODEL",
+    os.environ.get("AI_GOOGLE_MODEL", "google/gemini-3.7-flash"),
+).strip()
 GOOGLE_SHEET_ID = os.environ.get("GOOGLE_SHEET_ID", "1ZXmC_3_OTYYtXglNMXRQiSWu2rjDDIzoqaK0SQuWcWc").strip()
 GOOGLE_SERVICE_ACCOUNT_JSON = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
 GOOGLE_SHEETS_WEBHOOK_URL = os.environ.get("GOOGLE_SHEETS_WEBHOOK_URL", "").strip()
@@ -143,6 +147,10 @@ def _bedrock_configured():
     return auth and bool(AWS_REGION) and bool(BEDROCK_MODEL_ID)
 
 
+def _gemini_configured():
+    return bool(os.environ.get("GEMINI_API_KEY", "").strip() and GEMINI_MODEL_ID)
+
+
 def _sheets_configured():
     service_account_ok = bool(GOOGLE_SHEET_ID and GOOGLE_SERVICE_ACCOUNT_JSON)
     webhook_ok = bool(GOOGLE_SHEETS_WEBHOOK_URL and GOOGLE_SHEETS_WEBHOOK_SECRET)
@@ -230,12 +238,19 @@ def _redact(text: str):
     return value
 
 
+# The webhook runtime replaces _redact with a source-level placeholder for any
+# accidental general-sheet clinical write. The dedicated clinical workbook still
+# needs the privacy-filtered case text, so retain this stable redactor alias before
+# that production hardening patch is applied.
+_clinical_sheet_redact = _redact
+
+
 def _message_payload(message: dict):
     text = (message.get("text") or message.get("caption") or "").strip()
     if message.get("voice"):
-        return text or "[VOICE_PENDING_TRANSCRIPTION]", "VOICE", message["voice"].get("file_id", "")
+        return text or "[VOICE_DISABLED]", "VOICE", message["voice"].get("file_id", "")
     if message.get("audio"):
-        return text or "[AUDIO_PENDING_TRANSCRIPTION]", "AUDIO", message["audio"].get("file_id", "")
+        return text or "[AUDIO_DISABLED]", "AUDIO", message["audio"].get("file_id", "")
     if message.get("document"):
         name = message["document"].get("file_name", "document")
         return text or f"[DOCUMENT: {name}]", "DOCUMENT", message["document"].get("file_id", "")
@@ -267,11 +282,31 @@ def _local_capture(text: str, message: dict, kind: str):
 
 def _save_intake(iid, message, text, kind, attachment, status, response_id="", error=""):
     category = _category(text, kind)
-    privacy = "REDACTED" if category == "CLINICAL_PRIVATE" else "NORMAL"
+    # Clinical records have a hard destination boundary. Never fall back to the
+    # operational workbook when the restricted workbook is unavailable.
+    if category == "CLINICAL_PRIVATE":
+        try:
+            from connectors import clinical_sheet
+
+            return bool(clinical_sheet.append_intake(
+                intake_id=iid,
+                timestamp=_now(),
+                chat_id=str((message.get("chat") or {}).get("id", "")),
+                kind=kind,
+                text=_clinical_sheet_redact(text),
+                language=_language(text),
+                status=status,
+                response_id=response_id,
+                error=str(error)[:500],
+            ))
+        except Exception as exc:
+            print(f"Clinical intake save error: {exc}", flush=True)
+            return False
+
     safe_text = _redact(text)
     row = [
         iid, _now(), "TELEGRAM", str((message.get("chat") or {}).get("id", "")),
-        kind, safe_text, _language(text), category, privacy, status,
+        kind, safe_text, _language(text), category, "NORMAL", status,
         response_id, _now() if status in {"COMPLETED", "ERROR"} else "",
         str(error)[:500], attachment, "",
     ]
@@ -285,14 +320,36 @@ def _save_intake(iid, message, text, kind, attachment, status, response_id="", e
 
 def _save_conversation(cid, iid, question, answer, usage, latency_ms, status, error=""):
     clinical = _category(question) == "CLINICAL_PRIVATE"
-    review = "PENDING" if clinical else "NOT_REQUIRED"
-    safe_question = _redact(question)
-    safe_answer = _redact(answer)
+    safe_question = _clinical_sheet_redact(question) if clinical else _redact(question)
+    safe_answer = _clinical_sheet_redact(answer) if clinical else _redact(answer)
+    if clinical:
+        try:
+            from connectors import clinical_sheet, model_gateway
+
+            route = model_gateway.last_route()
+            return bool(clinical_sheet.append_conversation(
+                conversation_id=cid,
+                intake_id=iid,
+                timestamp=_now(),
+                provider=route.get("provider", "bedrock"),
+                model=route.get("model", BEDROCK_MODEL_ID),
+                question=safe_question,
+                answer=safe_answer,
+                input_tokens=usage.get("inputTokens", ""),
+                output_tokens=usage.get("outputTokens", ""),
+                latency_ms=latency_ms,
+                status=status,
+                error=str(error)[:500],
+            ))
+        except Exception as exc:
+            print(f"Clinical conversation save error: {exc}", flush=True)
+            return False
+
     row = [
         cid, iid, _now(), "AWS_BEDROCK", BEDROCK_MODEL_ID,
         safe_question, safe_answer,
         usage.get("inputTokens", ""), usage.get("outputTokens", ""),
-        latency_ms, status, review, str(error)[:500],
+        latency_ms, status, "NOT_REQUIRED", str(error)[:500],
     ]
     try:
         _append(CONVERSATION_TAB, row)
@@ -314,9 +371,8 @@ def _save_status(component, status, detail):
 
 def ask_bedrock(chat_id: int, text: str, sheet_context: str = ""):
     """
-    Refactored to use model_router — الصحيح:
-        response = model_router.call(domain="general", prompt=..., model=...)
-    بدلاً من bedrock_client.converse مباشرة.
+    Refactored to use model_router — ordinary and clinical requests default to
+    Gemini API; provider-specific calls stay centralized in the router.
     """
     # Lazy import to avoid circular
     try:
@@ -331,9 +387,10 @@ def ask_bedrock(chat_id: int, text: str, sheet_context: str = ""):
         context += "\n\nLIVE GOOGLE SHEETS CONTEXT (read-only evidence):\n" + sheet_context
 
     system = SYSTEM_PROMPT + "\n\n" + context
-    # domain selection: clinical -> bedrock, otherwise general -> OpenRouter automatically
+    # Both ordinary and clinical Telegram questions use the Gemini-primary
+    # policy; model_router handles any explicit compatibility override.
     domain = "clinical" if _clinical_hint(text) else "general"
-    model_name = os.getenv("AI_MODEL_MANAGER", "anthropic/claude-sonnet-4.6") if domain == "general" else BEDROCK_MODEL_ID
+    model_name = GEMINI_MODEL_ID
 
     # الصحيح: استخدام model_router.call مع domain
     result = model_router.call(
@@ -906,7 +963,8 @@ def command_start(chat_id: int):
         "المدخلات والإجابات تُحفظ في Google Sheets بعد فحص الخصوصية.\n\n"
         "/profile — الملف المهني\n/sources — المصادر\n/time — الوقت الآن وفحص فوري\n"
         "/selftest — فحص كامل\n"
-        "/ai_status — فحص Claude\n/storage_status — فحص الحفظ\n"
+        "/ai_status — فحص Gemini API\n/storage_status — فحص الحفظ\n"
+        "/clinical_status — فحص المصنف السريري المنفصل\n"
         "/sheet — الشيتات المتصلة\n/find كلمة — البحث في الشيت\n"
         "/youtube كلمات — بحث يوتيوب بروابط موثقة\n/search كلمات — نفس بحث اليوتيوب\n"
         "/pending — القادم والناقص والحل\n"
@@ -948,10 +1006,10 @@ def command_sources(chat_id: int):
 
 
 def command_ai_status(chat_id: int):
-    if _bedrock_configured():
-        send(chat_id, f"🤖 Claude on AWS Bedrock: configured ✅\nRegion: {AWS_REGION}\nModel: {BEDROCK_MODEL_ID}")
+    if _gemini_configured():
+        send(chat_id, f"🤖 Gemini API: configured ✅\nModel: {GEMINI_MODEL_ID}")
     else:
-        send(chat_id, "❌ إعداد AWS Bedrock غير مكتمل في Railway Variables.")
+        send(chat_id, "❌ إعداد GEMINI_API_KEY أو GEMINI_MODEL غير مكتمل في Railway Variables.")
 
 
 def command_storage_status(chat_id: int):
@@ -968,6 +1026,39 @@ def command_storage_status(chat_id: int):
         send(chat_id, f"❌ تعذر الاتصال بـ Google Sheets: {str(exc)[:220]}")
 
 
+def command_clinical_status(chat_id: int):
+    """Verify read access to the dedicated clinical workbook without writing data."""
+    try:
+        from connectors import clinical_sheet
+
+        if not clinical_sheet.configured():
+            send(
+                chat_id,
+                "❌ Clinical Sheets route غير مهيأ. أضف GOOGLE_SERVICE_ACCOUNT_JSON "
+                "وتأكد من CLINICAL_SHEET_ID.",
+            )
+            return
+        service = clinical_sheet._service()
+        tab = clinical_sheet._tab(service)
+        metadata = service.spreadsheets().get(
+            spreadsheetId=clinical_sheet.sheet_id(),
+            fields="spreadsheetId,properties.title",
+        ).execute()
+        title = metadata.get("properties", {}).get("title", "clinical workbook")
+        send(
+            chat_id,
+            "🩺 Clinical Sheets: connected ✅\n"
+            f"Workbook: {title}\nTab: {tab}\n"
+            "الكتابة السريرية تستخدم هذا المصنف فقط ولا تعود إلى الشيت التشغيلي.",
+        )
+    except Exception as exc:
+        send(
+            chat_id,
+            "❌ تعذر فتح Clinical Sheets. شارك المصنف مع Service Account بصلاحية Editor.\n"
+            f"Error: {str(exc)[:220]}",
+        )
+
+
 def _selftest():
     checks = []
     try:
@@ -980,14 +1071,20 @@ def _selftest():
                        ("Store", BASE/"engine"/"store.py"),
                        ("Knowledge", BASE/"knowledge"), ("Skills", BASE/"skills")]:
         checks.append((name, path.exists(), "موجود" if path.exists() else "مفقود"))
-    checks.append(("Claude / Bedrock", _bedrock_configured(), "مهيأ" if _bedrock_configured() else "غير مهيأ"))
+    checks.append(("Gemini API", _gemini_configured(), "مهيأ" if _gemini_configured() else "غير مهيأ"))
     checks.append(("Google Sheets", _sheets_configured(), "مهيأ" if _sheets_configured() else "غير مهيأ"))
     try:
-        from connectors.aws_transcribe import configured as audio_configured
-        audio_ok = audio_configured()
+        from connectors import clinical_sheet
+        clinical_ok = clinical_sheet.configured()
     except Exception:
-        audio_ok = False
-    checks.append(("Voice / Transcribe", audio_ok, "مهيأ" if audio_ok else "غير مهيأ"))
+        clinical_ok = False
+    checks.append((
+        "Clinical Sheets route",
+        clinical_ok,
+        "مهيأ — تأكد من مشاركة المصنف مع Service Account" if clinical_ok else "غير مهيأ",
+    ))
+    # Telegram voice/audio transcription is intentionally disabled. It is not a
+    # capability check and must not appear as a failed requirement in self-test.
     checks.append(("Memory / Orchestrator", (BASE/"engine"/"agent_runtime.py").exists(), "موجود"))
     ok = sum(1 for _, passed, _ in checks if passed)
     lines = [f"🩺 Self-test: {ok}/{len(checks)} ناجح"]
@@ -999,32 +1096,6 @@ def _selftest():
 
 def command_selftest(chat_id: int):
     send(chat_id, _selftest())
-
-
-def _download_telegram_file(file_id: str, suffix=".ogg"):
-    import tempfile
-    info = api("getFile", {"file_id": file_id}, timeout=30)
-    file_path = info.get("file_path")
-    if not file_path:
-        raise RuntimeError("Telegram did not return a file path")
-    url = f"https://api.telegram.org/file/bot{TOKEN}/{file_path}"
-    fd, path = tempfile.mkstemp(prefix="telegram-", suffix=suffix)
-    os.close(fd)
-    urllib.request.urlretrieve(url, path)
-    return path
-
-
-def _transcribe_telegram(file_id: str, kind: str):
-    from connectors.aws_transcribe import transcribe_file
-    suffix = ".ogg" if kind == "VOICE" else ".mp3"
-    path = _download_telegram_file(file_id, suffix=suffix)
-    try:
-        return transcribe_file(path)
-    finally:
-        try:
-            os.remove(path)
-        except OSError:
-            pass
 
 
 def handle_message(message: dict):
@@ -1043,6 +1114,7 @@ def handle_message(message: dict):
         "/start": command_start, "/help": command_start, "/profile": command_profile,
         "/sources": command_sources, "/selftest": command_selftest,
         "/ai_status": command_ai_status, "/storage_status": command_storage_status,
+        "/clinical_status": command_clinical_status,
         "/time": command_time, "/now": command_time,
     }
     handler = handlers.get(command)
@@ -1177,7 +1249,10 @@ def handle_message(message: dict):
                     from engine.learning_engine import cmd_answer
                     cmd_answer(rid, score)
                     send(chat_id, f"✅ سُجلت {rid} = {score}%")
-                except Exception as e:
+                except (Exception, SystemExit) as e:
+                    # learning_engine.cmd_answer is also a CLI entry point and
+                    # reports an invalid review with SystemExit. Keep polling and
+                    # webhook update processing alive when the review is invalid.
                     send(chat_id, f"صيغة: /answer LR-001 85\n{e}")
             elif command == "/okr":
                 import subprocess
@@ -1197,13 +1272,14 @@ def handle_message(message: dict):
         _save_intake(iid, message, text, kind, attachment, "ERROR", error="UNKNOWN_COMMAND")
         return
     if kind in {"VOICE", "AUDIO"}:
-        send(chat_id, "🎙️ تم استلام الصوت، جارٍ التفريغ والتحليل...")
-        try:
-            text = _transcribe_telegram(attachment, kind)
-            send(chat_id, "📝 التفريغ:\n" + text[:3000])
-        except Exception as exc:
-            _save_intake(iid, message, text, kind, attachment, "ERROR", error=exc)
-            raise
+        # Voice/transcription is deliberately out of the Telegram runtime. Keep
+        # the update alive and give the user an actionable text-only response.
+        send(chat_id, "🎙️ استقبال الصوت والتفريغ غير مفعّل حاليًا. أرسل سؤالك كنص من فضلك.")
+        _save_intake(
+            iid, message, text, kind, attachment, "RECEIVED",
+            error="VOICE_TRANSCRIPTION_DISABLED",
+        )
+        return
     elif kind != "TEXT":
         send(chat_id, "✅ تم حفظ بيانات المرفق. تحليل الصور والملفات سيُفعّل في مرحلة مستقلة.")
         _save_intake(iid, message, text, kind, attachment, "RECEIVED")
@@ -1269,8 +1345,9 @@ def configure_commands():
         {"command":"profile","description":"عرض الملف المهني"},
         {"command":"sources","description":"عرض مصادر المعرفة"},
         {"command":"selftest","description":"فحص المكونات"},
-        {"command":"ai_status","description":"فحص Claude على AWS"},
+        {"command":"ai_status","description":"فحص Gemini API"},
         {"command":"storage_status","description":"فحص حفظ Google Sheets"},
+        {"command":"clinical_status","description":"فحص المصنف السريري المنفصل"},
         {"command":"sheet","description":"عرض الشيتات المتصلة"},
         {"command":"today","description":"مواعيد اليوم"},
         {"command":"calendar","description":"المواعيد القادمة"},

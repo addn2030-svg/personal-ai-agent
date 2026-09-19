@@ -46,6 +46,22 @@ _CLINICAL_PAIN_RE = re.compile(
     r"ألمي|ألمه|ألمها|إصابتي|اصابتي|إصابته|عملية\s+(?:لي|للمريض)",
     re.I,
 )
+# Health questions do not always mention a patient. These signals cover ordinary
+# Arabic/English clinical cases such as night-shift work affecting muscles while
+# keeping generic professional phrases such as "Physical Therapy Day" non-private.
+_CLINICAL_HEALTH_RE = re.compile(
+    r"\b(?:muscle|muscles|sleep|night\s*work|shift\s*work|pain|injur(?:y|ies)|"
+    r"treatment|medication|symptom(?:s)?|rehabilitation|exercise)\b|"
+    r"(?<![\w\u0600-\u06FF])(?:عضل(?:ة|ات)|العضلات|النوم|نوم|الليل|"
+    r"عمل\s*(?:ليلي|بالليل)|ورديات|ألم|الم|إصابة|اصابة|علاج|دواء|"
+    r"أعراض|اعراض|تأهيل|تمارين|حركة|سريري)(?![\w\u0600-\u06FF])",
+    re.I,
+)
+_GENERIC_PROFESSIONAL_RE = re.compile(
+    r"world\s+physical\s+therapy\s+day|physical\s+therapy\s+day|"
+    r"اليوم\s+العالمي\s+للعلاج\s+الطبيعي",
+    re.I,
+)
 _FALSE_SHEET_DENIAL_RE = re.compile(
     r"(?:i\s+)?(?:can\s*not|cannot|can't|unable\s+to)\s+(?:directly\s+)?(?:write|access|read|open).*?(?:sheet|spreadsheet)|"
     r"no\s+(?:active\s+)?google\s+sheets\s+api\s+connection|"
@@ -96,7 +112,11 @@ class CapabilitySnapshot:
 
 def clinical_private(text: str) -> bool:
     value = text or ""
-    return bool(_CLINICAL_STRONG_RE.search(value) or _CLINICAL_PAIN_RE.search(value))
+    if _CLINICAL_STRONG_RE.search(value) or _CLINICAL_PAIN_RE.search(value):
+        return True
+    if _GENERIC_PROFESSIONAL_RE.search(value):
+        return False
+    return bool(_CLINICAL_HEALTH_RE.search(value))
 
 
 def capability_related(text: str) -> bool:
