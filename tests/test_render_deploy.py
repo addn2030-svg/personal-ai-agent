@@ -22,6 +22,48 @@ ROOT = Path(__file__).resolve().parents[1]
 RENDER_YAML = ROOT / "render.yaml"
 
 
+# ------------------------------------------------- استخراج block scalars
+def extract_block_scalars(text):
+    """يفصل محتوى `key: |` ويعيد (نص للتحليل، {اسم: محتوى}).
+
+    السبب: المحلّل المصغّر يعالج خرائط وقوائم، أما `run: |` فمحتواه أوامر شل
+    (أسطر بلا `:`) فيكسر التحليل. نُخرجه أولًا ونضع سطرًا بديلًا بنفس الإزاحة،
+    فيبقى التحليل صارمًا ويبقى المحتوى قابلًا للفحص.
+
+    والتسمية ثابتة لكل ملف (`BLOCK_0`, `BLOCK_1`…) — فالترتيب هو الترتيب.
+    """
+    lines = text.splitlines()
+    output, blocks, index, counter = [], {}, 0, 0
+    while index < len(lines):
+        line = lines[index]
+        match = re.match(r"^(\s*)(-\s+)?([\w-]+):\s*([|>][-+]?)\s*$", line)
+        if not match:
+            output.append(line)
+            index += 1
+            continue
+        indent = len(match.group(1))
+        content = []
+        cursor = index + 1
+        while cursor < len(lines):
+            candidate = lines[cursor]
+            if not candidate.strip():
+                content.append("")
+                cursor += 1
+                continue
+            if len(candidate) - len(candidate.lstrip(" ")) <= indent:
+                break
+            content.append(candidate)
+            cursor += 1
+        name = f"BLOCK_{counter}"
+        blocks[name] = "\n".join(content)
+        prefix = match.group(1) + (match.group(2) or "") + match.group(3) + ": "
+        output.append(prefix + name)
+        blocks[name + "_INDENT"] = str(indent)
+        blocks[name + "_LINES"] = [len(c) - len(c.lstrip(" ")) for c in content if c.strip()]
+        counter += 1
+        index = cursor
+    return "\n".join(output), blocks, counter
+
 # ------------------------------------------------------------ محلّل YAML مصغّر
 class YamlSubsetError(ValueError):
     pass
@@ -55,7 +97,14 @@ def _scalar(text):
 
 
 def parse_yaml_subset(text):
-    lines = _clean(text.splitlines())
+    """يحلّل الحد الجزئي من YAML ويعيد الخريطة (بلا block scalars)."""
+    return parse_yaml(text)[0]
+
+
+def parse_yaml(text):
+    """يحلّل ويعيد (الخريطة، {block scalars})."""
+    stripped, blocks, _ = extract_block_scalars(text)
+    lines = _clean(stripped.splitlines())
 
     def parse_block(index, indent):
         if index < len(lines) and lines[index][1].startswith("- "):
@@ -102,7 +151,7 @@ def parse_yaml_subset(text):
     if lines[0][0] != 0:
         raise YamlSubsetError("أول مفتاح يجب أن يكون بلا إزاحة")
     document, _ = parse_block(0, 0)
-    return document
+    return document, blocks
 
 
 # ------------------------------------------------------------------- الفحوص
@@ -182,23 +231,61 @@ class RenderBlueprintShapeTests(unittest.TestCase):
 class KeepWarmWorkflowTests(unittest.TestCase):
     """إبقاء الخدمة المجانية مستيقظة من داخل المستودع (بلا خدمة ثالثة).
 
-    يُتحقق منه نصيًا لا بمحلّل YAML: الملف يستخدم block scalars (`run: |`)
-    وهي خارج نطاق المحلّل المصغّر أعلاه. ويبقى الفحص الجذري في GitHub نفسه —
-    ملف YAML تالف لا يظهر في قائمة Actions أصلًا.
+    لماذا فحص بنيوي لا نصي فقط: ملف YAML تالف **لا يظهر في تبويب Actions**
+    ولا يعطي خطأً في مكان واضح — يفشل الإيقاظ بصمت ونعود نكتشف أن البوت ينام.
+    (وGitHub لا يسمح بتشغيل workflow_dispatch قبل وجود الملف في الفرع
+    الافتراضي، فلا سبيل لتجربته قبل الدمج — لذا نتحقق محليًا بجدّية.)
     """
 
     WORKFLOW = ROOT / ".github" / "workflows" / "keep-warm.yml"
 
     def setUp(self):
         self.text = self.WORKFLOW.read_text(encoding="utf-8")
+        self.doc, self.blocks = parse_yaml(self.text)
+        self.job = self.doc["jobs"]["ping"]
+        self.steps = self.job["steps"]
 
-    def test_workflow_exists_and_is_scheduled(self):
+    def test_parses_as_yaml_with_the_expected_triggers(self):
+        triggers = self.doc["on"]                       # YAML 1.1 يقرأ on كـ«مفتاح»
+        self.assertEqual(triggers["schedule"], [{"cron": "*/10 2-20 * * *"}])
+        self.assertIn("workflow_dispatch", triggers)
+
+    def test_job_shape_and_least_privilege(self):
+        self.assertEqual(self.job["runs-on"], "ubuntu-latest")
+        self.assertEqual(self.job["timeout-minutes"], "5")
+        self.assertEqual(self.doc["permissions"], "{}", "لا صلاحيات على المستودع")
+        self.assertEqual(self.doc["concurrency"]["group"], "keep-warm")
+
+    def test_run_blocks_are_real_and_correctly_indented(self):
+        """الإزاحة هي أكثر ما يفسد YAML — نتحقق أن محتوى الأوامر أعمق من مفتاحه."""
+        self.assertEqual(len(self.steps), 2, "خطوة إيقاظ + خطوة تحذير")
+        for step in self.steps:
+            key = step["run"]
+            self.assertTrue(key.startswith("BLOCK_"), f"خطوة بلا run: | — {step}")
+            self.assertTrue(self.blocks[key].strip(), "كتلة أوامر فارغة")
+            indent = int(self.blocks[key + "_INDENT"])
+            for line_indent in self.blocks[key + "_LINES"]:
+                self.assertGreater(line_indent, indent,
+                                   "سطر أوامر غير متعمّق داخل block scalar")
+
+    def test_ping_step_targets_health_with_env_supplied_url(self):
+        ping = self.steps[0]
+        self.assertEqual(ping["env"]["RENDER_URL"], "${{ vars.RENDER_URL }}")
+        body = self.blocks[ping["run"]]
+        self.assertIn("/health", body)
+        self.assertIn("--max-time", body, "الإقلاع البارد يحتاج مهلة أطول")
+        self.assertNotIn("${{", body, "لا استيفاء داخل نص الأوامر (حقن محتمل)")
+
+    def test_second_step_reports_an_unregistered_webhook(self):
+        body = self.blocks[self.steps[1]["run"]]
+        self.assertIn("configured", body)
+        self.assertIn("::warning", body, "التحذير يجب أن يظهر في تبويب Actions")
+
+    def test_workflow_exists_and_pings_inside_the_sleep_window(self):
         self.assertTrue(self.WORKFLOW.exists())
-        self.assertIn("schedule:", self.text)
-        self.assertRegex(self.text, r'cron: "\*/10 ',
+        minutes = self.active_cron().split()[0]
+        self.assertEqual(minutes, "*/10",
                          "كل 10 دقائق — أقل من مهلة النوم (15 دقيقة) بهامش")
-        self.assertIn("workflow_dispatch", self.text,
-                      "GitHub يوقف الجدولة في المستودعات الخاملة — التشغيل اليدوي يعيدها")
 
     def active_cron(self):
         """جدولة التنفيذ الفعلية — بلا أسطر التعليق (وإلا التقطنا مثال 24/7 في الشرح)."""
