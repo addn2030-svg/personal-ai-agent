@@ -89,6 +89,16 @@ class SupabaseError(RuntimeError):
 
 
 # ----------------------------------------------------------------- key helpers
+def truthy(value) -> bool:
+    """قراءة رايات البيئة بتسامح مع حالة الأحرف: `1`/`true`/`TRUE`/`yes`/`on`.
+
+    السبب: المستخدم يكتب `SUPABASE_WRITE_ENABLED=TRUE` بنيّة واضحة. لو رفضناها
+    لفسّرها النظام «مطفأ» — والنتيجة رسالة حجب مربكة، أو (في رايات الاستمرارية)
+    فقدان صامت للبيانات. النيّة غير غامضة، فنقبلها. أي قيمة غير معروفة تبقى إطفاءً.
+    """
+    return str(value or "").strip().lower() in ("1", "true", "yes", "on")
+
+
 def redact(text: str, *secrets: str) -> str:
     """إزالة أي مفتاح من نص قبل عرضه — يمنع تسرّب المفاتيح في السجلات."""
     out = str(text or "")
@@ -284,7 +294,7 @@ def load_config(env=None) -> SupabaseConfig:
     sources = {k: v for k, v in (("url", url_name), ("anon", anon_name), ("secret", secret_name)) if v}
     return SupabaseConfig(
         url=url, anon_key=anon, secret_key=secret,
-        write_enabled=(get("SUPABASE_WRITE_ENABLED") or "").strip() in ("1", "true", "yes", "on"),
+        write_enabled=truthy(get("SUPABASE_WRITE_ENABLED")),
         schema=((get("SUPABASE_SCHEMA") or "").strip() or DEFAULT_SCHEMA),
         sources=sources,
     )

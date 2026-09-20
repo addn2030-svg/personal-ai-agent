@@ -126,6 +126,36 @@ PYEOF
 then chk 0 "تعيين الحقول · توحيد الحالات · المعرّف الحتمي · الجدولة المغلقة"; else chk 1 "منطق المرآة"; fi
 
 say ""
+say "=== PERSISTENCE (مضيف بلا قرص) ==="
+if python3 - <<'PYEOF'
+import os
+import sys
+sys.path.insert(0, ".")
+from connectors import state_persistence
+from connectors.supabase_client import truthy
+
+# حواجز: لا شيء تلقائي بلا راية صريحة
+for flag in ("AI_OS_STATE_PERSIST", "AI_OS_STATE_RESTORE_ON_BOOT"):
+    assert not state_persistence.enabled(flag), f"{flag} يجب أن يكون مطفأً افتراضيًا"
+# قراءة الرايات متسامحة مع حالة الأحرف (فقدان صامت أسوأ من رفض)
+for value in ("1", "true", "TRUE", "Yes", "ON"):
+    assert truthy(value), value
+for value in ("", "0", "false", "off", "random"):
+    assert not truthy(value), value
+# الحالة مستوردة بلا شبكة
+assert callable(state_persistence.restore_on_boot)
+assert callable(state_persistence.push_if_changed)
+# الإقلاع المتدرّج: لا سقوط عند غياب الإعداد، والرابط العام يُكتشف من المنصة
+from connectors.telegram_webhook import _resolve_public_base_url
+assert _resolve_public_base_url({"RENDER_EXTERNAL_HOSTNAME": "x.onrender.com"}) \
+    == "https://x.onrender.com"
+assert _resolve_public_base_url({"RAILWAY_PUBLIC_DOMAIN": "y.up.railway.app"}) \
+    == "https://y.up.railway.app"
+raise SystemExit(0)
+PYEOF
+then chk 0 "استمرارية الحالة مطفأة افتراضيًا + قراءة رايات متسامحة"; else chk 1 "حواجز الاستمرارية"; fi
+
+say ""
 say "=== ROLLOUT ==="
 PHASE=$(python3 -m engine.rollout status 2>&1 || true)
 if printf '%s' "$PHASE" | grep -q "خاملة"; then
@@ -177,6 +207,8 @@ say "=== UNIT ==="
 run_tests tests.test_supabase "اختبارات الوحدة (مفاتيح · حواجز · بصمة · استعادة · .env)"
 run_tests tests.test_supabase_tasks "اختبارات مرآة المهام (تعيين · إحصاء · مزامنة · جدولة · pull)"
 run_tests tests.test_rollout "اختبارات التشغيل التدريجي (مراحل · بوابة · تراجع · توازٍ)"
+run_tests tests.test_state_persistence "اختبارات استمرارية الحالة (إقلاع · دفع تفاضلي · إشارات)"
+run_tests tests.test_webhook_boot "اختبارات إقلاع الخدمة (فشل مُعلَن لا حلقة إعادة تشغيل)"
 
 say ""
 say "=== E2E ==="
@@ -202,6 +234,15 @@ if [ $? -eq 0 ]; then
 else
   chk 1 "أوامر تيليجرام: $BOT"
 fi
+
+say ""
+say "=== DEPLOY (استضافة بلا قرص) ==="
+if [ -f render.yaml ] && [ -f docs/free-hosting-migration.md ]; then
+  chk 0 "ملفا النشر موجودان (render.yaml + دليل الانتقال)"
+else
+  chk 1 "ملفا النشر" "render.yaml أو docs/free-hosting-migration.md غير موجود"
+fi
+run_tests tests.test_render_deploy "اختبارات ملف النشر (بنية · أسرار · استمرارية · فحص ذاتي)"
 
 say ""
 say "=== CONNECTION SETUP ==="

@@ -220,6 +220,7 @@ python3 engine/chief_of_staff.py
 - خطوات الربط كاملة مع متغيرات البيئة المطلوبة: `docs/connection-guide.md` — **مفاتيح الربط توضع في متغيرات البيئة فقط، ولا تُرسل في أي محادثة**.
 - **Supabase (نسخ الحالة خارج الخادم — اختياري):** `docs/supabase-setup.md`. ضع `SUPABASE_URL` و`SUPABASE_SERVICE_ROLE_KEY` و`SUPABASE_WRITE_ENABLED=1` في Railway → Variables (لا في Git ولا في محادثة)، وشغّل SQL الإعداد مرة واحدة: `python3 -m connectors.supabase_client --sql`. ثم `/backup_now` من تيليجرام. المفتاح السري يبقى على الخادم فقط؛ ومفتاح anon/publishable للقراءة فقط ولا يكتب أبدًا.
 - نقل التشغيل إلى Railway، المتغيرات، الـVolume، وتشخيص انتهاء بيئة 24 ساعة: `docs/railway-migration.md`.
+- **الانتقال إلى استضافة مجانية (Render) أو بديل مدفوع رخيص:** `docs/free-hosting-migration.md` — مع تصحيح معلومات قديمة (Fly.io ألغت خطتها المجانية)، وملف `render.yaml` جاهز، وحل مشكلة القرص الغائب عبر `connectors/state_persistence.py` (استعادة عند الإقلاع + دفع تفاضلي + دفعة عند الإيقاف).
 - خطابات وتقارير رسمية عبر Google Docs: `python3 -m connectors.google_docs_service create "العنوان" "النص"` (تُنشأ كمسودات — الإرسال الخارجي يبقى خلف بوابة الاعتماد).
 
 ## لوحة القيادة (للحفظ على سطح المكتب)

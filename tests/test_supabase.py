@@ -180,6 +180,23 @@ class ConfigTests(unittest.TestCase):
         cfg = supabase_client.load_config(env_with(SUPABASE_URL=URL, SUPABASE_ANON_KEY="garbage"))
         self.assertEqual(cfg.summary()["status"], "invalid")
 
+    def test_write_flag_accepts_any_common_spelling(self):
+        """SUPABASE_WRITE_ENABLED=TRUE يجب أن يُفهم — لا حجب مربك بسبب حالة الأحرف."""
+        for value in ("1", "true", "TRUE", "True", "yes", "on"):
+            cfg = supabase_client.load_config(env_with(
+                SUPABASE_URL=URL, SUPABASE_SERVICE_ROLE_KEY=SECRET, SUPABASE_WRITE_ENABLED=value))
+            self.assertTrue(cfg.can_write, value)
+        for value in ("", "0", "false", "FALSE", "no", "off", "maybe"):
+            cfg = supabase_client.load_config(env_with(
+                SUPABASE_URL=URL, SUPABASE_SERVICE_ROLE_KEY=SECRET, SUPABASE_WRITE_ENABLED=value))
+            self.assertFalse(cfg.can_write, value)
+
+    def test_truthy_helper(self):
+        for value in ("1", "true", "TRUE", "Yes", "ON", " on "):
+            self.assertTrue(supabase_client.truthy(value), value)
+        for value in ("", None, "0", "false", "off", "random"):
+            self.assertFalse(supabase_client.truthy(value), repr(value))
+
     def test_publishable_key_is_read_only(self):
         cfg = supabase_client.load_config(env_with(SUPABASE_URL=URL, SUPABASE_ANON_KEY=PUBLISHABLE))
         summary = cfg.summary()

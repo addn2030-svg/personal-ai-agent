@@ -95,17 +95,24 @@ def read_state(path: str | None = None) -> tuple[dict, str]:
     return json.loads(text), text
 
 
-def build_snapshot(reason: str = "manual", path: str | None = None) -> dict:
-    state, text = read_state(path)
+def snapshot_from(state: dict, reason: str = "manual") -> dict:
+    """يبني صف نسخة من كائن الحالة (بلا قرص) — أساس موحّد للدفع والاختبار."""
     meta = state.get("meta") or {}
     return {
         "schema": str(meta.get("schema") or "state/1"),
         "state_version": int(meta.get("version") or 0),
         "reason": (reason or "manual")[:120],
-        "sha256": payload_digest(state),          # بصمة التمثيل القانوني
-        "byte_size": len(text.encode("utf-8")),    # حجم الملف الفعلي على القرص
+        "sha256": payload_digest(state),           # بصمة التمثيل القانوني
+        "byte_size": len(json.dumps(state, ensure_ascii=False).encode("utf-8")),
         "payload": state,
     }
+
+
+def build_snapshot(reason: str = "manual", path: str | None = None) -> dict:
+    state, text = read_state(path)
+    snapshot = snapshot_from(state, reason)
+    snapshot["byte_size"] = len(text.encode("utf-8"))   # حجم الملف الفعلي على القرص
+    return snapshot
 
 
 def verify_row(row: dict) -> dict:
@@ -153,7 +160,11 @@ def list_snapshots(limit: int = 10, *, client: SupabaseClient | None = None) -> 
 def fetch(snapshot_id: int | None = None, *, client: SupabaseClient | None = None) -> dict:
     client = client or SupabaseClient()
     if snapshot_id in (None, "", "latest"):
-        rows = client.select(table_name(), order="created_at.desc", limit=1)
+        # الترتيب بالمعرّف لا بالوقت: `created_at` قد يتساوى بين نسختين (دفع الدورة
+        # ودفع الإنهاء في الثانية نفسها)، وعند التساوي يصبح «الأحدث» غامضًا —
+        # فيُستعاد الأقدم بينما الأحدث هو الصحيح. المعرّف تسلسلي متزايد دائمًا،
+        # فهو ترتيب الإدخال الحقيقي. (اكتشفه اختبار حقيقي على خادم محلي.)
+        rows = client.select(table_name(), order="id.desc", limit=1)
     else:
         rows = client.select(table_name(), filters={"id": f"eq.{int(snapshot_id)}"}, limit=1)
     if not rows:

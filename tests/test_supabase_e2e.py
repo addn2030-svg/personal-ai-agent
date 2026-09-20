@@ -83,9 +83,14 @@ class _Handler(BaseHTTPRequestHandler):
     def _filtered(self, name, query):
         rows = [row for row in self._table(name) if self._match(row, query)]
         order = (query.get("order") or [""])[0]
-        if order.startswith("created_at"):
-            desc = order.endswith("desc")
-            rows.sort(key=lambda row: str(row.get("created_at") or ""), reverse=desc)
+        for column in ("created_at", "id"):
+            if order.startswith(column):
+                desc = order.endswith("desc")
+                if column == "id":
+                    rows.sort(key=lambda row: int(row.get("id") or 0), reverse=desc)
+                else:
+                    rows.sort(key=lambda row: str(row.get("created_at") or ""), reverse=desc)
+                break
         limit = int((query.get("limit") or ["100"])[0])
         return rows[:limit]
 
@@ -140,7 +145,7 @@ class _Handler(BaseHTTPRequestHandler):
             else:
                 if record.get(pk) is None:
                     record[pk] = len(table) + index + 1
-                record.setdefault("created_at", f"2026-09-20T10:0{index}:00Z")
+                record.setdefault("created_at", f"2026-09-20T10:00:{len(table):02d}Z")
                 table.append(record)
                 stored.append(record)
         return self._send(201, stored)
@@ -465,3 +470,103 @@ class GradualRolloutE2ETests(unittest.TestCase):
         # لا استثناء، والأتمتة تتوقف (فشل ينغلق على الأأمن)
         self.assertFalse(supabase_tasks.daily_due(dt.datetime(2026, 9, 20, 9, 0), {}))
         self.assertEqual(self.rollout.current_phase(), "dormant")
+
+
+class EphemeralHostTests(unittest.TestCase):
+    """محاكاة مضيف بلا قرص دائم: إقلاع ← فقدان القرص ← إقلاع ثانٍ يستعيد الذاكرة.
+
+    هذا هو السيناريو الفعلي على Render/Koyeb المجاني: الحاوية تُوقف والحالة
+    تُمسح، ثم تعود الخدمة فارغة. الاختبار يثبت أن «القرص» في Supabase يكفي.
+    """
+
+    def setUp(self):
+        _Handler.tables = {"state_snapshots": [], "tasks_mirror": []}
+        _Handler.expected_keys = (SECRET_KEY,)
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.shutdown)
+        self.url = f"http://127.0.0.1:{self.server.server_port}"
+
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        env = {"AI_OS_DATA_DIR": self.tmp.name, "SUPABASE_URL": self.url,
+               "SUPABASE_SERVICE_ROLE_KEY": SECRET_KEY, "SUPABASE_WRITE_ENABLED": "1",
+               "AI_OS_STATE_RESTORE_ON_BOOT": "1", "AI_OS_STATE_PERSIST": "1"}
+        patch = mock.patch.dict(os.environ, env, clear=True)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def _client(self):
+        env = {"SUPABASE_URL": self.url, "SUPABASE_SERVICE_ROLE_KEY": SECRET_KEY,
+               "SUPABASE_WRITE_ENABLED": "1"}
+        return supabase_client.SupabaseClient(supabase_client.load_config(lambda n: env.get(n, "")))
+
+    def _write_state(self, tasks):
+        with open(os.path.join(self.tmp.name, "state.json"), "w", encoding="utf-8") as handle:
+            json.dump({"meta": {"version": 3, "schema": "state/1"}, "tasks": tasks,
+                       "projects": [], "decisions": [], "waiting_for": [], "action_queue": []},
+                      handle, ensure_ascii=False)
+
+    def _wipe_disk(self):
+        """يحاكي إيقاف الحاوية: الملفات المحلية تختفي، والسحابة تبقى."""
+        for name in os.listdir(self.tmp.name):
+            os.remove(os.path.join(self.tmp.name, name))
+
+    def test_full_cycle_survives_a_container_restart(self):
+        from connectors import state_persistence
+
+        # ── إقلاع أول: لا حالة ولا نسخة ⇒ إقلاع نظيف بلا استعادة
+        first = state_persistence.install(client=self._client())
+        self.assertEqual(first["restore"]["action"], "skip")
+        self.assertIsNotNone(first["persist"])         # دورة الدفع تنتظر ظهور الحالة
+        self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "state.json")))
+
+        # ── عمل المستخدم: تُكتب حالة ثم تُدفع (الدفع التفاضلي)
+        self._write_state([{"العنوان": "قرار مهم", "الحالة": "لم تبدأ"}])
+        pushed = state_persistence.push_if_changed(client=self._client())
+        self.assertTrue(pushed["pushed"])
+        self.assertEqual(len(_Handler._table("state_snapshots")), 1)
+
+        # ── إيقاف الحاوية: القرص يُمسح بالكامل (ما يحدث مجانًا على Render)
+        self._wipe_disk()
+        self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "state.json")))
+
+        # ── إقلاع ثانٍ: الذاكرة تعود من السحابة
+        second = state_persistence.restore_on_boot(client=self._client())
+        self.assertTrue(second["restored"], second)
+        restored = json.load(open(os.path.join(self.tmp.name, "state.json"), encoding="utf-8"))
+        self.assertEqual(restored["tasks"][0]["العنوان"], "قرار مهم")
+        self.assertEqual(len(_Handler._table("state_snapshots")), 1,
+                         "الاستعادة تقرأ فقط — لا تُنشئ نسخًا إضافية")
+
+    def test_first_boot_after_wipe_with_no_snapshot_starts_clean(self):
+        from connectors import state_persistence
+        self._wipe_disk()
+        report = state_persistence.restore_on_boot(client=self._client())
+        self.assertEqual(report["action"], "skip")
+        self.assertIn("أول نظيف", report["detail"])
+
+    def test_differential_push_avoids_duplicate_snapshots(self):
+        from connectors import state_persistence
+        self._write_state([{"العنوان": "أ"}])
+        for _ in range(3):
+            state_persistence.push_if_changed(client=self._client())
+        self.assertEqual(len(_Handler._table("state_snapshots")), 1,
+                         "لا تغيير ⇒ لا نسخ مكرّرة (وإلا امتلأ الجدول بلا داعٍ)")
+
+        self._write_state([{"العنوان": "أ"}, {"العنوان": "ب"}])
+        result = state_persistence.push_if_changed(client=self._client())
+        self.assertTrue(result["pushed"])
+        self.assertEqual(len(_Handler._table("state_snapshots")), 2)
+
+    def test_flush_on_shutdown_captures_the_last_change(self):
+        from connectors import state_persistence
+        self._write_state([{"العنوان": "قبل"}])
+        state_persistence.push_if_changed(client=self._client())
+        # تغيير لم تلحقه دورة الدفع، ثم إنهاء العملية (SIGTERM من الاستضافة)
+        self._write_state([{"العنوان": "بعد"}])
+        flushed = state_persistence.flush(reason="إنهاء بإشارة 15")
+        self.assertTrue(flushed["pushed"])
+        latest = supabase_state.fetch("latest", client=self._client())
+        self.assertEqual(latest["payload"]["tasks"][0]["العنوان"], "بعد")
+        self.assertEqual(latest["reason"], "إنهاء بإشارة 15")
