@@ -333,9 +333,79 @@ def render_stats(data: dict) -> str:
     return "\n".join(lines)
 
 
+def reconcile(*, client: SupabaseClient | None = None, state: dict | None = None) -> dict:
+    """يقارن المرآة في Supabase بالحالة المحلية — **قراءة فقط**، بلا أي كتابة.
+
+    هذه أداة الإثبات: لا نكتفي بأن المزامنة «نجحت»، بل نتحقق أن ما وصل يطابق
+    الحالة حقلًا بحقل. تُستخدم كدليل في بوابة الترقية (`engine/rollout.py`).
+    """
+    client = client or SupabaseClient()
+    local_state = state if state is not None else read_state()
+    local = {row["id"]: row for row in task_rows(local_state, owner=owner_id())}
+    remote_rows = client.select(table_name(), limit=10000)
+    remote = {str(row.get("id")): row for row in (remote_rows or [])}
+
+    missing = sorted(set(local) - set(remote))       # في الحالة وليست في المرآة
+    orphan = sorted(set(remote) - set(local))        # في المرآة وليست في الحالة
+    compared = ("title", "status_norm", "is_open", "is_overdue", "due_date", "project",
+                "priority", "source", "kind", "notes")
+    mismatched = []
+    for key in sorted(set(local) & set(remote)):
+        differences = {}
+        for field in compared:
+            if remote[key].get(field) != local[key].get(field):
+                differences[field] = {"remote": remote[key].get(field),
+                                      "local": local[key].get(field)}
+        if differences:
+            mismatched.append({"id": key, "title": local[key]["title"], "fields": differences})
+
+    drift = len(missing) + len(orphan) + len(mismatched)
+    return {
+        "drift": drift, "local_rows": len(local), "remote_rows": len(remote),
+        "missing_in_mirror": missing[:20], "orphans_in_mirror": orphan[:20],
+        "mismatched": mismatched[:20], "table": table_name(),
+        "checked_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+        "verdict": "مطابقة تامة" if drift == 0 else f"{drift} فرقًا يحتاج مراجعة",
+    }
+
+
+def render_reconcile(report: dict) -> str:
+    icon = "✅" if report["drift"] == 0 else "⚠️"
+    lines = [
+        f"{icon} مطابقة المرآة: {report['verdict']}",
+        f"محلي: {report['local_rows']} صفًا · في Supabase: {report['remote_rows']} صفًا · "
+        f"الانحراف: {report['drift']}",
+    ]
+    if report["missing_in_mirror"]:
+        lines.append("مفقودة من المرآة: " + ", ".join(report["missing_in_mirror"][:5]))
+    if report["orphans_in_mirror"]:
+        lines.append("يتيمة في المرآة (ستُحذف في المزامنة التالية): "
+                     + ", ".join(report["orphans_in_mirror"][:5]))
+    for item in report["mismatched"][:5]:
+        fields = ", ".join(item["fields"].keys())
+        lines.append(f"اختلاف في «{item['title'][:40]}»: {fields}")
+    if report["drift"] == 0:
+        lines.append("الدليل سليم — الطبقة الجديدة تعكس الحالة بدقة.")
+    return "\n".join(lines)
+
+
 # ------------------------------------------------------------ manager hook
 def daily_due(now: dt.datetime, markers: dict, hour: int | None = None) -> bool:
-    """هل حان وقت النسخة اليومية التلقائية؟ (منطق خالص قابل للاختبار)."""
+    """هل حان وقت النسخة اليومية التلقائية؟ (منطق خالص قابل للاختبار).
+
+    بوابتان مستقلتان معًا — لا واحدة:
+      1. المرحلة (`engine/rollout.py`) تسمح بالكتابة التلقائية ⇒ `dual` فما فوق.
+      2. الراية الصريحة `SUPABASE_BACKUP_SCHEDULE_ENABLED=1`.
+    فخطأ إعداد في أحدهما لا يكفي وحده لتشغيل أي شيء.
+    """
+    try:
+        from engine import rollout
+        # كل فحص المرحلة داخل الحماية: أي عطل في ملف المرحلة أو في قراءته
+        # يجب أن يُطفئ الأتمتة، لا أن يتسرب كاستثناء إلى حلقة المدير.
+        if not rollout.allows("automation_write"):
+            return False
+    except Exception:  # noqa: BLE001 - تعذّر تقييم المرحلة ⇒ لا أتمتة
+        return False
     if os.environ.get("SUPABASE_BACKUP_SCHEDULE_ENABLED", "0") != "1":
         return False
     if not os.environ.get("SUPABASE_URL", "").strip():
@@ -385,8 +455,18 @@ def main(argv=None) -> int:
     sub.add_parser("stats", help="إحصاء محلي من state.json (بلا شبكة)")
     sync_cmd = sub.add_parser("sync", help="ادفع المرآة إلى Supabase")
     sync_cmd.add_argument("--dry-run", action="store_true", help="اعرض ما سيُرسل بلا كتابة")
+    sub.add_parser("reconcile", help="قارن المرآة بالحالة (قراءة فقط — بلا أي كتابة)")
     args = parser.parse_args(argv)
     command = args.command or "stats"
+
+    if command == "reconcile":
+        try:
+            report = reconcile()
+        except (SupabaseError, StateUnavailable) as exc:
+            print(f"❌ تعذرت المقارنة: {redact(str(exc))}")
+            return 2
+        print(render_reconcile(report))
+        return 0 if report["drift"] == 0 else 2
 
     if command == "sql":
         sql = read_sql(SQL_FILE)

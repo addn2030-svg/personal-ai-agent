@@ -126,13 +126,61 @@ PYEOF
 then chk 0 "تعيين الحقول · توحيد الحالات · المعرّف الحتمي · الجدولة المغلقة"; else chk 1 "منطق المرآة"; fi
 
 say ""
+say "=== ROLLOUT ==="
+PHASE=$(python3 -m engine.rollout status 2>&1 || true)
+if printf '%s' "$PHASE" | grep -q "خاملة"; then
+  chk 0 "المرحلة الافتراضية خاملة (لا أتمتة بلا قرار)"
+else
+  chk 1 "المرحلة الافتراضية ليست dormant"; printf '%s\n' "$PHASE" | sed 's/^/  /'
+fi
+if python3 - <<'PYEOF'
+import datetime as dt
+import os
+import sys
+sys.path.insert(0, ".")
+from engine import rollout
+from connectors import supabase_tasks
+
+# لا مرحلة تُطفئ شيئًا من سير العمل القديم
+for phase in rollout.PHASES:
+    assert rollout.capabilities(phase)["automation_write"] in (True, False)
+assert rollout.current_phase() == "dormant"
+
+# الأتمتة تحتاج المرحلة **والراية** معًا
+os.environ["SUPABASE_URL"] = "https://demo.supabase.co"
+os.environ["SUPABASE_BACKUP_SCHEDULE_ENABLED"] = "1"
+now = dt.datetime(2026, 9, 20, 9, 0)
+assert not supabase_tasks.daily_due(now, {}), "الأتمتة اشتغلت في dormant — خلل"
+rollout.set_phase("shadow")
+rollout.set_phase("canary")
+assert not supabase_tasks.daily_due(now, {}), "الأتمتة اشتغلت في canary — خلل"
+rollout.set_phase("dual")
+assert supabase_tasks.daily_due(now, {}), "الأتمتة لم تشتغل في dual"
+
+# التراجع فوري وبلا شروط، ولا يمحو شيئًا
+rollout.kill(reason="فحص")
+assert rollout.current_phase() == "dormant"
+assert not supabase_tasks.daily_due(now, {}), "التراجع لم يوقف الأتمتة"
+
+# القفز ممنوع، والمرحلة الأخيرة لا تُفرض
+try:
+    rollout.set_phase("primary")
+    raise AssertionError("القفز إلى primary نجح — يجب أن يُرفض")
+except ValueError:
+    pass
+raise SystemExit(0)
+PYEOF
+then chk 0 "المراحل · الصمام المزدوج · التراجع الفوري · منع القفز"; else chk 1 "منطق المراحل"; fi
+
+say ""
 say "=== UNIT ==="
 run_tests tests.test_supabase "اختبارات الوحدة (مفاتيح · حواجز · بصمة · استعادة · .env)"
 run_tests tests.test_supabase_tasks "اختبارات مرآة المهام (تعيين · إحصاء · مزامنة · جدولة · pull)"
+run_tests tests.test_rollout "اختبارات التشغيل التدريجي (مراحل · بوابة · تراجع · توازٍ)"
 
 say ""
 say "=== E2E ==="
-run_tests tests.test_supabase_e2e "دورة كاملة على خادم PostgREST محلي (نسخ + استعادة + مرآة)"
+run_tests tests.test_supabase_e2e "دورة كاملة + ترقية تدريجية على خادم محلي (16 سيناريو)"
 
 say ""
 say "=== BOT ==="
@@ -144,11 +192,13 @@ assert "Supabase" in tb.supabase_text()
 assert "Supabase" in tb.supabase_text("list")
 stats = tb.tasks_stats_text()
 assert "المهام" in stats, stats
+assert "خاملة" in tb.rollout_text(), "أمر المرحلة لا يعمل"
+assert "أُوقف" in tb.rollout_text(kill=True), "مفتاح الإيقاف لا يعمل"
 print(stats.splitlines()[0])
 PYEOF
 )
 if [ $? -eq 0 ]; then
-  chk 0 "أوامر تيليجرام تعمل بلا إعداد (/backup_now · /backups · /tasks_stats): $BOT"
+  chk 0 "أوامر تيليجرام تعمل بلا إعداد (/backup_now · /backups · /tasks_stats · /rollout): $BOT"
 else
   chk 1 "أوامر تيليجرام: $BOT"
 fi

@@ -5,6 +5,7 @@
 والكتابة، التحقق من sha256، الاستعادة الذرّية، والتنقية عند رفض المفتاح.
 لا يلمس الشبكة الخارجية ولا أي مشروع حقيقي.
 """
+import datetime as dt
 import json
 import os
 import tempfile
@@ -321,3 +322,146 @@ class EndToEndTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GradualRolloutE2ETests(unittest.TestCase):
+    """إثبات «بلا توقف»: الطبقة الجديدة تعمل تدريجيًا، والقديم لا يتأثر، والتراجع فوري."""
+
+    def setUp(self):
+        _Handler.tables = {"state_snapshots": [], "tasks_mirror": []}
+        _Handler.expected_keys = (SECRET_KEY,)
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.shutdown)
+        self.url = f"http://127.0.0.1:{self.server.server_port}"
+
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        env = {"AI_OS_DATA_DIR": self.tmp.name, "SUPABASE_URL": self.url,
+               "SUPABASE_SERVICE_ROLE_KEY": SECRET_KEY, "SUPABASE_WRITE_ENABLED": "1",
+               "SUPABASE_BACKUP_SCHEDULE_ENABLED": "1"}
+        patch = mock.patch.dict(os.environ, env, clear=True)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+        from engine import rollout
+        self.rollout = rollout
+        rollout.kill(reason="بداية الاختبار")
+
+        self.state = {
+            "meta": {"version": 1, "schema": "state/1"},
+            "tasks": [{"العنوان": "مهمة قديمة", "الحالة": "لم تبدأ", "الأولوية": "عالية"}],
+            "projects": [], "decisions": [], "waiting_for": [], "action_queue": [],
+        }
+        with open(os.path.join(self.tmp.name, "state.json"), "w", encoding="utf-8") as handle:
+            json.dump(self.state, handle, ensure_ascii=False)
+
+    def _client(self, key=SECRET_KEY):
+        env = {"SUPABASE_URL": self.url, "SUPABASE_SERVICE_ROLE_KEY": key, "SUPABASE_WRITE_ENABLED": "1"}
+        return supabase_client.SupabaseClient(supabase_client.load_config(lambda n: env.get(n, "")))
+
+    def _write_audit(self, events):
+        import datetime as dt2
+        stamp = dt2.datetime.now().isoformat(timespec="seconds")
+        with open(os.path.join(self.tmp.name, "audit.jsonl"), "a", encoding="utf-8") as handle:
+            for event in events:
+                handle.write(json.dumps({**event, "ts": stamp}) + "\n")
+
+    def test_phase_0_dormant_touches_nothing(self):
+        from connectors import supabase_tasks
+        self.assertEqual(self.rollout.current_phase(), "dormant")
+        # حتى مع الراية والمرحلة مُهيّأة، الأتمتة لا تعمل في dormant
+        self.assertFalse(supabase_tasks.daily_due(dt.datetime(2026, 9, 20, 9, 0), {}))
+        self.assertEqual(_Handler._table("state_snapshots"), [])
+        self.assertEqual(_Handler._table("tasks_mirror"), [])
+
+    def test_phase_1_shadow_reads_but_never_writes(self):
+        from connectors import supabase_tasks
+        self.rollout.set_phase("shadow")
+        report = self.rollout.reconcile(state=self.state, client=self._client())
+        # المرآة فارغة والحالة فيها مهمة ⇒ انحراف متوقع، والأهم: لا كتابة
+        self.assertEqual(report["local_rows"], 1)
+        self.assertEqual(report["remote_rows"], 0)
+        self.assertEqual(_Handler._table("tasks_mirror"), [])
+        self.assertFalse(supabase_tasks.daily_due(dt.datetime(2026, 9, 20, 9, 0), {}))
+
+    def test_phase_2_canary_writes_only_when_a_human_asks(self):
+        from connectors import supabase_tasks
+        self.rollout.set_phase("shadow")
+        self.rollout.set_phase("canary")
+        self.assertFalse(supabase_tasks.daily_due(dt.datetime(2026, 9, 20, 9, 0), {}))
+        supabase_tasks.sync(client=self._client(), state=self.state)   # أمر بشري
+        self.assertEqual(len(_Handler._table("tasks_mirror")), 1)
+        report = supabase_tasks.reconcile(client=self._client(), state=self.state)
+        self.assertEqual(report["drift"], 0, "بعد المزامنة اليدوية يجب أن تطابق المرآة الحالة")
+
+    def test_phase_3_dual_runs_alongside_and_old_workflow_is_untouched(self):
+        from connectors import supabase_tasks
+        from connectors import supabase_state
+        self.rollout.set_phase("shadow")
+        self.rollout.set_phase("canary")
+        self.rollout.set_phase("dual")
+        self.assertTrue(supabase_tasks.daily_due(dt.datetime(2026, 9, 20, 9, 0), {}))
+
+        # الحالة الأصلية قبل الدورة
+        before = open(os.path.join(self.tmp.name, "state.json"), encoding="utf-8").read()
+        outcome = supabase_tasks.run_daily(state=self.state)
+        self.assertEqual(outcome["errors"], [])
+        self.assertIsNotNone(outcome["snapshot"])
+        self.assertIsNotNone(outcome["mirror"])
+        # state.json لم يُلمس: الطبقة الجديدة تقرأ منه فقط
+        self.assertEqual(before, open(os.path.join(self.tmp.name, "state.json"), encoding="utf-8").read())
+        self.assertEqual(len(_Handler._table("state_snapshots")), 1)
+        self.assertEqual(len(_Handler._table("tasks_mirror")), 1)
+        self.assertEqual(supabase_state.list_snapshots(client=self._client())[0]["id"], 1)
+
+    def test_rollback_mid_flight_stops_automation_instantly(self):
+        from connectors import supabase_tasks
+        self.rollout.set_phase("shadow")
+        self.rollout.set_phase("canary")
+        self.rollout.set_phase("dual")
+        self.assertTrue(supabase_tasks.daily_due(dt.datetime(2026, 9, 20, 9, 0), {}))
+
+        self.rollout.kill(reason="انحراف اكتُشف")
+        self.assertFalse(supabase_tasks.daily_due(dt.datetime(2026, 9, 20, 9, 0), {}))
+        # لا شيء يُحذف عند التراجع: أي نسخة أو صف سابق يبقى مكانه
+        supabase_tasks.sync(client=self._client(), state=self.state)
+        self.assertEqual(len(_Handler._table("tasks_mirror")), 1)
+        self.rollout.kill(reason="تراجع ثانٍ")
+        self.assertEqual(len(_Handler._table("tasks_mirror")), 1,
+                         "التراجع لا يمحو بيانات — النسخ تبقى")
+
+    def test_full_progression_to_primary_with_evidence(self):
+        from connectors import supabase_tasks
+        client = self._client()
+        # نشاط موثّق: كل دورة تنتج دليلًا في ملف التدقيق
+        self.rollout.set_phase("shadow")
+        for _ in range(3):
+            self.rollout.reconcile(state=self.state, client=client)
+        self.assertTrue(self.rollout.gate("canary")["ok"])
+        self.rollout.advance()
+
+        for _ in range(3):
+            supabase_tasks.sync(client=client, state=self.state)
+            self.rollout.log_event("supabase_backup_done", mirror_rows=1)
+        self.rollout.reconcile(state=self.state, client=client)   # دليل التطابق بعد الكتابة
+        self.assertTrue(self.rollout.gate("dual")["ok"])
+        self.rollout.advance()
+
+        for _ in range(6):
+            self.rollout.log_event("supabase_backup_done", mirror_rows=1)
+        with mock.patch.dict(os.environ, {self.rollout.ACK_ENV: self.rollout.PRIMARY_ACK}, clear=False):
+            self.assertTrue(self.rollout.gate("primary")["ok"])
+            result = self.rollout.advance(reason="تحقق كامل")
+        self.assertEqual(result["phase"], "primary")
+
+    def test_corrupt_phase_file_during_operation_halts_automation_without_crash(self):
+        from connectors import supabase_tasks
+        self.rollout.set_phase("shadow")
+        self.rollout.set_phase("canary")
+        self.rollout.set_phase("dual")
+        with open(self.rollout.path(), "w", encoding="utf-8") as handle:
+            handle.write("{ نصف مكتوب")
+        # لا استثناء، والأتمتة تتوقف (فشل ينغلق على الأأمن)
+        self.assertFalse(supabase_tasks.daily_due(dt.datetime(2026, 9, 20, 9, 0), {}))
+        self.assertEqual(self.rollout.current_phase(), "dormant")

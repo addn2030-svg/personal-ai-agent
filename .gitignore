@@ -21,5 +21,7 @@ __pycache__/
 *.pyc
 .DS_Store
 data/.telegram*
+# مرحلة التشغيل التدريجي — حالة تشغيلية محلية (بالكامل خارج # تعليق السطر)
+data/.rollout.json
 data/.last-state-snapshot.json
 data/rag-index.json

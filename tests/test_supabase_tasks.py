@@ -255,7 +255,31 @@ class MissingStateSafetyTests(unittest.TestCase):
 
 
 class DailyScheduleTests(unittest.TestCase):
+    """جدولة الدفعة اليومية — بوابتان معًا: المرحلة (rollout) + الراية (env)."""
+
     BASE_ENV = {"SUPABASE_URL": "https://demo.supabase.co", "SUPABASE_BACKUP_SCHEDULE_ENABLED": "1"}
+
+    @property
+    def env(self):
+        """BASE_ENV + مجلد البيانات المؤقت — أي patch بـclear=True يجب أن يحتفظ
+        بـAI_OS_DATA_DIR وإلا قُرئ ملف المرحلة من مكان آخر (نظام الاختبار كله يختل)."""
+        return {**self.BASE_ENV, "AI_OS_DATA_DIR": os.environ["AI_OS_DATA_DIR"]}
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        patcher = mock.patch.dict(os.environ, {"AI_OS_DATA_DIR": tmp.name}, clear=False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        from engine import rollout
+        self.rollout = rollout
+        self.addCleanup(lambda: rollout.kill(reason="تنظيف"))
+
+    def _at_dual(self):
+        """يرفع المرحلة إلى dual عبر مسار الترقية الطبيعي (لا قفز)."""
+        self.rollout.set_phase("shadow")
+        self.rollout.set_phase("canary")
+        self.rollout.set_phase("dual")
 
     def test_disabled_by_default(self):
         with mock.patch.dict(os.environ, {"SUPABASE_URL": "https://demo.supabase.co"}, clear=True):
@@ -266,14 +290,31 @@ class DailyScheduleTests(unittest.TestCase):
         with mock.patch.dict(os.environ, env, clear=True):
             self.assertFalse(supabase_tasks.daily_due(dt.datetime(2026, 9, 20, 9, 0), {}))
 
+    def test_below_dual_the_schedule_stays_off_even_with_the_flag(self):
+        """المرحلة وحدها أو الراية وحدها لا تكفيان — لا أتمتة قبل dual."""
+        for phase in ("dormant", "shadow", "canary"):
+            self.rollout.kill(reason="فحص")
+            while self.rollout.current_phase() != phase:
+                self.rollout.advance(force=True)
+            with mock.patch.dict(os.environ, self.env, clear=True):
+                self.assertFalse(supabase_tasks.daily_due(dt.datetime(2026, 9, 20, 9, 0), {}), phase)
+
     def test_runs_once_per_day_after_the_configured_hour(self):
-        with mock.patch.dict(os.environ, self.BASE_ENV, clear=True):
+        self._at_dual()
+        with mock.patch.dict(os.environ, self.env, clear=True):
             too_early = dt.datetime(2026, 9, 20, 5, 0)
             self.assertFalse(supabase_tasks.daily_due(too_early, {}, hour=6))
             ready = dt.datetime(2026, 9, 20, 6, 30)
             self.assertTrue(supabase_tasks.daily_due(ready, {}, hour=6))
             self.assertFalse(supabase_tasks.daily_due(ready, {"supabase_backup_day": "2026-09-20"}, hour=6))
             self.assertTrue(supabase_tasks.daily_due(ready, {"supabase_backup_day": "2026-09-19"}, hour=6))
+
+    def test_rollback_stops_the_schedule_immediately(self):
+        self._at_dual()
+        with mock.patch.dict(os.environ, self.env, clear=True):
+            self.assertTrue(supabase_tasks.daily_due(dt.datetime(2026, 9, 20, 9, 0), {}))
+            self.rollout.kill(reason="تراجع فوري")
+            self.assertFalse(supabase_tasks.daily_due(dt.datetime(2026, 9, 20, 9, 0), {}))
 
     def test_run_daily_reports_errors_without_raising(self):
         from connectors.supabase_client import SupabaseError
