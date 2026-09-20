@@ -149,14 +149,43 @@ class ModelRouterTests(unittest.TestCase):
         self.assertTrue(response.fallback)
         kimi.assert_called_once()
 
-    def test_clinical_does_not_overflow_to_kimi(self):
+    def test_clinical_quota_also_overflows_to_kimi(self):
+        """Arabic clinical-hint words like علاج must not keep the Gemini 20/day error."""
         with patch.object(model_router.gateway, "AI_CLINICAL_PROVIDER", "gemini"), \
              patch.object(model_router.gateway, "GEMINI_FALLBACK_KIMI", True), \
              patch.object(model_router.gateway, "kimi_configured", return_value=True), \
-             patch.object(model_router, "_gemini_converse", side_effect=RuntimeError("HTTP 429 quota")), \
+             patch.object(model_router.gateway, "KIMI_MODEL", "kimi-k2.5"), \
+             patch.object(model_router.gateway, "is_quota_error", return_value=True), \
+             patch.object(model_router.gateway, "mark_gemini_quota"), \
+             patch.object(model_router, "_gemini_converse", side_effect=RuntimeError(
+                 'HTTP 429: Rate limit exceeded (limit: 20 requests per day on Free Tier)'
+             )), \
+             patch.object(model_router, "_kimi_converse", return_value=model_router.RouterResponse(
+                 text="kimi clinical overflow", model="kimi-k2.5", usage={}, latency_ms=8,
+                 provider="kimi", fallback=True,
+             )) as kimi:
+            response = model_router.call(
+                domain="clinical", prompt="ألم في الركبة", sensitive=True,
+            )
+        self.assertEqual(response.text, "kimi clinical overflow")
+        self.assertEqual(response.provider, "kimi")
+        kimi.assert_called_once()
+
+    def test_quota_without_kimi_key_explains_the_variable(self):
+        with patch.object(model_router.gateway, "AI_MODEL_PROVIDER", "gemini"), \
+             patch.object(model_router.gateway, "GEMINI_FALLBACK_KIMI", True), \
+             patch.object(model_router.gateway, "kimi_configured", return_value=False), \
+             patch.object(model_router.gateway, "is_quota_error", return_value=True), \
+             patch.object(model_router.gateway, "mark_gemini_quota"), \
+             patch.object(
+                 model_router.gateway,
+                 "quota_needs_kimi_message",
+                 return_value="نفد حد Gemini المجاني (20 سؤال/يوم). أضف KIMI_API_KEY",
+             ), \
+             patch.object(model_router, "_gemini_converse", side_effect=RuntimeError("HTTP 429 Free Tier")), \
              patch.object(model_router, "_kimi_converse") as kimi:
-            with self.assertRaisesRegex(RuntimeError, "429"):
-                model_router.call(domain="clinical", prompt="ألم في الركبة", sensitive=True)
+            with self.assertRaisesRegex(RuntimeError, "KIMI_API_KEY"):
+                model_router.call(domain="general", prompt="hello")
         kimi.assert_not_called()
 
     def test_reported_arabic_health_question_is_clinical(self):

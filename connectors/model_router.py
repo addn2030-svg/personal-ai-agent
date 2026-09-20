@@ -386,10 +386,28 @@ def call(
 
     model = str(model).strip()
 
-    # Gemini is the normal route. Quota/429 overflow uses Kimi when configured;
-    # there is still no silent Bedrock/OpenRouter fallback. Clinical traffic
-    # never overflows to Kimi unless AI_CLINICAL_PROVIDER=kimi.
+    # Gemini is the normal route. A free-tier 429 / 20-per-day cap overflows to
+    # Kimi when configured (including clinical-hinted Arabic questions — otherwise
+    # علاج/ألم would keep showing the Gemini quota error). Bedrock/OpenRouter are
+    # still not a silent fallback.
     if provider == "gemini":
+        skip_gemini = (
+            gateway.GEMINI_FALLBACK_KIMI
+            and gateway.kimi_configured()
+            and gateway.gemini_temporarily_unavailable()
+        )
+        if skip_gemini:
+            return _kimi_converse(
+                model=gateway.KIMI_MODEL,
+                system=system,
+                prompt=prompt,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                chat_id=chat_id,
+                sheet_context=sheet_context,
+                messages=messages,
+                fallback=True,
+            )
         try:
             return _gemini_converse(
                 model_id=model,
@@ -402,14 +420,11 @@ def call(
                 messages=messages,
             )
         except Exception as exc:
-            allow_kimi = (
-                gateway.GEMINI_FALLBACK_KIMI
-                and gateway.kimi_configured()
-                and gateway.is_quota_error(exc)
-                and not clinical_domain
-            )
-            if not allow_kimi:
+            if not (gateway.GEMINI_FALLBACK_KIMI and gateway.is_quota_error(exc)):
                 raise
+            gateway.mark_gemini_quota(exc)
+            if not gateway.kimi_configured():
+                raise RuntimeError(gateway.quota_needs_kimi_message()) from exc
             return _kimi_converse(
                 model=gateway.KIMI_MODEL,
                 system=system,

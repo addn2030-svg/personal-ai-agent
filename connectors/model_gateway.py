@@ -66,8 +66,45 @@ def gemini_configured() -> bool:
     return bool(GEMINI_API_KEY and GEMINI_MODEL)
 
 
+def _kimi_api_key() -> str:
+    return (
+        (KIMI_API_KEY or "").strip()
+        or os.environ.get("KIMI_API_KEY", "").strip()
+        or os.environ.get("MOONSHOT_API_KEY", "").strip()
+    )
+
+
 def kimi_configured() -> bool:
-    return bool(KIMI_API_KEY and KIMI_BASE_URL and KIMI_MODEL)
+    key = _kimi_api_key()
+    base = (KIMI_BASE_URL or os.environ.get("KIMI_BASE_URL", "https://api.moonshot.ai/v1")).strip()
+    model = (KIMI_MODEL or os.environ.get("KIMI_MODEL", "kimi-k2.5")).strip()
+    return bool(key and base and model)
+
+
+_GEMINI_SKIP_UNTIL = 0.0
+
+
+def gemini_temporarily_unavailable() -> bool:
+    return time.time() < _GEMINI_SKIP_UNTIL
+
+
+def mark_gemini_quota(exc: Exception | None = None) -> None:
+    """Skip Gemini for a while after a free-tier daily cap so we do not wait on 429s."""
+    global _GEMINI_SKIP_UNTIL
+    text = str(exc or "").lower()
+    if any(token in text for token in ("per day", "requests per day", "free tier", "daily")):
+        _GEMINI_SKIP_UNTIL = time.time() + 12 * 3600
+    else:
+        _GEMINI_SKIP_UNTIL = time.time() + 90
+
+
+def quota_needs_kimi_message() -> str:
+    return (
+        "نفد حد Gemini المجاني (20 سؤال/يوم). "
+        "أضف KIMI_API_KEY في Railway Variables ثم أعد النشر. "
+        "المفتاح من platform.moonshot.ai → API Keys. "
+        "لا ترسل المفتاح في تيليجرام أو هنا."
+    )
 
 
 def kimi_model_id(model: str | None = None) -> str:
@@ -128,6 +165,9 @@ def is_quota_error(exc: Exception) -> bool:
             "exceeded your current quota",
             "limit: 20",
             "20 queries",
+            "20 requests",
+            "requests per day",
+            "free tier",
             "daily limit",
         )
     )
@@ -229,6 +269,7 @@ def _safe_error(exc: Exception) -> str:
         OPENROUTER_API_KEY,
         GEMINI_API_KEY,
         KIMI_API_KEY,
+        _kimi_api_key(),
         os.environ.get("MOONSHOT_API_KEY", ""),
         os.environ.get("AWS_BEARER_TOKEN_BEDROCK", ""),
         os.environ.get("AWS_SECRET_ACCESS_KEY", ""),
@@ -295,7 +336,8 @@ def probe_bedrock() -> dict:
 def kimi_chat(*, model: str, messages: list[dict],
               max_tokens: int = 1200, temperature: float = 0.2) -> tuple[str, dict, int]:
     """Call Moonshot/Kimi chat completions. OpenAI-compatible; never exposes the key."""
-    if not kimi_configured():
+    key = _kimi_api_key()
+    if not key:
         raise RuntimeError("KIMI_API_KEY is not configured")
 
     payload = {
@@ -306,7 +348,7 @@ def kimi_chat(*, model: str, messages: list[dict],
     }
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     headers = {
-        "Authorization": f"Bearer {KIMI_API_KEY}",
+        "Authorization": f"Bearer {key}",
         "Content-Type": "application/json",
     }
     req = urllib.request.Request(

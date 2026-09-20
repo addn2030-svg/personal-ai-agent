@@ -18,6 +18,11 @@ class KimiProviderTests(unittest.TestCase):
     def test_quota_error_detection(self):
         self.assertTrue(gateway.is_quota_error(RuntimeError("HTTP 429: RESOURCE_EXHAUSTED quota")))
         self.assertTrue(gateway.is_quota_error(RuntimeError("You exceeded your current quota")))
+        self.assertTrue(gateway.is_quota_error(RuntimeError(
+            'Gemini direct APIs failed: interactions=HTTP 429: '
+            '{"error":{"message":"Rate limit exceeded for model gemini-3.7-flash '
+            '(limit: 20 requests per day on Free Tier). Please retry in 39s"}}'
+        )))
         self.assertFalse(gateway.is_quota_error(RuntimeError("HTTP 401 invalid api key")))
 
     def test_desired_provider_kimi(self):
