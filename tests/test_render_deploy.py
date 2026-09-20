@@ -14,6 +14,7 @@
 والأهم: اختبار ذاتي يثبت أن هذه الفحوص قادرة على الفشل أصلًا (لا اختبار أجوف).
 """
 import os
+import re
 import unittest
 from pathlib import Path
 
@@ -176,6 +177,75 @@ class RenderBlueprintShapeTests(unittest.TestCase):
         self.assertTrue(doc.exists())
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         self.assertIn("docs/free-hosting-migration.md", readme)
+
+
+class KeepWarmWorkflowTests(unittest.TestCase):
+    """إبقاء الخدمة المجانية مستيقظة من داخل المستودع (بلا خدمة ثالثة).
+
+    يُتحقق منه نصيًا لا بمحلّل YAML: الملف يستخدم block scalars (`run: |`)
+    وهي خارج نطاق المحلّل المصغّر أعلاه. ويبقى الفحص الجذري في GitHub نفسه —
+    ملف YAML تالف لا يظهر في قائمة Actions أصلًا.
+    """
+
+    WORKFLOW = ROOT / ".github" / "workflows" / "keep-warm.yml"
+
+    def setUp(self):
+        self.text = self.WORKFLOW.read_text(encoding="utf-8")
+
+    def test_workflow_exists_and_is_scheduled(self):
+        self.assertTrue(self.WORKFLOW.exists())
+        self.assertIn("schedule:", self.text)
+        self.assertRegex(self.text, r'cron: "\*/10 ',
+                         "كل 10 دقائق — أقل من مهلة النوم (15 دقيقة) بهامش")
+        self.assertIn("workflow_dispatch", self.text,
+                      "GitHub يوقف الجدولة في المستودعات الخاملة — التشغيل اليدوي يعيدها")
+
+    def active_cron(self):
+        """جدولة التنفيذ الفعلية — بلا أسطر التعليق (وإلا التقطنا مثال 24/7 في الشرح)."""
+        for line in self.text.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                continue
+            match = re.search(r'-\s*cron:\s*"(\S+ \S+ \S+ \S+ \S+)"', stripped)
+            if match:
+                return match.group(1)
+        return None
+
+    def test_pinging_24_7_would_exhaust_the_free_hours(self):
+        """750 ساعة/شهر مقابل 744 لشهر كامل: الجدولة يجب أن تترك هامشًا."""
+        cron = self.active_cron()
+        self.assertIsNotNone(cron, "لا جدولة فعلية مفهومة")
+        minutes, hours = cron.split()[:2]
+        self.assertNotRegex(hours, r"^\*$",
+                            "24/7 يستهلك 744 من 750 ساعة — اترك هامشًا أو وثّق التبديل")
+        self.assertEqual(minutes, "*/10")
+
+    def test_uses_health_not_ready(self):
+        """/ready يُرجع 503 عند أي خلل في Google Sheets — فيفشل الإيقاظ بلا سبب."""
+        self.assertIn("/health", self.text)
+        self.assertNotIn("/ready", self.text)
+
+    def test_url_comes_from_a_repo_variable_and_is_passed_via_env(self):
+        """لا أسرار في المستودع، ولا حقن أوامر عبر نص المتغير."""
+        self.assertIn("vars.RENDER_URL", self.text)
+        self.assertIn("if: vars.RENDER_URL != ''", self.text,
+                      "قبل ضبط المتغير يجب أن يتخطى العمل بهدوء لا أن يفشل")
+        for line in self.text.splitlines():
+            if "${{ vars.RENDER_URL }}" in line:
+                self.assertTrue(line.strip().startswith("RENDER_URL:"),
+                                f"يُمرَّر عبر env فقط، لا داخل نص الأوامر: {line.strip()}")
+        self.assertNotIn("secrets.", self.text, "الإيقاظ لا يحتاج أي سرّ")
+
+    def test_least_privilege_and_bounded_runtime(self):
+        self.assertIn("permissions: {}", self.text,
+                      "رمز المستودع لا يجب أن يمنح أي صلاحية لمجرد طلب HTTP")
+        self.assertIn("timeout-minutes:", self.text)
+        self.assertIn("--max-time", self.text, "الإقلاع البارد يحتاج مهلة أطول من المعتاد")
+
+    def test_it_surfaces_an_unregistered_webhook(self):
+        """خدمة تعمل وwebhook غير مسجَّل = بوت أخرس يبدو سليمًا."""
+        self.assertIn('"configured": *false', self.text)
+        self.assertIn("::warning", self.text)
 
 
 class ParserSelfTest(unittest.TestCase):
