@@ -26,7 +26,7 @@ _legacy_configure_commands = _impl.configure_commands
 _legacy_command_start = _impl.command_start
 
 _MANAGER_COMMANDS = {"/manager", "/manager_shadow", "/manager_status"}
-_TEAM_COMMANDS = {"/agents", "/gemini_test", "/context_test", "/delegate", "/council", "/mission"} | _MANAGER_COMMANDS
+_TEAM_COMMANDS = {"/agents", "/gemini_test", "/kimi_test", "/context_test", "/delegate", "/council", "/mission"} | _MANAGER_COMMANDS
 _MASTEROS_COMMANDS = {
     "/masteros", "/schedule", "/today-actions", "/today_actions",
     "/mindmaps", "/mind_maps", "/digests", "/audio_digests",
@@ -48,8 +48,9 @@ def _guarded_run():
 def _unified_ask(chat_id: int, text: str, sheet_context: str = ""):
     """
     Unified ask — all ordinary and clinical questions use model_router.call.
-    Gemini API is the only normal Telegram AI route; Claude/Bedrock and
-    OpenRouter are not used by the primary path.
+    Gemini API is the normal Telegram AI route. Kimi is used when
+    AI_MODEL_PROVIDER=kimi, or as overflow after Gemini's daily quota.
+    Claude/Bedrock and OpenRouter are not used by the primary path.
     """
     try:
         from connectors import model_router
@@ -61,6 +62,8 @@ def _unified_ask(chat_id: int, text: str, sheet_context: str = ""):
         model_name = (
             _models.GEMINI_MODEL
             if provider == "gemini"
+            else _models.KIMI_MODEL
+            if provider == "kimi"
             else _models.BEDROCK_MODEL_ID
             if provider == "bedrock"
             else os.getenv("AI_MODEL_MANAGER", "anthropic/claude-sonnet-4.6")
@@ -132,6 +135,9 @@ def _command_ai_status(chat_id: int):
         f"Clinical: {status['desired_clinical_provider']}",
         f"Gemini API: {'configured ✅' if status['gemini_configured'] else 'not configured'}",
         f"Gemini model: {status['gemini_model']}",
+        f"Kimi API: {'configured ✅' if status.get('kimi_configured') else 'not configured (optional overflow)'}",
+        f"Kimi model: {status.get('kimi_model', 'kimi-k2.5')}",
+        f"Gemini→Kimi overflow: {'on' if status.get('gemini_fallback_kimi') else 'off'}",
         f"Claude/Bedrock compatibility: {'configured' if status['bedrock_configured'] else 'not configured'}",
         f"OpenRouter compatibility: {'configured' if status['openrouter_configured'] else 'not configured'}",
         f"Manager: {role_models['manager']}",
@@ -153,6 +159,7 @@ def _command_start(chat_id: int):
         "/manager_status — حالة طبقة المدير\n"
         "/agents — حالة فريق النماذج ومساراته\n"
         "/gemini_test — اختبار صغير لـ Gemini API\n"
+        "/kimi_test — اختبار صغير لـ Kimi API (تجاوز حد 20 سؤال/يوم)\n"
         "/context_test tomorrow — اختبار Calendar/Sheets بدون AI tokens\n"
         "/delegate auto المهمة — المدير يختار الوكيل\n"
         "/delegate claude|gpt|gemini المهمة — تكليف مباشر\n"
@@ -195,7 +202,7 @@ def _format_probe_item(label: str, item: dict) -> str:
         if usage:
             token_text = f" | in={usage.get('inputTokens', '?')} out={usage.get('outputTokens', '?')}"
         return f"✅ {label}: {model} | {item.get('latency_ms', '?')} ms{token_text}"
-    error = str(item.get("error", "unknown error"))[:500]
+    error = str(item.get("error") or item.get("detail") or "unknown error")[:500]
     return f"❌ {label}: {model}\n{error}"
 
 
@@ -205,6 +212,16 @@ def _command_gemini_test(chat_id: int):
         "🧪 Gemini API Test",
         _format_probe_item("Gemini API", result),
         "This test uses a tiny prompt only; no conversation history or Sheets context is sent.",
+    ]
+    _impl.send(chat_id, "\n\n".join(lines))
+
+
+def _command_kimi_test(chat_id: int):
+    result = _models.probe_kimi()
+    lines = [
+        "🧪 Kimi API Test",
+        _format_probe_item("Kimi API", result),
+        "Overflow route for Gemini's ~20 questions/day cap. Tiny prompt only.",
     ]
     _impl.send(chat_id, "\n\n".join(lines))
 
@@ -445,6 +462,8 @@ def _delegated_handle_message(message: dict):
             _impl.send(chat_id, answer)
         elif command == "/gemini_test":
             _command_gemini_test(chat_id)
+        elif command == "/kimi_test":
+            _command_kimi_test(chat_id)
         elif command == "/context_test":
             _command_context_test(chat_id, text[len(command):].strip())
         elif command == "/delegate":
@@ -570,6 +589,7 @@ def _configure_commands():
             {"command": "manager_status", "description": "حالة Super Manager"},
             {"command": "agents", "description": "حالة فريق النماذج ومساراته"},
             {"command": "gemini_test", "description": "اختبار Gemini API"},
+            {"command": "kimi_test", "description": "اختبار Kimi API (تجاوز حد Gemini)"},
             {"command": "context_test", "description": "اختبار سياق Calendar/Sheets بدون AI"},
             {"command": "delegate", "description": "تكليف وكيل أو اختيار تلقائي"},
             {"command": "council", "description": "مراجعة سؤال بواسطة فريق الذكاء"},

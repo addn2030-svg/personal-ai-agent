@@ -28,7 +28,8 @@ FULL_ENV = {
     "BUFFER_API_KEY": "buffer-test",
 }
 
-ALL_KEYS = ["telegram", "sheets", "drive", "docs", "calendar", "github", "gemini", "buffer"]
+ALL_KEYS = ["telegram", "sheets", "drive", "docs", "calendar", "github", "gemini", "kimi", "buffer"]
+REQUIRED_KEYS = [key for key in ALL_KEYS if key != "kimi"]
 
 
 class ConfigCheckTests(unittest.TestCase):
@@ -36,13 +37,17 @@ class ConfigCheckTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {}, clear=True):
             results = connection_setup.run()
         self.assertEqual([r["key"] for r in results], ALL_KEYS)
-        self.assertTrue(all(r["status"] == "missing" for r in results))
+        by_key = {r["key"]: r for r in results}
+        self.assertTrue(all(by_key[key]["status"] == "missing" for key in REQUIRED_KEYS))
+        self.assertEqual(by_key["kimi"]["status"], "optional")
         self.assertFalse(any("live" in r for r in results))
 
     def test_full_env_reports_ok(self):
         with mock.patch.dict(os.environ, FULL_ENV, clear=True):
             results = connection_setup.run()
-        self.assertTrue(all(r["status"] == "ok" for r in results))
+        by_key = {r["key"]: r for r in results}
+        self.assertTrue(all(by_key[key]["status"] == "ok" for key in REQUIRED_KEYS))
+        self.assertEqual(by_key["kimi"]["status"], "optional")
 
     def test_credentials_only_reports_partial(self):
         env = {"GOOGLE_SERVICE_ACCOUNT_JSON": FAKE_SERVICE_ACCOUNT}
@@ -97,8 +102,9 @@ class OutputTests(unittest.TestCase):
         self.assertIn("calendar → docs → github", output)
         self.assertIn("Gemini API", output)
         self.assertNotIn("Voice / Transcribe", output)
-        for key in ALL_KEYS:
+        for key in REQUIRED_KEYS:
             self.assertIn(f"--guide {key}", output)
+        self.assertIn("Kimi API", output)
 
     def test_render_all_ok(self):
         with mock.patch.dict(os.environ, FULL_ENV, clear=True):
@@ -111,6 +117,13 @@ class OutputTests(unittest.TestCase):
         with mock.patch.dict(os.environ, FULL_ENV, clear=True):
             self.assertEqual(connection_setup.main([]), 0)
 
+    def test_kimi_key_reports_ok(self):
+        env = {**FULL_ENV, "KIMI_API_KEY": "sk-kimi-test"}
+        with mock.patch.dict(os.environ, env, clear=True):
+            results = {r["key"]: r for r in connection_setup.run()}
+        self.assertEqual(results["kimi"]["status"], "ok")
+        self.assertIn("kimi-k2.5", results["kimi"]["detail"])
+
     def test_guide_lookup(self):
         with mock.patch("builtins.print") as printer:
             self.assertEqual(connection_setup.main(["--guide", "calendar"]), 0)
@@ -118,6 +131,11 @@ class OutputTests(unittest.TestCase):
         self.assertIn("GOOGLE_CALENDAR_ID", text)
         self.assertIn("Make changes to events", text)
         self.assertEqual(connection_setup.main(["--guide", "unknown"]), 1)
+        with mock.patch("builtins.print") as printer:
+            self.assertEqual(connection_setup.main(["--guide", "kimi"]), 0)
+        text = "\n".join(str(call.args[0]) for call in printer.call_args_list)
+        self.assertIn("KIMI_API_KEY", text)
+        self.assertIn("platform.moonshot.ai", text)
 
 
 if __name__ == "__main__":

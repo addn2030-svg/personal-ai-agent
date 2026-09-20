@@ -144,6 +144,7 @@ python3 engine/chief_of_staff.py
 
 ## الربط بالخدمات الخارجية (Sheets · Drive · Docs · Calendar · GitHub)
 - فحص فوري لحالة كل القنوات: `python3 -m connectors.connection_setup` (أضف `--live` للفحص الحي عبر الشبكة، و`--guide calendar` لخطوات قناة محددة).
+- **Kimi API (تجاوز حد Gemini ~20 سؤال/يوم):** أضف في Railway `KIMI_API_KEY` من platform.moonshot.ai. اختياري: `KIMI_MODEL=kimi-k2.5` و`KIMI_BASE_URL=https://api.moonshot.ai/v1`. اترك `AI_MODEL_PROVIDER=gemini` ليُستخدم Kimi تلقائيًا بعد نفاد الحصة، أو اضبط `AI_MODEL_PROVIDER=kimi` لاستخدامه مباشرة. الأسئلة السريرية تبقى على Gemini ما لم تضبط `AI_CLINICAL_PROVIDER=kimi`. لا تضع المفتاح في Git أو في المحادثة.
 - خطوات الربط كاملة مع متغيرات البيئة المطلوبة: `docs/connection-guide.md` — **مفاتيح الربط توضع في متغيرات البيئة فقط، ولا تُرسل في أي محادثة**.
 - نقل التشغيل إلى Railway، المتغيرات، الـVolume، وتشخيص انتهاء بيئة 24 ساعة: `docs/railway-migration.md`.
 - خطابات وتقارير رسمية عبر Google Docs: `python3 -m connectors.google_docs_service create "العنوان" "النص"` (تُنشأ كمسودات — الإرسال الخارجي يبقى خلف بوابة الاعتماد).
