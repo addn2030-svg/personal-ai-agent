@@ -265,6 +265,17 @@ def today_actions_text():
             "🔁 إجراءات اليوم موجودة أصلًا — راجعها: /approve")
 
 
+def tasks_stats_text():
+    """📋 إحصاء المهام فورًا من الجوال (محلي من state.json — بلا Supabase وبلا شبكة)."""
+    try:
+        if BASE not in sys.path:
+            sys.path.insert(0, BASE)
+        from connectors import supabase_tasks
+        return supabase_tasks.render_stats(supabase_tasks.stats())
+    except Exception as exc:  # noqa: BLE001
+        return f"❌ تعذر حساب إحصاء المهام: {str(exc)[:200]}"
+
+
 def supabase_text(command=""):
     """☁️ نسخ الحالة إلى Supabase — دفع وعرض فقط.
 
@@ -415,6 +426,8 @@ def handle(msg):
         api("sendMessage", chat_id=chat, text=today_actions_text())
     elif text.startswith("/diag"):
         api("sendMessage", chat_id=chat, text=diag_text())
+    elif text.startswith("/tasks_stats"):
+        api("sendMessage", chat_id=chat, text=tasks_stats_text())
     elif text.startswith("/backup_now"):
         api("sendMessage", chat_id=chat, text=supabase_text())
     elif text.startswith("/backups"):
@@ -450,6 +463,7 @@ def handle(msg):
                                                "/digests الملخصات الصوتية • /run تنفيذ المستحق الآن • /today-actions إجراءات اليوم\n"
                                                "/diag حالة قنوات الربط\n"
                                                "☁️ النسخ الاحتياطي: /backup_now نسخة الآن • /backups آخر النسخ\n"
+                                               "📋 /tasks_stats إحصاء المهام (متأخرة/اليوم) فورًا من الجوال\n"
                                                "وأي نص ترسله = يُلتقط في صندوق يومك تلقائيًا 📥"))
     elif text and re.match(r"^طاق[هة]?\s*(\d{1,2}).*ارهاق", text.replace("إرهاق", "ارهاق")):
         m = re.match(r"^طاق[هة]?\s*(\d{1,2}).*ارهاق\s*(\d{1,2})", text.replace("إرهاق", "ارهاق"))

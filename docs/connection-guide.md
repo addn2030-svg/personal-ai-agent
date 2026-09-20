@@ -172,19 +172,21 @@ Telegram: `/ai_status` and `/kimi_test`.
 
 ---
 
-## 9️⃣ Supabase — ☁️ نسخ الحالة خارج الخادم (اختياري لكن موصى به)
+## 9️⃣ Supabase — ☁️ نسخ الحالة خارج الخادم + 🪞 مرآة المهام (اختياري لكن موصى به)
 
 Code: `connectors/supabase_client.py` (REST بلا اعتماديات) · `connectors/supabase_state.py`
-(نسخ/استعادة). الهدف: نسخة كاملة موقّعة ببصمة خارج Railway، لأن الـVolume وحده هو
-نقطة الفشل الوحيدة اليوم (`docs/agent3-p0-adjudication.md`).
+(نسخ/استعادة/تنزيل) · `connectors/supabase_tasks.py` (مرآة المهام). الهدف الأول: نسخة كاملة
+موقّعة ببصمة خارج Railway، لأن الـVolume وحده هو نقطة الفشل الوحيدة اليوم
+(`docs/agent3-p0-adjudication.md`). والهدف الثاني: استعلام مهامك بـSQL ومن الجوال.
 
 1. supabase.com/dashboard → المشروع → **Connect** (أو **Settings → API Keys**).
 2. انسخ **Project URL** → `SUPABASE_URL` (شكله `https://<ref>.supabase.co`
    — لا تنسخ رابط اللوحة).
 3. للقراءة: **publishable/anon key** → `SUPABASE_ANON_KEY`.
    للكتابة: **secret/service_role key** → `SUPABASE_SERVICE_ROLE_KEY` (خادم فقط).
-4. شغّل SQL الإعداد مرة واحدة في SQL Editor: `python3 -m connectors.supabase_client --sql`.
-5. فعّل الدفع: `SUPABASE_WRITE_ENABLED=1`.
+4. شغّل ملفي SQL مرة واحدة في SQL Editor: `python3 -m connectors.supabase_client --sql all`
+   (`01_state_snapshots.sql` ثم `02_tasks_mirror.sql`).
+5. فعّل الدفع: `SUPABASE_WRITE_ENABLED=1`. وللدفعة اليومية: `SUPABASE_BACKUP_SCHEDULE_ENABLED=1`.
 
 | Variable | Required | ملاحظة |
 |---|---|---|
@@ -196,13 +198,19 @@ Code: `connectors/supabase_client.py` (REST بلا اعتماديات) · `conne
 ```bash
 python3 -m connectors.supabase_client --check     # الإعداد (بلا شبكة)
 python3 -m connectors.supabase_client --live      # اتصال حقيقي
+python3 -m connectors.supabase_client --sql all   # ملفا SQL للصقهما في SQL Editor
 python3 -m connectors.supabase_state push --reason "manual"
 python3 -m connectors.supabase_state list
 python3 -m connectors.supabase_state restore --id N          # معاينة
 python3 -m connectors.supabase_state restore --id N --apply  # كتابة فعلية
+python3 -m connectors.supabase_state pull --id latest        # نسخة محلية من السحابة
+python3 -m connectors.supabase_tasks stats                   # إحصاء المهام (بلا شبكة)
+python3 -m connectors.supabase_tasks sync                    # زامن مرآة المهام
 ```
 
-Telegram: `/backup_now` نسخة الآن · `/backups` آخر النسخ.
+Telegram: `/backup_now` نسخة الآن · `/backups` آخر النسخ · `/tasks_stats` إحصاء المهام فورًا.
+⚠️ المرآة **أحادية الاتجاه** (الحالة ← Supabase) ومصدر الحقيقة يبقى `state.json`؛
+لا تكتب في `tasks_mirror` يدويًا — أي صف بلا بصمة آخر مزامنة يُحذف.
 الرحلة الكاملة والاستعادة وحل المشاكل: `docs/supabase-setup.md`.
 
 ---
@@ -221,7 +229,7 @@ Telegram: `/backup_now` نسخة الآن · `/backups` آخر النسخ.
 | Gemini API | `GEMINI_API_KEY` | `GEMINI_MODEL` |
 | Kimi API (Gemini 20/day overflow) | — | `KIMI_API_KEY`, `KIMI_MODEL`, `KIMI_BASE_URL` |
 | YouTube search | — | `YOUTUBE_API_KEY` |
-| Supabase backups | `SUPABASE_URL` (+ `SUPABASE_SERVICE_ROLE_KEY` and `SUPABASE_WRITE_ENABLED=1` to write) | `SUPABASE_ANON_KEY`, `SUPABASE_STATE_TABLE` |
+| Supabase backups + tasks mirror | `SUPABASE_URL` (+ `SUPABASE_SERVICE_ROLE_KEY` and `SUPABASE_WRITE_ENABLED=1` to write) | `SUPABASE_ANON_KEY`, `SUPABASE_STATE_TABLE`, `SUPABASE_TASKS_TABLE`, `SUPABASE_BACKUP_SCHEDULE_ENABLED`, `SUPABASE_BACKUP_HOUR` |
 
 ## 🎯 Setup order
 1. **Calendar** — most urgent (meeting Sept 14).

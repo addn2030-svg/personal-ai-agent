@@ -197,6 +197,39 @@ def restore(snapshot_id: int | None = None, *, apply: bool = False,
     return report
 
 
+def pull(snapshot_id: int | None = None, *, client: SupabaseClient | None = None,
+         target_dir: str | None = None) -> dict:
+    """ينزّل نسخة من Supabase إلى قرص محلي — يقفل الدائرة.
+
+    السبب (مهم على الخطة المجانية): Supabase **لا يوفّر نسخًا احتياطية تلقائية**
+    ولا PITR إلا في الخطط المدفوعة، ويُوقف المشاريع المجانية بعد 7 أيام بلا نشاط.
+    أي أن «السحابة» ليست حصنًا بحد ذاتها: دفعة النسخ نفسها بلا نسخة. لذلك نحتفظ
+    بنسخة محلية موقّعة من كل ما في السحابة، فتبقى قابلة للاستعادة في الحالتين:
+    فساد القرص المحلي (من السحابة) أو فقدان السحابة (من القرص).
+    """
+    client = client or SupabaseClient()
+    row = fetch(snapshot_id, client=client)
+    report = verify_row(row)
+    report["snapshot_id"] = row.get("id")
+    report["created_at"] = row.get("created_at")
+    if not report["ok"]:
+        report["written"] = None
+        log_event("supabase_snapshot_pull_blocked", snapshot_id=row.get("id"),
+                  problems=report["problems"])
+        return report
+
+    folder = target_dir or os.path.join(data_dir(), "backups")
+    os.makedirs(folder, exist_ok=True)
+    stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+    path = os.path.join(folder, f"supabase-state-{row.get('id')}-{stamp}.json")
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(row["payload"], handle, ensure_ascii=False, indent=2)
+    report["written"] = path
+    log_event("supabase_snapshot_pulled", snapshot_id=row.get("id"),
+              sha256=row.get("sha256"), path=path)
+    return report
+
+
 def prune(keep: int = 30, *, client: SupabaseClient | None = None) -> int:
     """يحتفظ بأحدث `keep` نسخة ويحذف ما قبلها."""
     client = client or SupabaseClient()
@@ -239,6 +272,10 @@ def main(argv=None) -> int:
     restore_cmd = sub.add_parser("restore", help="استعادة نسخة (معاينة افتراضيًا)")
     restore_cmd.add_argument("--id", default="latest")
     restore_cmd.add_argument("--apply", action="store_true", help="كتابة فعلية إلى state.json")
+
+    pull_cmd = sub.add_parser("pull", help="نزّل نسخة من Supabase إلى قرص محلي")
+    pull_cmd.add_argument("--id", default="latest")
+    pull_cmd.add_argument("--dir", default="", help="مجلد الهدف (افتراضيًا data/backups/)")
 
     prune_cmd = sub.add_parser("prune", help="حذف النسخ الأقدم من حد معيّن")
     prune_cmd.add_argument("--keep", type=int, default=30)
@@ -289,6 +326,15 @@ def main(argv=None) -> int:
             print(f"✅ استُعيدت نسخة #{report['snapshot_id']} إلى {state_path()}")
             if report.get("local_backup"):
                 print(f"   الحالة السابقة محفوظة في: {report['local_backup']}")
+            return 0
+
+        if args.command == "pull":
+            report = pull(args.id, target_dir=(args.dir or None))
+            if not report["ok"]:
+                print("❌ رفض التنزيل — " + " | ".join(report["problems"]))
+                return 2
+            print(f"✅ نُزّلت نسخة #{report['snapshot_id']} إلى: {report['written']}")
+            print("   (نسخة محلية موقّعة — تعمل حتى لو تعذّر الوصول إلى Supabase)")
             return 0
 
         if args.command == "prune":

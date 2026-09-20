@@ -21,10 +21,15 @@ PUBLISHABLE_KEY = "sb_publishable_e2e_local_key"
 
 
 class _Handler(BaseHTTPRequestHandler):
-    """PostgREST مصغّر: صف واحد من الجداول يكفي لفحص المسار الكامل."""
+    """PostgREST مصغّر: جداول في الذاكرة تكفي لفحص المسار الكامل.
 
-    rows: list = []
+    يدعم ما يستخدمه الموصل فعليًا: select بأعمدة ومرشّحات وترتيب وحد،
+    upsert بدمج الصفوف على المفتاح الأساسي، وحذف بمرشّح neq/in.
+    """
+
+    tables: dict = {}
     expected_keys: tuple = (SECRET_KEY,)
+    primary_keys: dict = {"state_snapshots": "id", "tasks_mirror": "id"}
 
     def log_message(self, *args):  # امنع ضجيج السجل في مخرجات الاختبار
         pass
@@ -46,16 +51,26 @@ class _Handler(BaseHTTPRequestHandler):
         self._send(401, {"message": f"Invalid API key {key}", "code": "PGRST301"})
         return False
 
-    def _matching(self, query):
-        rows = list(type(self).rows)
-        filter_id = (query.get("id") or [""])[0]
-        if filter_id.startswith("eq."):
-            want = filter_id[3:]
-            rows = [row for row in rows if str(row.get("id")) == want]
-        if (query.get("order") or [""])[0].startswith("created_at"):
-            rows.sort(key=lambda row: str(row.get("created_at")), reverse=True)
-        limit = int((query.get("limit") or ["100"])[0])
-        return rows[:limit]
+    @classmethod
+    def _table(cls, name):
+        return cls.tables.setdefault(name, [])
+
+    @staticmethod
+    def _match(row, query):
+        """يطبّق مرشّحات PostgREST المدعومة: eq / neq / in."""
+        for key, values in query.items():
+            if key in ("select", "limit", "order", "on_conflict"):
+                continue
+            raw = values[0]
+            actual = str(row.get(key))
+            if raw.startswith("eq.") and actual != raw[3:]:
+                return False
+            if raw.startswith("neq.") and actual == raw[4:]:
+                return False
+            if raw.startswith("in.(") and actual not in {
+                    item.strip() for item in raw[4:].rstrip(")").split(",")}:
+                return False
+        return True
 
     @staticmethod
     def _project(rows, columns):
@@ -64,56 +79,92 @@ class _Handler(BaseHTTPRequestHandler):
         fields = [field.strip() for field in columns.split(",")]
         return [{field: row.get(field) for field in fields} for row in rows]
 
+    def _filtered(self, name, query):
+        rows = [row for row in self._table(name) if self._match(row, query)]
+        order = (query.get("order") or [""])[0]
+        if order.startswith("created_at"):
+            desc = order.endswith("desc")
+            rows.sort(key=lambda row: str(row.get("created_at") or ""), reverse=desc)
+        limit = int((query.get("limit") or ["100"])[0])
+        return rows[:limit]
+
     # -- verbs -----------------------------------------------------------
     def do_GET(self):
         parsed = urlparse(self.path)
-        if parsed.path.rstrip("/") == "/rest/v1":
+        path = parsed.path.rstrip("/")
+        if path == "/rest/v1":
             if not self._authorized():
                 return
-            return self._send(200, {"paths": {"/state_snapshots": {}}},
-                              content_type="application/openapi+json")
-        if parsed.path == "/rest/v1/state_snapshots":
-            if not self._authorized():
-                return
-            query = parse_qs(parsed.query)
-            rows = self._project(self._matching(query), (query.get("select") or [""])[0])
-            return self._send(200, rows)
-        return self._send(404, {"message": "relation does not exist", "code": "42P01"})
-
-    def do_POST(self):
-        if self.path != "/rest/v1/state_snapshots":
+            paths = {f"/{name}": {} for name in self.tables}
+            return self._send(200, {"paths": paths}, content_type="application/openapi+json")
+        if not path.startswith("/rest/v1/"):
             return self._send(404, {"message": "not found"})
         if not self._authorized():
             return
+        name = path[len("/rest/v1/"):]
+        if name not in self.tables:
+            return self._send(404, {"message": "relation does not exist", "code": "42P01"})
+        query = parse_qs(parsed.query)
+        rows = self._project(self._filtered(name, query), (query.get("select") or [""])[0])
+        return self._send(200, rows)
+
+    def do_POST(self):
+        path = urlparse(self.path).path.rstrip("/")
+        if not path.startswith("/rest/v1/"):
+            return self._send(404, {"message": "not found"})
+        if not self._authorized():
+            return
+        name = path[len("/rest/v1/"):]
+        if name not in self.tables:
+            return self._send(404, {"message": "relation does not exist", "code": "42P01"})
         length = int(self.headers.get("Content-Length") or 0)
         payload = json.loads(self.rfile.read(length) or b"[]")
         payload = payload if isinstance(payload, list) else [payload]
+        prefer = self.headers.get("Prefer") or ""
+        merge = "merge-duplicates" in prefer
+        table = self._table(name)
+        pk = self.primary_keys.get(name, "id")
         stored = []
         for index, row in enumerate(payload):
             record = dict(row)
-            record["id"] = len(type(self).rows) + index + 1
-            record["created_at"] = f"2026-09-20T10:0{index}:00Z"
-            stored.append(record)
-        type(self).rows.extend(stored)
+            existing = None
+            if merge and record.get(pk) is not None:
+                for current in table:
+                    if str(current.get(pk)) == str(record.get(pk)):
+                        existing = current
+                        break
+            if existing is not None:
+                existing.update(record)          # دمج: تحديث الصف القائم
+                stored.append(existing)
+            else:
+                if record.get(pk) is None:
+                    record[pk] = len(table) + index + 1
+                record.setdefault("created_at", f"2026-09-20T10:0{index}:00Z")
+                table.append(record)
+                stored.append(record)
         return self._send(201, stored)
 
     def do_DELETE(self):
-        if self.path.split("?")[0] != "/rest/v1/state_snapshots":
+        parsed = urlparse(self.path)
+        path = parsed.path.rstrip("/")
+        if not path.startswith("/rest/v1/"):
             return self._send(404, {"message": "not found"})
         if not self._authorized():
             return
-        query = parse_qs(urlparse(self.path).query)
-        wanted = (query.get("id") or [""])[0]
-        wanted = wanted.removeprefix("in.(").removesuffix(")") if wanted.startswith("in.(") else wanted
-        targets = {item.strip() for item in wanted.split(",") if item.strip()}
-        removed = [row for row in type(self).rows if str(row.get("id")) in targets]
-        type(self).rows = [row for row in type(self).rows if str(row.get("id")) not in targets]
+        name = path[len("/rest/v1/"):]
+        if name not in self.tables:
+            return self._send(404, {"message": "relation does not exist", "code": "42P01"})
+        query = parse_qs(parsed.query)
+        table = self._table(name)
+        removed = [row for row in table if self._match(row, query)]
+        self.tables[name] = [row for row in table if not self._match(row, query)]
         return self._send(200, removed)
 
 
 class EndToEndTests(unittest.TestCase):
     def setUp(self):
-        _Handler.rows = []
+        # الجداول التي أنشأها SQL الإعداد (01 + 02) — أي جدول غيرها يعطي 404 كما في الواقع
+        _Handler.tables = {"state_snapshots": [], "tasks_mirror": []}
         _Handler.expected_keys = (SECRET_KEY,)
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
@@ -194,7 +245,7 @@ class EndToEndTests(unittest.TestCase):
         with self.assertRaises(supabase_client.SupabaseError) as ctx:
             supabase_state.push("محاولة", client=anon_client)
         self.assertIn("SUPABASE_WRITE_ENABLED", str(ctx.exception))
-        self.assertEqual(_Handler.rows, [])  # لم يصل أي صف إلى "السحابة"
+        self.assertEqual(_Handler._table("state_snapshots"), [])  # لم يصل أي صف إلى "السحابة"
 
     def test_missing_table_is_explained(self):
         client = self._client()
@@ -207,10 +258,59 @@ class EndToEndTests(unittest.TestCase):
         client = self._client()
         for index in range(3):
             supabase_state.push(f"نسخة {index}", client=client)
-        self.assertEqual(len(_Handler.rows), 3)
+        self.assertEqual(len(_Handler._table("state_snapshots")), 3)
         deleted = supabase_state.prune(keep=1, client=client)
         self.assertEqual(deleted, 2)
-        self.assertEqual(len(_Handler.rows), 1)
+        self.assertEqual(len(_Handler._table("state_snapshots")), 1)
+
+    # ---------------------------------------------------------- مرآة المهام
+    def test_tasks_mirror_sync_is_idempotent_over_real_http(self):
+        from connectors import supabase_tasks
+
+        state = {
+            **self.state,
+            "tasks": [
+                {"العنوان": "متأخرة", "الأولوية": "عالية", "الحالة": "لم تبدأ",
+                 "الموعد النهائي": "2020-01-01", "المصدر": "صندوق الصوت"},
+                {"العنوان": "منجزة", "الحالة": "منجزة", "الموعد النهائي": "2020-01-01"},
+            ],
+        }
+        client = self._client()
+        first = supabase_tasks.sync(client=client, state=state)
+        self.assertEqual(first["rows"], 2)
+        self.assertEqual(first["overdue"], 1)
+        self.assertEqual(len(_Handler._table("tasks_mirror")), 2)
+        rows = {row["title"]: row for row in _Handler._table("tasks_mirror")}
+        self.assertEqual(rows["متأخرة"]["status_norm"], "not_started")
+        self.assertTrue(rows["متأخرة"]["is_overdue"])
+        self.assertFalse(rows["منجزة"]["is_open"])
+
+        # إعادة المزامنة بلا تغيير: لا صفوف مكرّرة (المعرّف حتمي)
+        supabase_tasks.sync(client=client, state=state)
+        self.assertEqual(len(_Handler._table("tasks_mirror")), 2)
+
+        # إغلاق مهمة يحدّث صفّها نفسه ولا ينشئ صفًا جديدًا
+        closed = json.loads(json.dumps(state, ensure_ascii=False))
+        closed["tasks"][0]["الحالة"] = "منجزة"
+        summary = supabase_tasks.sync(client=client, state=closed)
+        self.assertEqual(len(_Handler._table("tasks_mirror")), 2)
+        self.assertEqual(summary["open"], 0)
+        self.assertEqual(len(_Handler._table("tasks_mirror")[0].get("sync_run")), len(summary["run"]))
+
+        # مهمة أُلغيت من الحالة تختفي من المرآة (لا صفوف يتيمة)
+        trimmed = {**state, "tasks": [state["tasks"][1]]}
+        supabase_tasks.sync(client=client, state=trimmed)
+        remaining = _Handler._table("tasks_mirror")
+        self.assertEqual(len(remaining), 1)
+        self.assertEqual(remaining[0]["title"], "منجزة")
+
+    def test_tasks_mirror_requires_a_secret_key(self):
+        from connectors import supabase_tasks
+
+        anon_client = self._client(PUBLISHABLE_KEY)
+        with self.assertRaises(supabase_client.SupabaseError):
+            supabase_tasks.sync(client=anon_client, state=self.state)
+        self.assertEqual(_Handler._table("tasks_mirror"), [])
 
     def test_loopback_http_is_allowed_but_remote_http_is_rejected(self):
         self.assertEqual(supabase_client.validate_url(self.url), self.url)
