@@ -28,18 +28,31 @@ FULL_ENV = {
     "BUFFER_API_KEY": "buffer-test",
 }
 
-ALL_KEYS = ["telegram", "sheets", "drive", "docs", "calendar", "github", "gemini", "kimi", "buffer"]
-REQUIRED_KEYS = [key for key in ALL_KEYS if key != "kimi"]
+ALL_KEYS = ["telegram", "sheets", "drive", "docs", "calendar", "github", "gemini", "kimi",
+            "buffer", "supabase"]
+# Optional integrations: unset is a valid, non-blocking state (never a "missing" failure).
+OPTIONAL_KEYS = ["kimi", "supabase"]
+REQUIRED_KEYS = [key for key in ALL_KEYS if key not in OPTIONAL_KEYS]
 
 
-class ConfigCheckTests(unittest.TestCase):
+class EnvIsolation(unittest.TestCase):
+    """يمنع أي `.env` حقيقي على جهاز المطوّر من التأثير على الاختبارات."""
+
+    def setUp(self):
+        patcher = mock.patch.object(connection_setup, "load_local_env", lambda: [])
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+
+class ConfigCheckTests(EnvIsolation):
     def test_empty_env_reports_missing(self):
         with mock.patch.dict(os.environ, {}, clear=True):
             results = connection_setup.run()
         self.assertEqual([r["key"] for r in results], ALL_KEYS)
         by_key = {r["key"]: r for r in results}
         self.assertTrue(all(by_key[key]["status"] == "missing" for key in REQUIRED_KEYS))
-        self.assertEqual(by_key["kimi"]["status"], "optional")
+        for key in OPTIONAL_KEYS:
+            self.assertEqual(by_key[key]["status"], "optional", key)
         self.assertFalse(any("live" in r for r in results))
 
     def test_full_env_reports_ok(self):
@@ -47,7 +60,8 @@ class ConfigCheckTests(unittest.TestCase):
             results = connection_setup.run()
         by_key = {r["key"]: r for r in results}
         self.assertTrue(all(by_key[key]["status"] == "ok" for key in REQUIRED_KEYS))
-        self.assertEqual(by_key["kimi"]["status"], "optional")
+        for key in OPTIONAL_KEYS:
+            self.assertEqual(by_key[key]["status"], "optional", key)
 
     def test_credentials_only_reports_partial(self):
         env = {"GOOGLE_SERVICE_ACCOUNT_JSON": FAKE_SERVICE_ACCOUNT}
@@ -74,7 +88,7 @@ class ConfigCheckTests(unittest.TestCase):
         self.assertEqual(results["calendar"]["status"], "partial")
 
 
-class LiveProbeTests(unittest.TestCase):
+class LiveProbeTests(EnvIsolation):
     def test_live_probes_ok_and_fail(self):
         probes = {key: (lambda key=key: {"key": key}) for key in ALL_KEYS}
         probes["sheets"] = mock.Mock(side_effect=Exception("403: share the sheet first"))
@@ -95,7 +109,7 @@ class LiveProbeTests(unittest.TestCase):
             probe.assert_not_called()
 
 
-class OutputTests(unittest.TestCase):
+class OutputTests(EnvIsolation):
     def test_render_shows_next_steps_in_priority_order(self):
         with mock.patch.dict(os.environ, {}, clear=True):
             output = connection_setup.render(connection_setup.run())
@@ -105,6 +119,7 @@ class OutputTests(unittest.TestCase):
         for key in REQUIRED_KEYS:
             self.assertIn(f"--guide {key}", output)
         self.assertIn("Kimi API", output)
+        self.assertIn("Supabase", output)
 
     def test_render_all_ok(self):
         with mock.patch.dict(os.environ, FULL_ENV, clear=True):

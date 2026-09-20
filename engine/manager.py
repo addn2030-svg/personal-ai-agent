@@ -334,6 +334,26 @@ def loop():
             except Exception as exc:  # noqa: BLE001
                 log_event("finance_hub_error", error=str(exc)[:160])
 
+        # ☁️ النسخ الاحتياطي والمزامنة إلى Supabase — مغلق افتراضيًا.
+        # يحتاج: SUPABASE_URL + مفتاح سري + SUPABASE_WRITE_ENABLED=1
+        #        + SUPABASE_BACKUP_SCHEDULE_ENABLED=1
+        # (16.0) يدفع نسخة كاملة (snapshot) ويزوّج مرآة المهام مرة واحدة يوميًا.
+        # لا يُسقط الحلقة عند أي فشل: الخطأ يُسجَّل ويُعاد غدًا.
+        try:
+            from connectors import supabase_tasks as _tasks
+            if _tasks.daily_due(t, markers):
+                outcome = _tasks.run_daily()
+                if outcome["errors"]:
+                    log_event("supabase_backup_error", errors=outcome["errors"][:3])
+                else:
+                    _update_markers(supabase_backup_day=t.date().isoformat())
+                    log_event("supabase_backup_done", **{
+                        "snapshot_id": (outcome["snapshot"] or {}).get("id"),
+                        "mirror_rows": (outcome["mirror"] or {}).get("rows"),
+                    })
+        except Exception as exc:  # noqa: BLE001
+            log_event("supabase_backup_error", error=str(exc)[:160])
+
         # Dormant activations — observability/trust heartbeat (daily, guarded)
         # تُشغَّل مرة واحدة يوميًا كحد أقصى لتجنب الضغط، ولا تُرسل خارجيًا.
         try:

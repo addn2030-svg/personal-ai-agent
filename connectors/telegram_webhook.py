@@ -33,20 +33,49 @@ from connectors import proactive_worker
 from connectors.brief_runtime import install as install_brief_runtime
 from connectors.mobile_calendar_confirm import install as install_mobile_calendar_confirm
 
+def _resolve_public_base_url(env: dict | None = None) -> str:
+    """يحدّد الرابط العام: المتغير الصريح أولًا، ثم ما توفّره المنصة تلقائيًا.
+
+    دالة نقية (بلا قراءة مباشرة من البيئة) لتكون قابلة للاختبار بلا إعادة تحميل
+    الوحدة — إعادة التحميل تُعيد تسجيل معالجات البوت مرتين.
+    """
+    env = os.environ if env is None else env
+    explicit = (env.get("TELEGRAM_WEBHOOK_BASE_URL") or "").strip().rstrip("/")
+    if explicit:
+        return explicit
+    for platform_domain in ("RAILWAY_PUBLIC_DOMAIN", "RENDER_EXTERNAL_HOSTNAME"):
+        value = (env.get(platform_domain) or "").strip().rstrip("/")
+        if value:
+            return value if value.startswith("http") else f"https://{value}"
+    return ""
+
+
 PORT = int(os.environ.get("PORT", "8080"))
-PUBLIC_BASE_URL = os.environ.get("TELEGRAM_WEBHOOK_BASE_URL", "").strip().rstrip("/")
-if not PUBLIC_BASE_URL:
-    railway_domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "").strip()
-    if railway_domain:
-        PUBLIC_BASE_URL = f"https://{railway_domain}"
+# لا نفترض منصة بعينها: Railway تضع RAILWAY_PUBLIC_DOMAIN، وRender تضع
+# RENDER_EXTERNAL_HOSTNAME. التقاطهما تلقائيًا يلغي خطوة نسخ يدوي عند الانتقال
+# (ونسخُ رابط خاطئ أسوأ من عدم نسخه: يسجّل webhook إلى خدمة ميتة).
+PUBLIC_BASE_URL = _resolve_public_base_url()
 
 WEBHOOK_PATH = os.environ.get("TELEGRAM_WEBHOOK_PATH", "/telegram/webhook").strip() or "/telegram/webhook"
 if not WEBHOOK_PATH.startswith("/"):
     WEBHOOK_PATH = "/" + WEBHOOK_PATH
 
 WEBHOOK_SECRET = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "").strip()
-if not WEBHOOK_SECRET and bot.TOKEN:
-    WEBHOOK_SECRET = hashlib.sha256((bot.TOKEN + ":webhook").encode("utf-8")).hexdigest()[:48]
+
+
+def _ensure_webhook_secret() -> str:
+    """يشتق سر الـwebhook من توكن البوت إن لم يُضبط صريحًا.
+
+    الاشتقاق هنا وليس عند الاستيراد فقط: متغيرات البيئة على الاستضافة قد تُضاف
+    أو تُصحَّح بعد إقلاع الحاوية (تُرى في /health). لو بقي الاشتقاق عند الاستيراد،
+    لظل البوت عاجزًا عن تسجيل webhook إلى الأبد في تلك العملية — وهو عطل صامت
+    يصعب تشخيصه. القيمة تُخزَّن في المتغير العام نفسه الذي يقرأه مدقّق الطلبات
+    الواردة (سطر التحقق من secret_token)، فلا يختلف الاثنان أبدًا.
+    """
+    global WEBHOOK_SECRET
+    if not WEBHOOK_SECRET and bot.TOKEN:
+        WEBHOOK_SECRET = hashlib.sha256((bot.TOKEN + ":webhook").encode("utf-8")).hexdigest()[:48]
+    return WEBHOOK_SECRET
 
 CALENDAR_ALERT_LOOP_SECONDS = max(15, int(os.environ.get("CALENDAR_ALERT_LOOP_SECONDS", "30")))
 
@@ -118,14 +147,62 @@ def _probe_sheets():
         return False, str(exc)[:220]
 
 
-def _configure_webhook():
-    if not bot.TOKEN:
-        raise RuntimeError("TELEGRAM_BOT_TOKEN is not set")
-    if not PUBLIC_BASE_URL:
-        raise RuntimeError("No public URL. Set TELEGRAM_WEBHOOK_BASE_URL or RAILWAY_PUBLIC_DOMAIN")
-    if not WEBHOOK_SECRET:
-        raise RuntimeError("Unable to derive Telegram webhook secret")
+WEBHOOK_RETRY_SECONDS = int(os.environ.get("TELEGRAM_WEBHOOK_RETRY_SECONDS", "60"))
+# فرق مهم: «متغير ناقص» عطل دائم لا يزول بإعادة المحاولة (يحتاج إعادة نشر)، فلا
+# نُغرق السجل بمحاولة كل دقيقة. أما فشل الشبكة/تيليجرام فطارئ فعلًا ويُستحق
+# محاولة سريعة. الخلط بينهما يعني إما سجلًا مليئًا بضجيج لا فائدة منه، أو انتظارًا
+# طويلًا بلا داعٍ بعد عطل لحظي.
+WEBHOOK_FATAL_RETRY_SECONDS = int(os.environ.get("TELEGRAM_WEBHOOK_FATAL_RETRY_SECONDS", "900"))
+_webhook_state = {"configured": False, "error": "", "attempts": 0, "permanent": False}
 
+
+def webhook_status() -> dict:
+    """حالة تسجيل الـwebhook — تُعرَض في /health بدل إخفاء العطل."""
+    return dict(_webhook_state)
+
+
+def _configure_webhook(strict: bool = False):
+    """يسجّل الـwebhook لدى تيليجرام.
+
+    `strict=True` (التشغيل اليدوي/السكربتات) يرفع الاستثناء كما كان.
+    `strict=False` (الإقلاع على استضافة) يسجّل الفشل ويعيد False بدل إسقاط
+    العملية: على Render يعني الاستثناء إعادة تشغيل متكررة (crash loop) لا يقبل
+    النشر أبدًا، بينما الصحيح أن ترفع الخدمة، تخدم /health، وتعيد المحاولة —
+    فتيليجرام قد يكون غير قابل للوصول لحظيًا عند الإقلاع البارد، والمتغيرات قد
+    تُضاف بعد أول نشر. أي فشل يبقى ظاهرًا في /health وفي السجل، لا مخفيًا.
+    """
+    _webhook_state["attempts"] += 1
+    _ensure_webhook_secret()
+    try:
+        missing = []
+        if not bot.TOKEN:
+            missing.append("TELEGRAM_BOT_TOKEN")
+        if not PUBLIC_BASE_URL:
+            missing.append("TELEGRAM_WEBHOOK_BASE_URL")
+        if not WEBHOOK_SECRET:
+            missing.append("TELEGRAM_WEBHOOK_SECRET")
+        if missing:
+            raise RuntimeError("متغيرات ناقصة: " + ", ".join(missing))
+    except RuntimeError as exc:
+        if strict:
+            raise
+        _webhook_state.update({"configured": False, "error": str(exc)[:220], "permanent": True})
+        return False
+
+    try:
+        _register_webhook()
+    except Exception as exc:  # noqa: BLE001 - تيليجرام/الشبكة قد تفشل لحظيًا
+        if strict:
+            raise
+        _webhook_state.update({"configured": False, "error": str(exc)[:220], "permanent": False})
+        print(f"Telegram webhook registration failed: {str(exc)[:220]}", flush=True)
+        return False
+
+    _webhook_state.update({"configured": True, "error": "", "permanent": False})
+    return True
+
+
+def _register_webhook():
     bot.configure_commands()
     webhook_url = PUBLIC_BASE_URL + WEBHOOK_PATH
     bot.api(
@@ -246,6 +323,10 @@ class Handler(BaseHTTPRequestHandler):
                 {
                     "ok": True,
                     "telegram_mode": "webhook",
+                    # يُعرَض ولا يُخفى: خدمة تعمل وwebhook غير مسجَّل تبدو سليمة
+                    # في فحص Render بينما هي لا تستقبل رسائل. لا نُفشل الفحص
+                    # (الحيوية تعني «العملية حيّة»)، لكن الحقيقة تظهر في الجسم.
+                    "telegram_webhook": webhook_status(),
                     "calendar_reminders": True,
                     "manager_fast_canary": manager_fast_canary.enabled(),
                     "proactive_worker": proactive_worker.enabled(),
@@ -314,8 +395,44 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(500, {"ok": False})
 
 
+def _webhook_retry_worker():
+    """يعيد محاولة تسجيل الـwebhook حتى ينجح — استضافة مجانية تُقلع باردًا ومتغيراتها
+    قد تُضاف متأخرة، ولا يجوز أن يبقى البوت أخرس بلا محاولة أخرى."""
+    while True:
+        delay = (WEBHOOK_FATAL_RETRY_SECONDS if _webhook_state.get("permanent")
+                 else WEBHOOK_RETRY_SECONDS)
+        time.sleep(max(15, delay))
+        if _webhook_state["configured"]:
+            continue
+        if _configure_webhook():
+            print("Telegram webhook registered on retry", flush=True)
+
+
+# علامة إقلاع ثابتة: تظهر كأول سطر في سجل الاستضافة، فيعرف من يقرأ السجل أن
+# العملية بلغت التشغيل فعلًا (لا انهيار استيراد ولا مسار خاطئ). يستند إليها
+# tests/test_production_entrypoint.py بدل الاعتماد على رسالة خطأ قد تختفي.
+BOOT_MARKER = "AI-OS runtime boot: entrypoint reached"
+
+
 def run():
-    _configure_webhook()
+    print(BOOT_MARKER, flush=True)
+
+    # استمرارية الحالة أولًا وقبل أي شيء: على مضيف بلا قرص دائم (Render/Koyeb
+    # المجانيَين) تكون الحالة قد فُقدت مع آخر إيقاف، فالاستعادة تسبق تسجيل
+    # الـwebhook وبدء العمال — وإلا بدأ البوت «فارغ الذاكرة» ثم استُعيدت حالته
+    # بعد أن يكون قد استقبل رسائل. مطفأة افتراضيًا؛ تُفعّل بـAI_OS_STATE_RESTORE_ON_BOOT=1.
+    try:
+        from connectors import state_persistence
+        state_persistence.install()
+    except Exception as exc:  # noqa: BLE001 - لا يمنع الإقلاع أبدًا
+        print(f"State persistence unavailable: {str(exc)[:200]}", flush=True)
+
+    if not _configure_webhook():
+        retry = WEBHOOK_FATAL_RETRY_SECONDS if _webhook_state.get("permanent") else WEBHOOK_RETRY_SECONDS
+        kind = "إعداد ناقص (يحتاج إعادة نشر بعد إضافة المتغيرات)" if _webhook_state.get("permanent") else "فشل طارئ"
+        print(f"Webhook not registered at boot: {_webhook_state['error']} "
+              f"[{kind}] — retrying every {retry}s", flush=True)
+        threading.Thread(target=_webhook_retry_worker, name="webhook-retry", daemon=True).start()
     sheets_ok, detail = _probe_sheets()
     print(f"Sheets startup check: {'OK' if sheets_ok else 'WARN'} - {detail}", flush=True)
     _start_calendar_alert_worker()

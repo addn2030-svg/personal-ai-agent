@@ -86,6 +86,17 @@ GUIDES = {
         "List channels: python3 -m connectors.buffer_publisher --list",
         "Full walkthrough: docs/buffer-setup.md",
     ],
+    "supabase": [
+        "افتح supabase.com/dashboard → اختر المشروع → زر Connect (أو Settings → API Keys).",
+        "انسخ Project URL (https://<ref>.supabase.co) وضعه في SUPABASE_URL.",
+        "للقراءة فقط: انسخ publishable / anon key إلى SUPABASE_ANON_KEY.",
+        "للنسخ الاحتياطي والكتابة: انسخ secret / service_role key إلى SUPABASE_SERVICE_ROLE_KEY "
+        "(Railway → Variables فقط — لا يدخل أي متصفح ولا Git ولا محادثة).",
+        "شغّل SQL الإعداد مرة واحدة: python3 -m connectors.supabase_client --sql (ثم الصقه في SQL Editor).",
+        "فعّل الكتابة صراحةً: SUPABASE_WRITE_ENABLED=1.",
+        "التحقق: python3 -m connectors.supabase_client --live  ·  أو connection_setup --live.",
+        "الرحلة الكاملة: docs/supabase-setup.md",
+    ],
     "videosearch": [
         "Works with zero config via DuckDuckGo (read-only verified YouTube watch URLs).",
         "Optional, more reliable: console.cloud.google.com → enable \"YouTube Data API v3\".",
@@ -101,6 +112,21 @@ PRIORITY_ORDER = ["calendar", "docs", "github"]  # per the guide: meeting Sept 1
 
 def _env(name: str) -> str:
     return os.environ.get(name, "").strip()
+
+
+def load_local_env() -> list:
+    """يحمّل `.env` من جذر المستودع إن وُجد (متغيرات المنصة تبقى أولى دائمًا).
+
+    يعيد أسماء المتغيرات المحمَّلة فقط — بلا قيم — فلا يتسرّب سرّ إلى مخرجات الفحص.
+    """
+    try:
+        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if base not in sys.path:
+            sys.path.insert(0, base)
+        from engine.env_file import load_env
+        return load_env()
+    except Exception:  # noqa: BLE001 - غياب .env أو محمّله لا يعطّل الفحص
+        return []
 
 
 def check_telegram(env=None) -> dict:
@@ -248,8 +274,33 @@ def check_buffer(env=None) -> dict:
     }
 
 
+def check_supabase(env=None) -> dict:
+    """فحص إعداد Supabase (بلا شبكة). غياب الإعداد = اختياري، لا خطأ."""
+    env = env if env is not None else _env
+    from . import supabase_client
+    cfg = supabase_client.load_config(lambda name: env(name))
+    row = {"key": "supabase", "name": "Supabase",
+           "env": ["SUPABASE_URL", "SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY",
+                   "SUPABASE_WRITE_ENABLED"]}
+    if not cfg.url and not cfg.key:
+        row.update(status="optional", detail=(
+            "غير مضبوط (اختياري) — نسخ الحالة خارج الخادم معطّلة. "
+            "الخطوات: python3 -m connectors.connection_setup --guide supabase"
+        ))
+        return row
+    try:
+        summary = cfg.summary()
+    except supabase_client.SupabaseError as exc:  # رابط لوحة تحكم أو صيغة خاطئة
+        row.update(status="invalid", detail=str(exc))
+        return row
+    row.update(status=summary["status"], detail=summary["detail"],
+               host=summary["url_host"], key_kind=summary["key_kind"],
+               can_write=summary["can_write"])
+    return row
+
+
 CHECKS = [check_telegram, check_sheets, check_drive, check_docs, check_calendar, check_github,
-          check_gemini, check_kimi, check_buffer]
+          check_gemini, check_kimi, check_buffer, check_supabase]
 
 
 # ---------------------------------------------------------------- live probes
@@ -312,6 +363,11 @@ def _probe_kimi():
     return model_gateway.probe_kimi()
 
 
+def _probe_supabase():
+    from . import supabase_client
+    return supabase_client.doctor()
+
+
 PROBES = {
     "telegram": _probe_telegram,
     "sheets": _probe_sheets,
@@ -321,12 +377,14 @@ PROBES = {
     "github": _probe_github,
     "gemini": _probe_gemini,
     "kimi": _probe_kimi,
+    "supabase": _probe_supabase,
 }
 
 STATUS_ICON = {"ok": "✅", "partial": "⚠️", "missing": "❌", "invalid": "❌", "optional": "○"}
 
 
 def run(live: bool = False) -> list:
+    load_local_env()  # .env محلي (إن وُجد) قبل قراءة أي متغير
     results = []
     for check in CHECKS:
         row = check()

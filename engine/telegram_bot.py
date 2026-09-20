@@ -244,7 +244,7 @@ def diag_text():
             sys.path.insert(0, BASE)
         from connectors import connection_setup
         rows = connection_setup.run(live=False)
-        icons = {"ok": "✅", "partial": "⚠️", "missing": "❌", "invalid": "❌"}
+        icons = {"ok": "✅", "partial": "⚠️", "missing": "❌", "invalid": "❌", "optional": "○"}
         lines = ["🔗 حالة القنوات (بيئة التشغيل):"]
         for r in rows:
             lines.append(f"{icons.get(r['status'], '❓')} {r['name']}: {r['status']}")
@@ -263,6 +263,88 @@ def today_actions_text():
     return ("✅ أُدرجت إجراءات اليوم (تكليف DHS 17 سبتمبر · إغلاق NEEDS_INPUT · "
             "تفعيل الصوت/الخرائط) — راجعها: /approve" if n else
             "🔁 إجراءات اليوم موجودة أصلًا — راجعها: /approve")
+
+
+def rollout_text(kill=False):
+    """🚦 مرحلة التشغيل التدريجي من الجوال.
+
+    من الجوال: العرض + **مفتاح الإيقاف** (إجراء يقلّل المخاطر ويوقف الأتمتة فورًا).
+    أما الترقية فتبقى في الطرفية عن قصد — رفع المخاطر يحتاج جلسة متعمَّدة على شاشة
+    كاملة مع مراجعة الأدلة، لا ضغطة عابرة في محادثة.
+    """
+    try:
+        if BASE not in sys.path:
+            sys.path.insert(0, BASE)
+        from engine import rollout
+    except Exception as exc:  # noqa: BLE001
+        return f"❌ تعذر تحميل وحدة المراحل: {str(exc)[:200]}"
+    if kill:
+        try:
+            rollout.kill(reason="مفتاح إيقاف من تيليجرام", by="telegram")
+        except Exception as exc:  # noqa: BLE001
+            return f"❌ تعذر الإيقاف: {str(exc)[:200]}"
+        return ("🛑 أُوقف التشغيل التلقائي فورًا — المرحلة الآن `dormant`.\n"
+                "لا حُذف أي شيء: النسخ والصفوف تبقى كما هي، والأوامر اليدوية تعمل.\n"
+                "للاستئناف التدريجي: python3 -m engine.rollout advance")
+    return rollout.render_status(rollout.status())
+
+
+def tasks_stats_text():
+    """📋 إحصاء المهام فورًا من الجوال (محلي من state.json — بلا Supabase وبلا شبكة)."""
+    try:
+        if BASE not in sys.path:
+            sys.path.insert(0, BASE)
+        from connectors import supabase_tasks
+        return supabase_tasks.render_stats(supabase_tasks.stats())
+    except Exception as exc:  # noqa: BLE001
+        return f"❌ تعذر حساب إحصاء المهام: {str(exc)[:200]}"
+
+
+def supabase_text(command=""):
+    """☁️ نسخ الحالة إلى Supabase — دفع وعرض فقط.
+
+    الاستعادة تبقى في الطرفية عن قصد (`python3 -m connectors.supabase_state restore --apply`)
+    لأنها تلمس `state.json` مباشرة: قرار يُتخذ على شاشة كاملة، لا بضغطة في محادثة.
+    """
+    try:
+        if BASE not in sys.path:
+            sys.path.insert(0, BASE)
+        from connectors import supabase_state as state_backup
+        from connectors.supabase_client import load_config, SupabaseError
+    except Exception as exc:  # noqa: BLE001
+        return f"❌ تعذر تحميل موصل Supabase: {str(exc)[:200]}"
+
+    cfg = load_config()
+    if not cfg.configured:
+        return ("☁️ Supabase غير مضبوط — النسخ خارج الخادم معطّلة.\n"
+                "المطلوب: SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY + SUPABASE_WRITE_ENABLED=1\n"
+                "الخطوات: python3 -m connectors.connection_setup --guide supabase\n"
+                "أو من الطرفية: /diag يبيّن الحالة الحالية.")
+
+    if command == "list":
+        try:
+            rows = state_backup.list_snapshots(limit=5)
+        except SupabaseError as exc:
+            return f"❌ تعذر الجلب: {str(exc)[:200]}" + (f"\n💡 {exc.hint}" if exc.hint else "")
+        if not rows:
+            return "☁️ لا توجد نسخ بعد — أرسل /backup_now لإنشاء أول نسخة."
+        lines = ["☁️ أحدث النسخ في Supabase:"]
+        for row in rows:
+            lines.append(f"• #{row.get('id')} · {str(row.get('created_at'))[:16]} · "
+                         f"{row.get('byte_size')} بايت · {row.get('reason')}")
+        lines.append("للاستعادة: python3 -m connectors.supabase_state restore --id N --apply")
+        return "\n".join(lines)
+
+    if not cfg.can_write:
+        return ("⚠️ الدفع يحتاج مفتاحًا سريًا مع SUPABASE_WRITE_ENABLED=1 "
+                "(المفتاح العام لا يكتب).\nالحالة: " + cfg.summary()["detail"])
+    try:
+        row = state_backup.push("أمر تيليجرام")
+    except SupabaseError as exc:
+        return f"❌ فشل الدفع: {str(exc)[:300]}" + (f"\n💡 {exc.hint}" if exc.hint else "")
+    return (f"✅ نُسخت الحالة إلى Supabase — نسخة #{row.get('id')} · "
+            f"{row.get('byte_size')} بايت · sha256 {str(row.get('sha256'))[:12]}…\n"
+            "للعرض: /backups · للاستعادة من الطرفية: connectors.supabase_state restore")
 
 
 # ---------------------------------------------------------------- محرك الاستباقية v1.0
@@ -368,6 +450,16 @@ def handle(msg):
         api("sendMessage", chat_id=chat, text=today_actions_text())
     elif text.startswith("/diag"):
         api("sendMessage", chat_id=chat, text=diag_text())
+    elif text.startswith("/rollout_kill"):
+        api("sendMessage", chat_id=chat, text=rollout_text(kill=True))
+    elif text.startswith("/rollout"):
+        api("sendMessage", chat_id=chat, text=rollout_text())
+    elif text.startswith("/tasks_stats"):
+        api("sendMessage", chat_id=chat, text=tasks_stats_text())
+    elif text.startswith("/backup_now"):
+        api("sendMessage", chat_id=chat, text=supabase_text())
+    elif text.startswith("/backups"):
+        api("sendMessage", chat_id=chat, text=supabase_text("list"))
     elif text.startswith("/proactive_test"):
         api("sendMessage", chat_id=chat, text=proactive_test_text())
     elif text.startswith("/proactive"):
@@ -398,6 +490,9 @@ def handle(msg):
                                                "/masteros ملخص البنية • /schedule الجدول • /mindmaps الخرائط\n"
                                                "/digests الملخصات الصوتية • /run تنفيذ المستحق الآن • /today-actions إجراءات اليوم\n"
                                                "/diag حالة قنوات الربط\n"
+                                               "☁️ النسخ الاحتياطي: /backup_now نسخة الآن • /backups آخر النسخ\n"
+                                               "📋 /tasks_stats إحصاء المهام (متأخرة/اليوم) فورًا من الجوال\n"
+                                               "🚦 /rollout مرحلة التشغيل التدريجي • /rollout_kill إيقاف فوري\n"
                                                "وأي نص ترسله = يُلتقط في صندوق يومك تلقائيًا 📥"))
     elif text and re.match(r"^طاق[هة]?\s*(\d{1,2}).*ارهاق", text.replace("إرهاق", "ارهاق")):
         m = re.match(r"^طاق[هة]?\s*(\d{1,2}).*ارهاق\s*(\d{1,2})", text.replace("إرهاق", "ارهاق"))

@@ -1,0 +1,84 @@
+# ============================================================================
+# Render Blueprint — Abdulrahman AI OS (بوت تيليجرام)
+#
+# الاستخدام: Render → New → Blueprint → اختر هذا المستودع.
+# Render يقرأ هذا الملف وينشئ الخدمة بكل إعداداتها، ثم يطلب منك قيم المتغيرات
+# السرّية (sync: false) في واجهته — فلا سرّ يدخل Git.
+#
+# ⚠️ ثلاث حقائق عن الخطة المجانية في Render تحكم كل ما يلي:
+#   1) 750 ساعة/شهر لكل مساحة عمل ⇒ خدمة واحدة تعمل 24/7 تستهلكها كلها (~720).
+#   2) تُوقف الخدمة بعد **15 دقيقة بلا حركة واردة**، والإقلاع يستغرق ~30-60 ثانية.
+#   3) **لا قرص دائم على الخطة المجانية** ⇒ data/state.json يُفقد عند كل إيقاف
+#      أو إعادة نشر. لذلك استمرارية الحالة تعتمد على Supabase (انظر الأسفل).
+# ============================================================================
+
+services:
+  - type: web
+    name: abdulrahman-ai-os
+    runtime: docker
+    plan: free
+    region: frankfurt          # الأقرب إلى الرياض من مناطق Render المجانية
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health   # الموجود فعلًا في connectors/telegram_webhook.py
+    autoDeploy: true           # نشر تلقائي عند كل دفع إلى الفرع المتابع
+    envVars:
+      # ---- المسار ومكان الحالة -------------------------------------------
+      # لا قرص على الخطة المجانية ⇒ كل الكتابة محلية، والاستمرارية عبر Supabase.
+      - key: AI_OS_DATA_DIR
+        value: /tmp/ai-os-data
+      - key: PYTHONPATH
+        value: /app
+      - key: MANAGER_TIMEZONE
+        value: Asia/Riyadh
+
+      # ---- استمرارية الحالة (بديل القرص الدائم) ---------------------------
+      # استعادة آخر نسخة عند الإقلاع + دفع تفاضلي أثناء العمل + دفع عند SIGTERM.
+      - key: AI_OS_STATE_RESTORE_ON_BOOT
+        value: "1"
+      - key: AI_OS_STATE_PERSIST
+        value: "1"
+      - key: AI_OS_STATE_PERSIST_SECONDS
+        value: "120"
+
+      # ---- Supabase (يعمل بصفته «القرص» ولا بد منه بلا قرص دائم) ---------
+      - key: SUPABASE_URL
+        sync: false            # املأها في لوحة Render
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false            # المفتاح السري — خادم فقط، لا يدخل Git
+      - key: SUPABASE_WRITE_ENABLED
+        value: "1"
+
+      # ---- قنوات النظام (كما في Railway — انسخها كما هي) -----------------
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      # رابط الخدمة بعد إنشائها: https://<اسم-الخدمة>.onrender.com
+      # بدونه لا يستطيع البوت تسجيل webhook لدى تيليجرام.
+      - key: TELEGRAM_WEBHOOK_BASE_URL
+        sync: false
+      - key: GOOGLE_SERVICE_ACCOUNT_JSON
+        sync: false
+      - key: GOOGLE_SHEET_ID
+        sync: false
+      - key: GOOGLE_CALENDAR_ID
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+
+      # ---- اختياري --------------------------------------------------------
+      - key: CLINICAL_SHEET_ID
+        sync: false
+      - key: GOOGLE_DRIVE_FOLDER_ID
+        sync: false
+      - key: GOOGLE_DOCS_DOCUMENT_ID
+        sync: false
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: KIMI_API_KEY
+        sync: false
+      - key: BUFFER_API_KEY
+        sync: false
+
+      # ---- مفتاح تشغيل الدفعة اليومية -------------------------------------
+      # يبقى 0 حتى تجتاز المرحلة البوابة (docs/supabase-rollout.md).
+      - key: SUPABASE_BACKUP_SCHEDULE_ENABLED
+        value: "0"
