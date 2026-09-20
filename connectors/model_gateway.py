@@ -2,8 +2,9 @@
 """Unified model gateway for Abdulrahman AI OS.
 
 Gemini API is the default model gateway for ordinary and clinical requests.
-Claude/Bedrock and OpenRouter remain explicit compatibility routes only. This
-file never stores API keys.
+Kimi (Moonshot) is the overflow route when Gemini hits its daily question
+quota. Claude/Bedrock and OpenRouter remain explicit compatibility routes
+only. This file never stores API keys.
 """
 from __future__ import annotations
 
@@ -22,6 +23,18 @@ GEMINI_MODEL = os.environ.get(
     "GEMINI_MODEL",
     os.environ.get("AI_GOOGLE_MODEL", "google/gemini-3.7-flash"),
 ).strip()
+# Kimi / Moonshot — OpenAI-compatible overflow for Gemini's ~20 questions/day cap.
+# Official env alias is MOONSHOT_API_KEY; KIMI_API_KEY is the Railway name.
+KIMI_API_KEY = (
+    os.environ.get("KIMI_API_KEY", "").strip()
+    or os.environ.get("MOONSHOT_API_KEY", "").strip()
+)
+KIMI_BASE_URL = os.environ.get("KIMI_BASE_URL", "https://api.moonshot.ai/v1").strip().rstrip("/")
+KIMI_MODEL = os.environ.get("KIMI_MODEL", "kimi-k2.5").strip()
+KIMI_TIMEOUT_SECONDS = int(os.environ.get("KIMI_TIMEOUT_SECONDS", "90"))
+# Default on: when the key is present, Gemini 429/quota errors overflow to Kimi.
+# Clinical/sensitive traffic never uses this overflow unless AI_CLINICAL_PROVIDER=kimi.
+GEMINI_FALLBACK_KIMI = os.environ.get("GEMINI_FALLBACK_KIMI", "1").strip() != "0"
 # Gemini is the only normal-operation route. Bedrock/OpenRouter are retained
 # only for explicit compatibility tests or deliberate legacy overrides.
 AI_MODEL_PROVIDER = os.environ.get("AI_MODEL_PROVIDER", "gemini").strip().lower()
@@ -53,6 +66,19 @@ def gemini_configured() -> bool:
     return bool(GEMINI_API_KEY and GEMINI_MODEL)
 
 
+def kimi_configured() -> bool:
+    return bool(KIMI_API_KEY and KIMI_BASE_URL and KIMI_MODEL)
+
+
+def kimi_model_id(model: str | None = None) -> str:
+    value = str(model or KIMI_MODEL or "").strip()
+    for prefix in ("moonshotai/", "moonshot/", "kimi/"):
+        if value.lower().startswith(prefix):
+            value = value[len(prefix):]
+            break
+    return value or KIMI_MODEL
+
+
 def models_for_roles() -> dict[str, str]:
     return {
         "manager": AI_MANAGER_MODEL,
@@ -70,15 +96,41 @@ def _provider_policy(sensitive: bool = False) -> dict:
 
 def desired_provider(sensitive: bool = False) -> str:
     if sensitive:
-        return AI_CLINICAL_PROVIDER or "gemini"
-    if AI_MODEL_PROVIDER in {"gemini", "openrouter", "bedrock"}:
+        provider = (AI_CLINICAL_PROVIDER or "gemini").strip().lower()
+        if provider in {"gemini", "kimi", "openrouter", "bedrock"}:
+            return provider
+        return "gemini"
+    if AI_MODEL_PROVIDER in {"gemini", "kimi", "openrouter", "bedrock"}:
         return AI_MODEL_PROVIDER
     # `auto` is retained only for old deployments: prefer the old OpenRouter
     # path when explicitly configured, otherwise use Gemini. The default is
     # never auto; it is Gemini.
     if configured():
         return "openrouter"
+    if kimi_configured():
+        return "kimi"
     return "gemini"
+
+
+def is_quota_error(exc: Exception) -> bool:
+    """True when Gemini (or another provider) refused because of daily/rate quota."""
+    text = str(exc).lower()
+    return any(
+        token in text
+        for token in (
+            "429",
+            "resource_exhausted",
+            "resource exhausted",
+            "quota",
+            "rate limit",
+            "ratelimit",
+            "too many requests",
+            "exceeded your current quota",
+            "limit: 20",
+            "20 queries",
+            "daily limit",
+        )
+    )
 
 
 def last_route() -> dict:
@@ -176,6 +228,8 @@ def _safe_error(exc: Exception) -> str:
     for secret in (
         OPENROUTER_API_KEY,
         GEMINI_API_KEY,
+        KIMI_API_KEY,
+        os.environ.get("MOONSHOT_API_KEY", ""),
         os.environ.get("AWS_BEARER_TOKEN_BEDROCK", ""),
         os.environ.get("AWS_SECRET_ACCESS_KEY", ""),
     ):
@@ -238,6 +292,86 @@ def probe_bedrock() -> dict:
         return {"configured": True, "ok": False, "detail": _safe_error(exc), "model": BEDROCK_MODEL_ID}
 
 
+def kimi_chat(*, model: str, messages: list[dict],
+              max_tokens: int = 1200, temperature: float = 0.2) -> tuple[str, dict, int]:
+    """Call Moonshot/Kimi chat completions. OpenAI-compatible; never exposes the key."""
+    if not kimi_configured():
+        raise RuntimeError("KIMI_API_KEY is not configured")
+
+    payload = {
+        "model": kimi_model_id(model),
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+    }
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    headers = {
+        "Authorization": f"Bearer {KIMI_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    req = urllib.request.Request(
+        KIMI_BASE_URL + "/chat/completions",
+        data=body,
+        headers=headers,
+        method="POST",
+    )
+    started = time.monotonic()
+    try:
+        with urllib.request.urlopen(req, timeout=KIMI_TIMEOUT_SECONDS) as response:
+            result = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        try:
+            detail = exc.read().decode("utf-8")[:800]
+        except Exception:
+            detail = str(exc)
+        raise RuntimeError(f"Kimi HTTP {exc.code}: {detail}") from exc
+
+    choices = result.get("choices") or []
+    if not choices:
+        raise RuntimeError("Kimi returned no choices")
+    content = ((choices[0].get("message") or {}).get("content"))
+    if isinstance(content, list):
+        answer = "\n".join(
+            str(part.get("text", "")) for part in content
+            if isinstance(part, dict) and part.get("text")
+        )
+    else:
+        answer = str(content or "").strip()
+    if not answer:
+        raise RuntimeError("Kimi returned an empty response")
+
+    raw_usage = result.get("usage") or {}
+    usage = {
+        "inputTokens": raw_usage.get("prompt_tokens", raw_usage.get("input_tokens", "")),
+        "outputTokens": raw_usage.get("completion_tokens", raw_usage.get("output_tokens", "")),
+    }
+    actual_model = str(result.get("model") or payload["model"])
+    _set_route("kimi", actual_model)
+    return answer, usage, int((time.monotonic() - started) * 1000)
+
+
+def probe_kimi() -> dict:
+    """Perform one tiny Kimi inference to prove the overflow route works."""
+    if not kimi_configured():
+        return {"configured": False, "ok": False, "detail": "KIMI_API_KEY is not configured"}
+    try:
+        answer, usage, latency_ms = kimi_chat(
+            model=KIMI_MODEL,
+            messages=[{"role": "user", "content": "Reply with exactly: OK"}],
+            max_tokens=16,
+            temperature=0,
+        )
+        return {
+            "configured": True,
+            "ok": bool(answer),
+            "model": last_route().get("model") or KIMI_MODEL,
+            "latency_ms": latency_ms,
+            "usage": usage,
+        }
+    except Exception as exc:  # noqa: BLE001 - diagnostic boundary
+        return {"configured": True, "ok": False, "detail": _safe_error(exc), "model": KIMI_MODEL}
+
+
 def probe_gemini() -> dict:
     """Perform one tiny direct Gemini call for explicit diagnostics."""
     if not gemini_configured():
@@ -269,11 +403,13 @@ def live_probe() -> dict:
     """Explicit live connectivity test. It never returns credentials or prompt content."""
     return {
         "gemini": probe_gemini(),
+        "kimi": probe_kimi(),
         "openrouter": probe_openrouter(),
         "bedrock": probe_bedrock(),
         "policy": {
             "general_primary": desired_provider(False),
             "clinical_primary": desired_provider(True),
+            "gemini_to_kimi_fallback": GEMINI_FALLBACK_KIMI,
             "openrouter_to_bedrock_fallback": OPENROUTER_FALLBACK_BEDROCK,
         },
     }
@@ -285,13 +421,13 @@ def ask(chat_id: int, text: str, *, system_prompt: str, sheet_context: str = "",
     from agent_runtime import build_context
 
     provider = desired_provider(sensitive)
-    if provider == "gemini":
+    if provider in {"gemini", "kimi"}:
         from . import model_router
 
         result = model_router.call(
             domain="clinical" if sensitive else "general",
             prompt=text,
-            model=GEMINI_MODEL,
+            model=KIMI_MODEL if provider == "kimi" else GEMINI_MODEL,
             system=system_prompt,
             chat_id=chat_id,
             sheet_context=sheet_context,
@@ -329,6 +465,10 @@ def status() -> dict:
     return {
         "gemini_configured": gemini_configured(),
         "gemini_model": GEMINI_MODEL,
+        "kimi_configured": kimi_configured(),
+        "kimi_model": KIMI_MODEL,
+        "kimi_base_url": KIMI_BASE_URL,
+        "gemini_fallback_kimi": GEMINI_FALLBACK_KIMI,
         "openrouter_configured": configured(),
         "bedrock_configured": bedrock_configured(),
         "desired_general_provider": desired_provider(False),

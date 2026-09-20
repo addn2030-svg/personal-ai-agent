@@ -70,6 +70,15 @@ GUIDES = {
         "Set GEMINI_MODEL (default: google/gemini-3.7-flash) if a different enabled model is required.",
         "Verify: python3 -m connectors.connection_setup --live.",
     ],
+    "kimi": [
+        "platform.moonshot.ai → Console → API Keys (international). China: platform.moonshot.cn.",
+        "Create a key and set KIMI_API_KEY in Railway — never in chat or git. MOONSHOT_API_KEY is also accepted.",
+        "Optional: KIMI_MODEL (default kimi-k2.5), KIMI_BASE_URL (default https://api.moonshot.ai/v1).",
+        "Keep AI_MODEL_PROVIDER=gemini to use Kimi only after Gemini's ~20 questions/day quota.",
+        "Or set AI_MODEL_PROVIDER=kimi to send ordinary questions to Kimi immediately.",
+        "Clinical traffic stays on Gemini unless you explicitly set AI_CLINICAL_PROVIDER=kimi.",
+        "Verify: python3 -m connectors.connection_setup --live  or Telegram /kimi_test.",
+    ],
     "buffer": [
         "publish.buffer.com/settings/api → create a personal API key.",
         "Set BUFFER_API_KEY locally / in the deployment variables — never in chat or git.",
@@ -209,6 +218,24 @@ def check_gemini(env=None) -> dict:
     }
 
 
+def check_kimi(env=None) -> dict:
+    env = env if env is not None else _env
+    key = env("KIMI_API_KEY") or env("MOONSHOT_API_KEY")
+    model = env("KIMI_MODEL") or "kimi-k2.5"
+    base = env("KIMI_BASE_URL") or "https://api.moonshot.ai/v1"
+    if key:
+        status, detail = "ok", f"API key set — model {model} @ {base}"
+    else:
+        status, detail = "optional", (
+            "KIMI_API_KEY not set — optional overflow after Gemini's ~20 questions/day"
+        )
+    return {
+        "key": "kimi", "name": "Kimi API",
+        "env": ["KIMI_API_KEY", "KIMI_MODEL", "KIMI_BASE_URL"],
+        "status": status, "detail": detail,
+    }
+
+
 def check_buffer(env=None) -> dict:
     env = env if env is not None else _env
     key = env("BUFFER_API_KEY")
@@ -222,7 +249,7 @@ def check_buffer(env=None) -> dict:
 
 
 CHECKS = [check_telegram, check_sheets, check_drive, check_docs, check_calendar, check_github,
-          check_gemini, check_buffer]
+          check_gemini, check_kimi, check_buffer]
 
 
 # ---------------------------------------------------------------- live probes
@@ -280,6 +307,11 @@ def _probe_gemini():
     return model_gateway.probe_gemini()
 
 
+def _probe_kimi():
+    from . import model_gateway
+    return model_gateway.probe_kimi()
+
+
 PROBES = {
     "telegram": _probe_telegram,
     "sheets": _probe_sheets,
@@ -288,9 +320,10 @@ PROBES = {
     "calendar": _probe_calendar,
     "github": _probe_github,
     "gemini": _probe_gemini,
+    "kimi": _probe_kimi,
 }
 
-STATUS_ICON = {"ok": "✅", "partial": "⚠️", "missing": "❌", "invalid": "❌"}
+STATUS_ICON = {"ok": "✅", "partial": "⚠️", "missing": "❌", "invalid": "❌", "optional": "○"}
 
 
 def run(live: bool = False) -> list:
@@ -319,7 +352,7 @@ def render(results, live: bool = False) -> str:
                 else f"FAIL {probe['error']}"
             )
         lines.append(line)
-    pending = [r for r in results if r["status"] != "ok"]
+    pending = [r for r in results if r["status"] not in {"ok", "optional"}]
     if pending:
         lines.append("")
         lines.append("Next steps (priority: " + " → ".join(PRIORITY_ORDER) + "):")
@@ -352,7 +385,7 @@ def main(argv):
         print(json.dumps(results, ensure_ascii=False, indent=2))
     else:
         print(render(results, live=live))
-    return 0 if all(r["status"] == "ok" for r in results) else 2
+    return 0 if all(r["status"] in {"ok", "optional"} for r in results) else 2
 
 
 if __name__ == "__main__":

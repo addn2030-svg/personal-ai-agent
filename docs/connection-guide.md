@@ -142,6 +142,36 @@ phones/e-mails/ID runs stripped from queries before any external call).
 
 ---
 
+## 8️⃣ Kimi API — optional overflow after Gemini's ~20 questions/day
+Code: `connectors/model_gateway.py`, `connectors/model_router.py`.
+
+Gemini free/low tiers often stop after about **20 questions per day**. Kimi
+(Moonshot) is the overflow route: ordinary Telegram questions keep working after
+Gemini returns 429/quota. Clinical questions stay on Gemini unless you
+explicitly set `AI_CLINICAL_PROVIDER=kimi`.
+
+1. Sign in at [platform.moonshot.ai](https://platform.moonshot.ai) (international)
+   or [platform.moonshot.cn](https://platform.moonshot.cn) (China).
+2. Console → **API Keys** → create a key. Copy it once.
+3. Add the variables in Railway → Variables. Never paste the key in chat or git.
+
+| Variable | Required | Value |
+|---|---|---|
+| `KIMI_API_KEY` | for overflow | Moonshot/Kimi secret. `MOONSHOT_API_KEY` is also accepted |
+| `KIMI_MODEL` | optional | default `kimi-k2.5` (`kimi-k3`, `kimi-k2.6`, `moonshot-v1-128k` also work) |
+| `KIMI_BASE_URL` | optional | default `https://api.moonshot.ai/v1` (China: `https://api.moonshot.cn/v1`) |
+| `GEMINI_FALLBACK_KIMI` | optional | default `1` — overflow on Gemini quota. Set `0` to disable |
+| `AI_MODEL_PROVIDER` | optional | keep `gemini` for overflow-only, or set `kimi` to skip Gemini entirely |
+
+```bash
+python3 -m connectors.connection_setup --guide kimi
+python3 -m connectors.connection_setup --live
+```
+
+Telegram: `/ai_status` and `/kimi_test`.
+
+---
+
 ## 📋 Environment variable summary
 
 | Integration | Required | Optional |
@@ -154,6 +184,7 @@ phones/e-mails/ID runs stripped from queries before any external call).
 | Calendar | `GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_CALENDAR_ID` | `MANAGER_TIMEZONE` |
 | GitHub | `GITHUB_TOKEN` | `AI_OS_GITHUB_REPO` |
 | Gemini API | `GEMINI_API_KEY` | `GEMINI_MODEL` |
+| Kimi API (Gemini 20/day overflow) | — | `KIMI_API_KEY`, `KIMI_MODEL`, `KIMI_BASE_URL` |
 | YouTube search | — | `YOUTUBE_API_KEY` |
 
 ## 🎯 Setup order

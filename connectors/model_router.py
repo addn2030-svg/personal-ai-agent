@@ -4,7 +4,7 @@
 الصحيح:
     response = model_router.call(
         domain="general",  # يوجه افتراضياً إلى Gemini API
-        prompt=brief_prompt,
+        prompt=brief_prompt,  # Kimi is the quota overflow when configured
         model=os.getenv("GEMINI_MODEL", "google/gemini-3.7-flash")
     )
 
@@ -181,6 +181,44 @@ def _gemini_converse(
     )
 
 
+def _kimi_converse(
+    *,
+    model: str,
+    system: str,
+    prompt: str,
+    max_tokens: int = 1200,
+    temperature: float = 0.2,
+    chat_id: int | None = None,
+    sheet_context: str = "",
+    messages: list[dict] | None = None,
+    fallback: bool = False,
+) -> RouterResponse:
+    """Call Moonshot/Kimi chat completions (OpenAI-compatible)."""
+    if not gateway.kimi_configured():
+        raise RuntimeError("KIMI_API_KEY is not configured")
+    if messages is None:
+        messages, _ = _build_messages(
+            system=system, prompt=prompt, chat_id=chat_id, sheet_context=sheet_context
+        )
+    answer, usage, latency_ms = gateway.kimi_chat(
+        model=model,
+        messages=messages,
+        max_tokens=max_tokens,
+        temperature=temperature,
+    )
+    route = gateway.last_route()
+    actual_model = route.get("model") or gateway.kimi_model_id(model)
+    _set_route("kimi", actual_model, fallback=fallback)
+    return RouterResponse(
+        text=answer,
+        model=actual_model,
+        usage=usage,
+        latency_ms=latency_ms,
+        provider="kimi",
+        fallback=fallback,
+    )
+
+
 def _openrouter_converse(
     *,
     model: str,
@@ -301,6 +339,7 @@ def call(
       - "general" / "manager" / "critic" -> Gemini API by default
       - "clinical" / "sensitive" -> Gemini API by default; explicit legacy
         provider overrides remain available for compatibility
+      - "kimi" -> Moonshot/Kimi API
       - "bedrock" -> explicit Claude/Bedrock compatibility route
       - any other -> general behavior
 
@@ -311,6 +350,7 @@ def call(
     clinical_domain = domain in {"clinical", "bedrock", "sensitive"} or sensitive
     provider = (
         "bedrock" if domain == "bedrock"
+        else "kimi" if domain == "kimi"
         else gateway.desired_provider(sensitive=clinical_domain)
     )
     # Preserve the old clinical policy semantics: an explicit clinical
@@ -323,6 +363,8 @@ def call(
     if model is None:
         if provider == "gemini":
             model = AI_GEMINI_MODEL
+        elif provider == "kimi":
+            model = gateway.KIMI_MODEL
         elif clinical_domain:
             model = BEDROCK_MODEL_ID
         elif domain == "manager":
@@ -333,17 +375,56 @@ def call(
             model = os.getenv("AI_MODEL_MANAGER", AI_MANAGER_MODEL) or AI_MANAGER_MODEL
     if provider == "gemini" and not str(model).startswith(("gemini", "google/")):
         model = AI_GEMINI_MODEL
+    elif provider == "kimi":
+        raw = str(model).strip()
+        if raw.startswith(("gemini", "google/", "anthropic/", "openai/", "us.anthropic")):
+            model = gateway.KIMI_MODEL
+        else:
+            model = gateway.kimi_model_id(raw)
     elif provider == "bedrock" and not clinical_domain:
         model = BEDROCK_MODEL_ID
 
     model = str(model).strip()
 
-    # Gemini is the only normal route and has no silent Bedrock/OpenRouter
-    # fallback. This also covers clinical questions when AI_CLINICAL_PROVIDER is
-    # set to its normal value, gemini.
+    # Gemini is the normal route. Quota/429 overflow uses Kimi when configured;
+    # there is still no silent Bedrock/OpenRouter fallback. Clinical traffic
+    # never overflows to Kimi unless AI_CLINICAL_PROVIDER=kimi.
     if provider == "gemini":
-        return _gemini_converse(
-            model_id=model,
+        try:
+            return _gemini_converse(
+                model_id=model,
+                system=system,
+                prompt=prompt,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                chat_id=chat_id,
+                sheet_context=sheet_context,
+                messages=messages,
+            )
+        except Exception as exc:
+            allow_kimi = (
+                gateway.GEMINI_FALLBACK_KIMI
+                and gateway.kimi_configured()
+                and gateway.is_quota_error(exc)
+                and not clinical_domain
+            )
+            if not allow_kimi:
+                raise
+            return _kimi_converse(
+                model=gateway.KIMI_MODEL,
+                system=system,
+                prompt=prompt,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                chat_id=chat_id,
+                sheet_context=sheet_context,
+                messages=messages,
+                fallback=True,
+            )
+
+    if provider == "kimi":
+        return _kimi_converse(
+            model=model,
             system=system,
             prompt=prompt,
             max_tokens=max_tokens,

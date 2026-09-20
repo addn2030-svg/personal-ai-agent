@@ -155,11 +155,25 @@ GEMINI_API_KEY                    # secret
 GEMINI_MODEL=google/gemini-3.7-flash
 ```
 
+Kimi is the optional overflow when Gemini hits its ~20 questions/day cap.
+Add these in Railway Variables (never in chat or git):
+
+```text
+KIMI_API_KEY                      # secret from platform.moonshot.ai
+KIMI_MODEL=kimi-k2.5              # optional; kimi-k3 / kimi-k2.6 also work
+KIMI_BASE_URL=https://api.moonshot.ai/v1
+GEMINI_FALLBACK_KIMI=1            # default; set 0 to disable overflow
+```
+
+Keep `AI_MODEL_PROVIDER=gemini` so ordinary questions use Gemini first and only
+switch to Kimi after a quota/429 error. To send ordinary questions to Kimi
+immediately (skip the 20/day cap), set `AI_MODEL_PROVIDER=kimi`. Clinical
+questions stay on Gemini unless you also set `AI_CLINICAL_PROVIDER=kimi`.
+
 OpenRouter and Claude/Bedrock are not required for normal operation and are not
 used by the primary Telegram route. Do not add `OPENROUTER_API_KEY` for this
 configuration. The direct Gemini adapter uses the Gemini API and falls back
-between its supported Gemini endpoints only; it does not fall back to another
-provider.
+to Kimi only on quota errors when `KIMI_API_KEY` is set.
 
 ### Project memory and scheduling
 

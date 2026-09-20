@@ -30,6 +30,9 @@ If you override the start command in Railway, keep the `-m` form.
 - AI_CLINICAL_PROVIDER=gemini
 - GEMINI_API_KEY=<secret>
 - GEMINI_MODEL=google/gemini-3.7-flash
+- KIMI_API_KEY=<secret> (optional overflow after Gemini's ~20 questions/day)
+- KIMI_MODEL=kimi-k2.5
+- KIMI_BASE_URL=https://api.moonshot.ai/v1
 
 ### Persistent state ⚠️ REQUIRED — deploy will lose all state without it
 

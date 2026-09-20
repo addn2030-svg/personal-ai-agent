@@ -116,6 +116,49 @@ class ModelRouterTests(unittest.TestCase):
         self.assertEqual(response.text, "bedrock compatibility")
         self.assertEqual(response.provider, "bedrock")
 
+    def test_kimi_provider_uses_kimi_converse(self):
+        with patch.object(model_router.gateway, "AI_MODEL_PROVIDER", "kimi"), \
+             patch.object(model_router.gateway, "kimi_configured", return_value=True), \
+             patch.object(model_router.gateway, "KIMI_MODEL", "kimi-k2.5"), \
+             patch.object(model_router.gateway, "kimi_model_id", return_value="kimi-k2.5"), \
+             patch.object(model_router, "_gemini_converse") as gemini, \
+             patch.object(model_router, "_kimi_converse", return_value=model_router.RouterResponse(
+                 text="Kimi answer", model="kimi-k2.5", usage={}, latency_ms=11,
+                 provider="kimi",
+             )) as kimi:
+            response = model_router.call(domain="general", prompt="hello")
+        self.assertEqual(response.text, "Kimi answer")
+        self.assertEqual(response.provider, "kimi")
+        kimi.assert_called_once()
+        gemini.assert_not_called()
+
+    def test_gemini_quota_overflows_to_kimi_for_general(self):
+        with patch.object(model_router.gateway, "AI_MODEL_PROVIDER", "gemini"), \
+             patch.object(model_router.gateway, "GEMINI_FALLBACK_KIMI", True), \
+             patch.object(model_router.gateway, "kimi_configured", return_value=True), \
+             patch.object(model_router.gateway, "KIMI_MODEL", "kimi-k2.5"), \
+             patch.object(model_router.gateway, "is_quota_error", return_value=True), \
+             patch.object(model_router, "_gemini_converse", side_effect=RuntimeError("HTTP 429 quota")), \
+             patch.object(model_router, "_kimi_converse", return_value=model_router.RouterResponse(
+                 text="overflow", model="kimi-k2.5", usage={}, latency_ms=9,
+                 provider="kimi", fallback=True,
+             )) as kimi:
+            response = model_router.call(domain="general", prompt="continue after 20")
+        self.assertEqual(response.text, "overflow")
+        self.assertEqual(response.provider, "kimi")
+        self.assertTrue(response.fallback)
+        kimi.assert_called_once()
+
+    def test_clinical_does_not_overflow_to_kimi(self):
+        with patch.object(model_router.gateway, "AI_CLINICAL_PROVIDER", "gemini"), \
+             patch.object(model_router.gateway, "GEMINI_FALLBACK_KIMI", True), \
+             patch.object(model_router.gateway, "kimi_configured", return_value=True), \
+             patch.object(model_router, "_gemini_converse", side_effect=RuntimeError("HTTP 429 quota")), \
+             patch.object(model_router, "_kimi_converse") as kimi:
+            with self.assertRaisesRegex(RuntimeError, "429"):
+                model_router.call(domain="clinical", prompt="ألم في الركبة", sensitive=True)
+        kimi.assert_not_called()
+
     def test_reported_arabic_health_question_is_clinical(self):
         from connectors import capability_truth
 

@@ -1072,6 +1072,15 @@ def _selftest():
                        ("Knowledge", BASE/"knowledge"), ("Skills", BASE/"skills")]:
         checks.append((name, path.exists(), "موجود" if path.exists() else "مفقود"))
     checks.append(("Gemini API", _gemini_configured(), "مهيأ" if _gemini_configured() else "غير مهيأ"))
+    kimi_ok = bool(
+        os.environ.get("KIMI_API_KEY", "").strip()
+        or os.environ.get("MOONSHOT_API_KEY", "").strip()
+    )
+    checks.append((
+        "Kimi API",
+        True,
+        "مهيأ — تجاوز حد Gemini 20/يوم" if kimi_ok else "اختياري — أضف KIMI_API_KEY لتجاوز حد 20 سؤال/يوم",
+    ))
     checks.append(("Google Sheets", _sheets_configured(), "مهيأ" if _sheets_configured() else "غير مهيأ"))
     try:
         from connectors import clinical_sheet
