@@ -2,6 +2,31 @@
 
 نظام تشغيل شخصي بالذكاء الاصطناعي: وكيل رئيسي (Chief of Staff) + 6 مهارات، يقرأ من **مخزن حالة موحد** ويخرج بريفًا يوميًا ومراجعة أسبوعية وكشف أنماط، وكل إجراء خارجي يمر بـ**طابور اعتماد** مرتبط ببصمة المحتوى.
 
+## الجديد — ☁️ نسخ الحالة إلى Supabase (طبقة متانة خارج الخادم)
+- **المشكلة التي يحلّها**: مصدر الحقيقة `data/state.json` يعيش على قرص Railway وحده،
+  والنسخ الدوارة على **نفس** القرص — وهذا الخطر المتبقي المُسجَّل في
+  `docs/agent3-p0-adjudication.md`. الآن تُدفع نسخة كاملة إلى جدول Supabase
+  (`state_snapshots`) خارج الخادم، فحذف الخدمة أو فقدان الـVolume لم يعد يعني فقدان الحالة.
+- **الموصل**: `connectors/supabase_client.py` (REST عبر `urllib` — بلا أي اعتمادية جديدة)
+  و`connectors/supabase_state.py` (دفع · عرض · فحص · استعادة · تقليم).
+- **سلامة الاستعادة**: بصمة sha256 تُحسب على **تمثيل قانوني مرتَّب** (لأن عمود `jsonb`
+  لا يحفظ ترتيب المفاتيح ولا التنسيق — البصمة على بايتات الملف الخام كانت ستُظهر كل نسخة
+  «تالفة»). تُفحص البصمة والأقسام الأساسية قبل أي كتابة، وتُؤخذ نسخة محلية
+  (`state-pre-restore-*.json`) ثم يُكتب الملف **ذرّيًا** (`os.replace`).
+- **حواجز مقصودة**: الكتابة تحتاج مفتاحًا سريًا **و**`SUPABASE_WRITE_ENABLED=1` (مغلق
+  افتراضيًا)، ومفتاح anon/publishable لا يكتب أبدًا، وجدول النسخ بـRLS مفعّل وبلا سياسات
+  (مسدود على المفتاح العام)، والاستعادة **من الطرفية فقط** — لا أمر تيليجرام يلمس
+  `state.json`. ولا يُطبع أي مفتاح في أي مخرَج (تنقية `redact()` لكل رسالة خطأ).
+- **`.env` صار مقروءًا فعلًا**: `engine/env_file.py` يقرأ `.env` محليًا بلا اعتماديات،
+  والمتغيرات الحقيقية في البيئة تتقدّم عليه دائمًا. القالب: `.env.example`.
+- **الاستخدام**: `/backup_now` و`/backups` من تيليجرام · `python3 -m connectors.supabase_state
+  push|list|show|restore|prune` · و`/diag` يعرض حالة القناة تلقائيًا.
+- **الرحلة الكاملة** (الواجهة الحالية: Settings → **API Keys** أو زر **Connect**، مفاتيح
+  `sb_publishable_…`/`sb_secret_…` الجديدة مقابل `anon`/`service_role` القديمة، SQL الإعداد،
+  الاستعادة، حل المشاكل): `docs/supabase-setup.md` · الاختبارات: `tests/test_supabase.py`
+  و`tests/test_supabase_e2e.py` (خادم PostgREST محلي — دورة كاملة بلا شبكة خارجية، 47 اختبارًا)
+  · التحقق: `bash scripts/verify_supabase.sh`.
+
 ## الجديد في v1.1 (عتبة التفويض المالي — دفع تلقائي 375 ريال)
 - **استثناء واحد ضيّق ومصرّح على قاعدة «المالي أحمر»**: التزام مالي **< 375 ريال (~100$)**
   يرتقي بفئة `money` من **L1 إلى L3** ← **دفع تلقائي** فعلي عبر موصل الدفع مع إيصال
@@ -146,6 +171,7 @@ python3 engine/chief_of_staff.py
 - فحص فوري لحالة كل القنوات: `python3 -m connectors.connection_setup` (أضف `--live` للفحص الحي عبر الشبكة، و`--guide calendar` لخطوات قناة محددة).
 - **Kimi API (تجاوز حد Gemini ~20 سؤال/يوم):** أضف في Railway `KIMI_API_KEY` من platform.moonshot.ai. اختياري: `KIMI_MODEL=kimi-k2.5` و`KIMI_BASE_URL=https://api.moonshot.ai/v1`. اترك `AI_MODEL_PROVIDER=gemini` ليُستخدم Kimi تلقائيًا بعد نفاد الحصة، أو اضبط `AI_MODEL_PROVIDER=kimi` لاستخدامه مباشرة. الأسئلة السريرية تبقى على Gemini ما لم تضبط `AI_CLINICAL_PROVIDER=kimi`. لا تضع المفتاح في Git أو في المحادثة.
 - خطوات الربط كاملة مع متغيرات البيئة المطلوبة: `docs/connection-guide.md` — **مفاتيح الربط توضع في متغيرات البيئة فقط، ولا تُرسل في أي محادثة**.
+- **Supabase (نسخ الحالة خارج الخادم — اختياري):** `docs/supabase-setup.md`. ضع `SUPABASE_URL` و`SUPABASE_SERVICE_ROLE_KEY` و`SUPABASE_WRITE_ENABLED=1` في Railway → Variables (لا في Git ولا في محادثة)، وشغّل SQL الإعداد مرة واحدة: `python3 -m connectors.supabase_client --sql`. ثم `/backup_now` من تيليجرام. المفتاح السري يبقى على الخادم فقط؛ ومفتاح anon/publishable للقراءة فقط ولا يكتب أبدًا.
 - نقل التشغيل إلى Railway، المتغيرات، الـVolume، وتشخيص انتهاء بيئة 24 ساعة: `docs/railway-migration.md`.
 - خطابات وتقارير رسمية عبر Google Docs: `python3 -m connectors.google_docs_service create "العنوان" "النص"` (تُنشأ كمسودات — الإرسال الخارجي يبقى خلف بوابة الاعتماد).
 

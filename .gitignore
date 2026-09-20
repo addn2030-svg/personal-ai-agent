@@ -14,6 +14,8 @@ secrets/
 *.token.json
 .env
 .env.*
+# القالب فقط يُرفع — بلا أي قيمة حقيقية
+!.env.example
 # عام
 __pycache__/
 *.pyc
