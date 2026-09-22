@@ -81,7 +81,9 @@ jobs:
             exit 1
           fi
 
-      - name: الفشل ذرّي — قاعدة بلا pg_trgm
+      - name: الفشل ذرّي — لا مخطط نصف مبني
+        env:
+          BRAIN_GUARD_STRICT: "1"   # تخطّي الفحص = فشل، لا نجاح صامت
         run: |
           set +e
           OUT=$(bash scripts/verify_brain_schema.sh 2>&1)
