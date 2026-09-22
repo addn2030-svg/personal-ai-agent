@@ -162,6 +162,67 @@ class TestCharters(unittest.TestCase):
                           f"{proj['id']} charter has no risk register (G4)")
 
 
+class TestEveryRegisteredProjectInHubMap(unittest.TestCase):
+    """V3 from the other side: registry ↔ map consistency is checked both ways."""
+
+    def test_every_registered_project_in_hub_map(self):
+        hub = memory_hub.parse_hub_map()
+        flat = " ".join(
+            node
+            for b in hub["branches"]
+            for node in (
+                [b["name"], *b["leaves"]]
+                + [s["name"] for s in b.get("sub_branches", [])]
+                + [leaf for s in b.get("sub_branches", []) for leaf in s["leaves"]]
+            )
+        )
+        for pid, proj in memory_hub.PROJECTS.items():
+            self.assertIn(pid, flat,
+                          f"{pid} · {proj['name']} missing from root_memory.mmd")
+            self.assertIn(proj["charter"], flat,
+                          f"{pid} charter path missing from root_memory.mmd")
+
+
+class TestP4HubSelfRegistration(unittest.TestCase):
+    """P4 · ABH-Memory Hub — the hub governs itself as a tracked project."""
+
+    def test_registry_record(self):
+        proj = memory_hub.PROJECTS.get("P4")
+        self.assertIsNotNone(proj, "P4 must be registered in PROJECTS")
+        self.assertEqual("active", proj["status"])
+        self.assertEqual("ABH-Memory Hub", proj["name"])
+        self.assertEqual("internal", proj["sensitivity"])
+        self.assertFalse(proj["clinical"], "the hub is not a clinical project; "
+                         "P3 keeps full custody of the clinical boundary")
+
+    def test_charter_on_disk(self):
+        path = os.path.join(memory_hub.BASE, memory_hub.PROJECTS["P4"]["charter"])
+        self.assertTrue(os.path.exists(path))
+
+    def test_charter_passes_guardrail_scans(self):
+        """V6/V7 materialise over memory/projects/*.md — P4's own charter must
+        come back with zero findings, exemptions included."""
+        path = os.path.join(memory_hub.BASE, memory_hub.PROJECTS["P4"]["charter"])
+        self.assertEqual([], memory_hub.scan_file(path))
+
+    def test_route_to_p4(self):
+        self.assertEqual("P4", memory_hub.route("P4")["id"])
+        self.assertEqual("P4", memory_hub.route("4")["id"])
+        self.assertEqual("P4", memory_hub.route("hub")["id"])
+
+    def test_existing_fragments_still_resolve(self):
+        """Regression: adding P4 must not steal P1–P3 fragment routes."""
+        self.assertEqual("P1", memory_hub.route("personal ai")["id"])
+        self.assertEqual("P2", memory_hub.route("course")["id"])
+        self.assertEqual("P3", memory_hub.route("pulse")["id"])
+
+    def test_envelope_for_hub_decisions(self):
+        rec = memory_hub.envelope("P4", "DECISION", "owner brief 2026-09-22",
+                                  "register the hub as a tracked project")
+        self.assertTrue(rec["record_id"].startswith("P4-DEC-"))
+        self.assertEqual("P4", rec["related_project"])
+
+
 class TestEnvelope(unittest.TestCase):
     def test_envelope_required_fields(self):
         rec = memory_hub.envelope("P3", "DECISION", "regulatory check 2026-09-23",

@@ -24,6 +24,7 @@ artefact live?*
 | `P1` | Personal AI Agent | Prompt engineering · custom agent frameworks | `memory/projects/01-personal-ai-agent.md` | internal | — |
 | `P2` | Telegram AI Course | Educational content · curriculum design | `memory/projects/02-telegram-ai-course.md` | internal | — |
 | `P3` | Pulse of Life Rehab & Home Visit | Jubail home-visit pilot · NKT/ANF · marketing ops | `memory/projects/03-pulse-of-life-home-rehab.md` | **clinical-adjacent** | `memory/sprints/2026-W39-pulse-of-life-home-visit.md` |
+| `P4` | ABH-Memory Hub | Multi-project routing · governance gates · sprint oversight | `memory/projects/04-abh-memory-hub.md` | internal | — |
 
 Dormant projects: none registered this cycle.
 
@@ -37,7 +38,8 @@ memory/
 ├── projects/
 │   ├── 01-personal-ai-agent.md        ← P1 charter
 │   ├── 02-telegram-ai-course.md       ← P2 charter
-│   └── 03-pulse-of-life-home-rehab.md ← P3 charter (clinical guardrails)
+│   ├── 03-pulse-of-life-home-rehab.md ← P3 charter (clinical guardrails)
+│   └── 04-abh-memory-hub.md           ← P4 charter (hub self-governance)
 └── sprints/
     └── 2026-W39-pulse-of-life-home-visit.md  ← P3 execution roadmap
 engine/memory_hub.py                   ← routing · envelope · governance gates

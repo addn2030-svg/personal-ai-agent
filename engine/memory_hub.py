@@ -86,6 +86,17 @@ PROJECTS = {
         "clinical": True,
         "current_sprint": "memory/sprints/2026-W39-pulse-of-life-home-visit.md",
     },
+    "P4": {
+        "id": "P4",
+        "name": "ABH-Memory Hub",
+        "status": "active",
+        "domain": "Multi-project routing · governance gates · hub artefacts and sprint oversight",
+        "charter": "memory/projects/04-abh-memory-hub.md",
+        "repo": "https://github.com/addn2030-svg/personal-ai-agent",
+        "owner": "Abdulrahman Bakor Howsawy",
+        "sensitivity": "internal",
+        "clinical": False,
+    },
 }
 
 # ---------------------------------------------------------------------------

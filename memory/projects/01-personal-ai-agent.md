@@ -74,7 +74,7 @@
 | Tests | 55 files under `tests/` | directory listing |
 | Supabase rollout | Gated, staged, kill-switch available | `engine/rollout.py` |
 | Workspace routing hub | Newly formalised as ABH-Memory | `root_memory.mmd` |
-| Multi-project registry | 3 active projects registered | `engine/memory_hub.py` |
+| Multi-project registry | 4 active projects registered (P1–P4, hub self-registered 2026-09-22) | `engine/memory_hub.py` |
 
 **Assumptions (labelled, per GLOBAL_RULES G6)**
 
