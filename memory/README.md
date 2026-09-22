@@ -86,9 +86,24 @@ Charters also carry a routing table, labelled assumptions, and a risk register.
 Exit code `0` = all gates pass. Exit code `1` = action required before publishing
 or committing hub artefacts.
 
-The gate runs in CI: `scripts/smoke_test.sh` executes `memory_hub validate` and
-`tests/test_memory_hub.py` **before** the demo bootstrap, so results stay
-deterministic and independent of runtime state.
+The gate is wired into `scripts/smoke_test.sh`, which executes
+`memory_hub validate` and `tests/test_memory_hub.py` **before** the demo
+bootstrap, so results stay deterministic and independent of runtime state.
+
+> **CI status — read this before relying on automation.** `docs/ci-workflow.yml`
+> is a *staged template*, not an active workflow. Per `README.md`
+> (§"تفعيل اختبار CI"), CI activates only when the owner creates
+> `.github/workflows/ci.yml` with that content. No active workflow currently
+> invokes `scripts/smoke_test.sh`, so **the gate is not yet enforced
+> automatically**. Until CI is activated, run it explicitly:
+>
+> ```bash
+> python3 -m engine.memory_hub validate
+> python3 tests/test_memory_hub.py
+> ```
+>
+> Verify rather than assume: `gh pr checks <n>` should list a `smoke` check once
+> CI is live.
 
 ### Claim guardrail (gate V6)
 

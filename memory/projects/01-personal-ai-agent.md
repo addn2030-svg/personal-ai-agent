@@ -89,7 +89,8 @@
 |---|---|---|---|---|
 | P1-A1 | Confirm Notion database IDs for P1/P2/P3 and record them in each charter | Abdulrahman | 2026-09-27 | none |
 | P1-A2 | Decide whether P2 and P3 get their own repositories or stay as `memory/` branches | Abdulrahman | 2026-09-30 | decision record |
-| ~~P1-A3~~ | ~~Add `python3 -m engine.memory_hub validate` to CI~~ — **DONE 2026-09-22**: wired into `scripts/smoke_test.sh` (runs pre-bootstrap for determinism) | Abdulrahman | closed | none |
+| P1-A3 | Add the hub gate to `scripts/smoke_test.sh` — **DONE 2026-09-22** (runs pre-bootstrap for determinism) | Abdulrahman | closed | none |
+| **P1-A5** | **Activate CI**: create `.github/workflows/ci.yml` from the staged `docs/ci-workflow.yml` template. Until this is done the hub gate is **not** enforced automatically — see `memory/README.md` | Abdulrahman | 2026-09-30 | owner decision — turns on automated runs repo-wide |
 | P1-A4 | Register dormant projects when they resume | Abdulrahman | rolling | none |
 
 ## Risk notes
