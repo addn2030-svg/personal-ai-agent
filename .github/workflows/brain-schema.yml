@@ -1,0 +1,74 @@
+# ============================================================================
+# التحقق من مخطط الدماغ على PostgreSQL حقيقي
+#
+# لماذا: `supabase/03_brain_memory.sql` كان يُراجَع بالعين فقط، وأهم ما فيه
+# (التطبيع العربي · ترتيب الاسترجاع · شبكة التشابه · الحماية) لا يظهر خطؤه
+# إلا بالتنفيذ. هنا يُنفَّذ المخطط على نسخة PostgreSQL حقيقية **مع pg_trgm
+# الحقيقي** — وهو نفسه المتاح على Supabase — ثم تُشغَّل فحوص السلوك.
+#
+# ما يُغطّى:
+#   1) المخطط يُنشأ كاملًا (جداول · دوال · فهارس · RLS · revoke).
+#   2) الاسترجاع العربي: صيغ ملتصقة (والعقد) · جمع مكسور (العقود) · الإبطال.
+#   3) المحتوى السريري محجوب افتراضيًا ولا يظهر إلا بالطلب الصريح.
+#   4) الفشل **ذرّي**: على قاعدة بلا pg_trgm يفشل المخطط برسالة موجّهة
+#      ولا يترك كائنًا واحدًا (لا مخطط نصف مبني).
+# ============================================================================
+name: Brain schema (PostgreSQL)
+
+on:
+  push:
+    paths:
+      - 'supabase/03_brain_memory.sql'
+      - 'supabase/tests/**'
+      - 'connectors/brain.py'
+      - 'scripts/verify_brain_schema.sh'
+      - '.github/workflows/brain-schema.yml'
+  pull_request:
+    paths:
+      - 'supabase/03_brain_memory.sql'
+      - 'supabase/tests/**'
+      - 'connectors/brain.py'
+      - 'scripts/verify_brain_schema.sh'
+      - '.github/workflows/brain-schema.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  schema:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16          # يحمل pg_trgm كما Supabase
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: brain
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: brain
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: أدوار Supabase — ليكون فحص «revoke» حقيقيًا لا متخطّى
+        run: |
+          psql -v ON_ERROR_STOP=1 -c 'create role anon nosuperuser;'
+          psql -v ON_ERROR_STOP=1 -c 'create role authenticated nosuperuser;'
+
+      - name: تنفيذ المخطط كما هو
+        run: psql -v ON_ERROR_STOP=1 -f supabase/03_brain_memory.sql
+
+      - name: فحوص السلوك على pg_trgm الحقيقي
+        run: psql -v ON_ERROR_STOP=1 -f supabase/tests/brain_schema_test.sql
+
+      - name: الفشل ذرّي — قاعدة بلا pg_trgm
+        run: bash scripts/verify_brain_schema.sh

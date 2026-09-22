@@ -343,6 +343,51 @@ class RecallFormatting(BrainTestCase):
         self.assertFalse(outcome.ok)
 
 
+# ------------------------------------------------ 9) التوسيع العربي للاستعلام
+class ArabicQueryExpansion(BrainTestCase):
+    """حروف الجر والعطف تُلتصق بالكلمة عربيًا: والعقد · بالعقد · للعقد.
+
+    بلا تجريدها يضيع كثير من الاسترجاع، لأن مطابقة SQL على «المصطلح داخل النص»
+    بالحرف — وهذا ما اكتُشف بفحص حقيقي على PostgreSQL لا بالمراجعة النظرية.
+    """
+
+    def test_attached_prepositions_are_stripped(self):
+        variants = brain.strip_arabic_prefixes("والعقد")
+        self.assertIn("العقد", variants, "الصيغة الوسيطة مفيدة: النص قد يحمل «العقد»")
+        self.assertIn("عقد", variants)
+        self.assertIn("عقد", brain.strip_arabic_prefixes("بالعقد"))
+
+    def test_double_stripping_reaches_the_bare_stem(self):
+        variants = brain.strip_arabic_prefixes("وبالعقد")
+        self.assertIn("بالعقد", variants)
+        self.assertIn("عقد", variants)
+
+    def test_short_words_are_not_mangled(self):
+        """الحرف المفرد لا يُجرَّد إلا إن بقي 5 أحرف: «لماذا» ليست «ماذا»."""
+        self.assertNotIn("ماذا", brain.strip_arabic_prefixes("لماذا"))
+
+    def test_query_terms_include_both_original_and_stripped(self):
+        terms = brain.query_terms("العقد مع العمير")
+        self.assertTrue(all(len(t) >= 3 for t in terms))
+        self.assertIn("عقد", terms)
+        self.assertEqual(len(terms), len(set(terms)), "مصطلحات مكررة")
+
+    def test_terms_are_passed_to_the_rpc(self):
+        self.env(**SUPABASE_ENV, **BRAIN_ON)
+        client = fake_client(rows=[])
+        brain.recall("العقد مع العمير", client=client)
+        payload = client.rpc.call_args.args[1]
+        self.assertIn("query_terms", payload)
+        self.assertIn("عقد", payload["query_terms"])
+
+    def test_expansion_failure_degrades_to_folded_query(self):
+        """لو تعذّر التوسيع، يُرسل الاستعلام مُطبَّعًا — لا ينهار الاسترجاع."""
+        with mock.patch.dict("sys.modules", {"context_service": None, "engine.context_service": None}):
+            terms = brain.query_terms("العقد")
+        self.assertTrue(terms)
+        self.assertTrue(all(len(t) >= 3 for t in terms))
+
+
 # --------------------------------------------------- 8) تكامل الإعداد والنشر
 class DeploymentWiring(BrainTestCase):
     def test_render_blueprint_enables_the_durable_brain(self):

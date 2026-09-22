@@ -37,6 +37,28 @@
 --      (المنع مطبَّق في connectors/brain.py قبل الكتابة، لا هنا فقط).
 -- ============================================================================
 
+-- ---------------------------------------------------------------------------
+-- 0) ذرّية التنفيذ + فحص مسبق
+--
+-- لماذا؟ لأن السكربت لو فشل في منتصفه (أشهر سبب: pg_trgm غير مُفعّل) ترك
+-- «مخططًا نصف مبني»: الجداول موجودة وbrain_recall مفقودة — وهي حالة أسوأ من
+-- الفشل النظيف، لأن /brain_status يقول «الجداول جاهزة» ثم تفشل كل عملية استرجاع.
+-- الفحص المسبق يرفع رسالة عربية واضحة قبل إنشاء أي شيء، والمعاملة (transaction)
+-- تعني: إما المخطط كامل، أو لا شيء منه.
+-- ---------------------------------------------------------------------------
+begin;
+
+do $$
+begin
+  if not exists (select 1 from pg_available_extensions where name = 'pg_trgm') then
+    raise exception using
+      message = 'امتداد pg_trgm غير متاح في هذا المشروع — المخطط لم يُنشأ (تراجع كامل).',
+      detail  = 'استرجاع الذاكرة العربية يحتاج تشابه ثلاثي الحروف (pg_trgm).',
+      hint    = 'Supabase → Database → Extensions → ابحث عن pg_trgm → Enable، ثم أعد تشغيل هذا الملف.';
+  end if;
+end
+$$;
+
 -- pg_trgm: تشابه ثلاثي الحروف — يعمل مع العربية بعد التطبيع (typos والصيغ).
 create extension if not exists pg_trgm;
 
@@ -167,9 +189,10 @@ create index if not exists brain_working_expiry_idx
 --    البيانات (فهرس واحد، مرور واحد) — والموصل يبقى بسيطًا وقابلًا للاختبار.
 -- ---------------------------------------------------------------------------
 create or replace function public.brain_recall(
-  query_text      text,
-  match_count     integer default 12,
-  include_sensitive boolean default false
+  query_text        text,
+  match_count       integer default 12,
+  include_sensitive boolean default false,
+  query_terms       text[]  default null
 )
 returns table (
   item_type    text,
@@ -187,48 +210,58 @@ as $$
   with q as (
     select public.brain_fold(query_text) as norm
   ),
+  -- الرموز تأتي من الخارج (connectors/brain.py يمرّر expand_query من
+  -- context_service: توسيع المفاهيم + إزالة حروف الجر الملتصقة)، وإن غابت
+  -- نستخرجها من الاستعلام نفسه — فنبقى صالحين للاستدعاء المباشر من SQL Editor.
+  raw_terms as (
+    select unnest(
+             coalesce(
+               nullif(query_terms, '{}'::text[]),
+               string_to_array((select norm from q), ' ')
+             )
+           ) as term
+  ),
   terms as (
-    select distinct t
-    from q, lateral regexp_split_to_table(q.norm, '\s+') as t
-    where length(t) >= 3
+    select distinct public.brain_fold(term) as term
+    from raw_terms
+    where length(btrim(coalesce(term, ''))) >= 3
   ),
   episode_hits as (
     select
-      'episode'::text as item_type,
-      e.id            as item_id,
-      e.occurred_at,
-      e.kind          as title,
-      e.summary       as snippet,
-      e.source_ref,
-      e.sensitivity,
+      'episode'::text as item_type, e.id as item_id, e.occurred_at, e.kind as title,
+      e.summary as snippet, e.source_ref, e.sensitivity,
       (
-        -- عدد الرموز المطابقة (المصطلح المُطبَّع كاملًا)
-        (select count(*) from terms where e.search_norm like '%' || terms.t || '%')
-        -- تشابه ثلاثي مع الاستعلام كاملًا (يرفع الجمل المتشابهة صياغةً)
-        + 2 * similarity(e.search_norm, (select norm from q))
+        (select count(*) from terms where e.search_norm like '%' || terms.term || '%')
+        + 2 * word_similarity((select norm from q), e.search_norm)
+        + case when (select norm from q) <> '' and e.search_norm like '%' || (select norm from q) || '%'
+               then 4 else 0 end
       )::real as score
     from public.brain_episodes e, q
     where (include_sensitive or e.sensitivity in ('normal', 'internal'))
-      and exists (select 1 from terms where e.search_norm like '%' || terms.t || '%')
+      and (
+        exists (select 1 from terms where e.search_norm like '%' || terms.term || '%')
+        -- شبكة أمان للصيغ غير المتوقعة (جمع مكسور مثل «العقود» مقابل «العقد»):
+        -- التشابه الكلمة-داخل-النص يكفي للقبول، لا للتزيين فقط.
+        or word_similarity((select norm from q), e.search_norm) >= 0.30
+      )
   ),
   fact_hits as (
     select
-      'fact'::text    as item_type,
-      f.id            as item_id,
-      f.occurred_at,
-      f.subject       as title,
-      btrim(f.predicate || ' ' || f.value) as snippet,
-      f.source_ref,
-      f.sensitivity,
+      'fact'::text as item_type, f.id as item_id, f.occurred_at, f.subject as title,
+      btrim(f.predicate || ' ' || f.value) as snippet, f.source_ref, f.sensitivity,
       (
-        (select count(*) from terms where f.search_norm like '%' || terms.t || '%')
-        + 2 * similarity(f.search_norm, (select norm from q))
-        -- الثقة ترجّح الحقيقة الأكيد قليلًا، والإبطال يُنزلها بوضوح
+        (select count(*) from terms where f.search_norm like '%' || terms.term || '%')
+        + 2 * word_similarity((select norm from q), f.search_norm)
+        + case when (select norm from q) <> '' and f.search_norm like '%' || (select norm from q) || '%'
+               then 4 else 0 end
         + case when f.superseded_by = '' then 1.5 * f.confidence else -1.0 end
       )::real as score
     from public.brain_facts f, q
     where (include_sensitive or f.sensitivity in ('normal', 'internal'))
-      and exists (select 1 from terms where f.search_norm like '%' || terms.t || '%')
+      and (
+        exists (select 1 from terms where f.search_norm like '%' || terms.term || '%')
+        or word_similarity((select norm from q), f.search_norm) >= 0.30
+      )
   )
   select * from (
     select * from episode_hits
@@ -240,8 +273,8 @@ as $$
   limit greatest(1, least(coalesce(match_count, 12), 100))
 $$;
 
-comment on function public.brain_recall(text, integer, boolean) is
-  'استرجاع الذاكرة بترتيب مرجَّح (تطابق رموز مُطبَّعة + تشابه ثلاثي). include_sensitive=false افتراضيًا ⇒ المحتوى السريري/المقيّد لا يظهر.';
+comment on function public.brain_recall(text, integer, boolean, text[]) is
+  'استرجاع بترتيب مرجَّح: رموز مُطبَّعة + تطابق كامل + تشابه ثلاثي (كلمة-داخل-نص). query_terms اختيارية يمرّرها connectors/brain.py من توسيع context_service. include_sensitive=false افتراضيًا ⇒ المحتوى السريري/المقيّد لا يظهر.';
 
 -- ---------------------------------------------------------------------------
 -- 6) الإحصاء والتقليم — لـ/brain_status وللصيانة الدورية
@@ -306,13 +339,35 @@ alter table public.brain_episodes enable row level security;
 alter table public.brain_facts    enable row level security;
 alter table public.brain_working  enable row level security;
 
-revoke all on public.brain_episodes from anon, authenticated;
-revoke all on public.brain_facts    from anon, authenticated;
-revoke all on public.brain_working  from anon, authenticated;
+-- الحجب عن المفتاح العام — مع حماية من غياب الدور نفسه.
+-- على Supabase الدوران موجودان دائمًا، لكن السكربت يجب أن يعمل أيضًا على
+-- Postgres عادي (استضافة ذاتية/فحص محلي) بلا خطأ «role anon does not exist».
+do $$
+declare
+  role_name text;
+  target    text;
+begin
+  foreach role_name in array array['anon', 'authenticated'] loop
+    if exists (select 1 from pg_roles where rolname = role_name) then
+      foreach target in array array[
+        'public.brain_episodes', 'public.brain_facts', 'public.brain_working'
+      ] loop
+        execute format('revoke all on %s from %I', target, role_name);
+      end loop;
+      foreach target in array array[
+        'public.brain_recall(text, integer, boolean, text[])',
+        'public.brain_stats()',
+        'public.brain_prune(integer)'
+      ] loop
+        execute format('revoke all on function %s from %I', target, role_name);
+      end loop;
+    end if;
+  end loop;
+end
+$$;
 
-revoke all on function public.brain_recall(text, integer, boolean) from anon, authenticated;
-revoke all on function public.brain_stats()                        from anon, authenticated;
-revoke all on function public.brain_prune(integer)                 from anon, authenticated;
+-- إغلاق المعاملة: من هنا إما أن يكون المخطط كاملًا، أو لم يتغير شيء أصلًا.
+commit;
 
 -- ============================================================================
 -- استعلامات مراقبة (SQL Editor — للمفتاح السري فقط، الجداول محجوبة عن العام)

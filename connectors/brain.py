@@ -254,6 +254,74 @@ def _fold(text: str) -> str:
     return " ".join(value.split())
 
 
+# حروف الجر والعطف تُلتصق بالكلمة في العربية: والعقد · بالعقد · للعقد.
+# بلا تجريدها يفوت الاسترجاع كثيرًا من الصيغ الشائعة، لأن التطابق في SQL على
+# «المصطلح داخل النص» بالحرف. الترتيب مهم: الأطول أولًا (وال قبل و).
+_ARABIC_BIG_PREFIXES = ("وال", "فال", "بال", "كال", "ال", "لل")
+_ARABIC_SMALL_PREFIXES = ("و", "ف", "ب", "ل", "ك")
+
+
+def strip_arabic_prefixes(term: str) -> list:
+    """يعيد سلسلة الصيغ المجرّدة من الحروف الملتصقة: والعقد ⇒ العقد ⇒ عقد.
+
+    الترتيب مقصود: الحرف المفرد أولًا ثم «ال»، فنحصل على الصيغ الوسيطة أيضًا —
+    وهي مفيدة لأن النص المخزَّن قد يحمل «العقد» بينما الجذر «عقد».
+
+    حدود الطول مقصودة كذلك: الحرف المفرد لا يُجرَّد إلا إن بقي 5 أحرف على الأقل،
+    وإلا صار «لماذا» ⇒ «ماذا» — ضجيج بلا فائدة يوسّع النتائج بلا سبب.
+    """
+    out, current = [], str(term or "")
+    for _ in range(4):  # وبالعقد ⇒ بالعقد ⇒ العقد ⇒ عقد
+        stripped = ""
+        for prefix in _ARABIC_SMALL_PREFIXES:
+            if current.startswith(prefix) and len(current) - len(prefix) >= 5:
+                stripped = current[len(prefix):]
+                break
+        if not stripped:
+            for prefix in _ARABIC_BIG_PREFIXES:
+                if current.startswith(prefix) and len(current) - len(prefix) >= 3:
+                    stripped = current[len(prefix):]
+                    break
+        if not stripped or stripped in out:
+            break
+        out.append(stripped)
+        current = stripped
+    return out
+
+
+def query_terms(query: str, max_terms: int = 40) -> list:
+    """مصطلحات الاسترجاع: توسيع context_service المُختبَر + تجريد الحروف.
+
+    اللغة تُعالَج في مكان واحد (engine/context_service.py) لا في SQL، فلا
+    يتفرّع منطق التطبيع العربي إلى نسختين تتباعدان مع الوقت. أي عطل هنا يعود
+    بقائمة فارغة ⇒ SQL يستخرج الرموز بنفسه.
+    """
+    terms = []
+    expand = None
+    for module_path in ("context_service", "engine.context_service"):
+        try:
+            module = __import__(module_path, fromlist=["expand_query"])
+            expand = getattr(module, "expand_query")
+            break
+        except Exception:  # noqa: BLE001
+            continue
+    if expand is not None:
+        try:
+            terms = [str(t) for t in expand(query, max_terms=max_terms) if t]
+        except Exception:  # noqa: BLE001
+            terms = []
+    if not terms:
+        terms = [_fold(query)]
+    seen, out = set(), []
+    for term in terms:
+        for value in [term, *strip_arabic_prefixes(term)]:
+            value = value.strip()
+            if len(value) >= 3 and value not in seen:
+                seen.add(value)
+                out.append(value)
+    return out[:max_terms]
+
+
 def _stable_id(prefix: str, *parts) -> str:
     """معرّف حتمي بنفس صيغة engine/memory.py ⇒ المحلي والسحابي يتفقان."""
     seed = "".join(str(p) for p in parts).encode("utf-8")
@@ -355,6 +423,9 @@ def recall(query: str, limit: int = DEFAULT_RECALL_LIMIT, *,
             "query_text": _clean_text(query, 2000),
             "match_count": limit,
             "include_sensitive": bool(include_sensitive),
+            # التوسيع العربي يُحسب هنا ويُمرَّر كرموز: نفس منطق context_service
+            # المُختبَر، فلا تتفرّع نسختان من التطبيع اللغوي.
+            "query_terms": query_terms(query),
         })
     except SupabaseError as exc:
         _note_failure()
