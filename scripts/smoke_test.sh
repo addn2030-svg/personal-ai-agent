@@ -3,6 +3,10 @@
 set -e
 cd "$(dirname "$0")/.."
 python3 -m compileall -q engine
+# بوابة حوكمة ABH-Memory: بنية الموجّه + حارس الادعاءات الطبية + حارس الخصوصية.
+# تُشغَّل قبل بناء بيئة التجربة حتى تبقى نتائجها حتمية (لا تعتمد على حالة runtime).
+python3 -m engine.memory_hub validate >/dev/null && echo "✅ بوابة ABH-Memory (V1–V8)"
+python3 tests/test_memory_hub.py >/dev/null 2>&1 && echo "✅ اختبارات ABH-Memory"
 bash scripts/bootstrap_demo.sh >/dev/null
 test -f reports/dashboard-latest.html && echo "✅ لوحة القيادة"
 test -f reports/approvals-latest.html && echo "✅ صفحة الاعتماد"
