@@ -100,6 +100,26 @@ jobs:
             exit 1
           fi
 
+      - name: التحقق النهائي الذي في صفحة الإعداد — يجب أن يعيد 11 سطرًا
+        # الصفحة التي يفتحها المستخدم تنتهي باستعلام تحقق؛ هنا يُشغَّل نفسه على
+        # قاعدة حقيقية ويُتحقق من عدده، فلا تكون تعليمات الصفحة غير مجرَّبة.
+        run: |
+          set +e
+          python3 -c "import sys; sys.path.insert(0, '.'); from scripts import make_sql_setup_page as m; print(m.VERIFY_SQL)" > /tmp/verify_page.sql
+          OUT=$(psql -v ON_ERROR_STOP=1 -tA -f /tmp/verify_page.sql 2>&1)
+          STATUS=$?
+          printf '%s\n' "$OUT"
+          if [ "$STATUS" -ne 0 ]; then
+            echo "::error::استعلام التحقق في الصفحة فشل في التنفيذ"
+            exit 1
+          fi
+          N=$(printf '%s\n' "$OUT" | grep -c .)
+          if [ "$N" != "11" ]; then
+            echo "::error::التحقق النهائي أعاد $N سطرًا بدل 11 — الصفحة تعِد بما لا يتحقق"
+            exit 1
+          fi
+          echo "✅ التحقق النهائي أعاد 11 سطرًا كما تقول الصفحة"
+
       - name: الفشل ذرّي — لا مخطط نصف مبني
         env:
           BRAIN_GUARD_STRICT: "1"   # تخطّي الفحص = فشل، لا نجاح صامت
