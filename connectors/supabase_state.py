@@ -37,6 +37,7 @@ BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if BASE not in sys.path:
     sys.path.insert(0, BASE)
 
+from connectors.cloud_payload import sanitize
 from connectors.supabase_client import (  # noqa: E402
     SupabaseClient, SupabaseError, load_config, redact,
 )
@@ -96,7 +97,14 @@ def read_state(path: str | None = None) -> tuple[dict, str]:
 
 
 def snapshot_from(state: dict, reason: str = "manual") -> dict:
-    """يبني صف نسخة من كائن الحالة (بلا قرص) — أساس موحّد للدفع والاختبار."""
+    """يبني صف نسخة من كائن الحالة (بلا قرص) — أساس موحّد للدفع والاختبار.
+
+    **كل نسخة تُبنى من هنا تُصفّى قبل الرفع**: الأقسام السريرية تُفرَّغ
+    والمعرّفات الشخصية تُنقّى (انظر `connectors/cloud_payload.py`). لذلك
+    البصمة `sha256` هنا هي بصمة **المحمول السحابي** لا بصمة الملف المحلي —
+    وهي التي تُتحقَّق عند الاسترجاع، فيبقى الطرفان متسقين.
+    """
+    state, _ = sanitize(state)
     meta = state.get("meta") or {}
     return {
         "schema": str(meta.get("schema") or "state/1"),
@@ -145,9 +153,10 @@ def push(reason: str = "manual", *, client: SupabaseClient | None = None) -> dic
     snapshot = build_snapshot(reason)
     rows = client.insert(table_name(), snapshot)
     row = rows[0] if rows else snapshot
+    withheld = (snapshot.get("payload", {}).get("meta") or {}).get("cloud_withheld") or ""
     log_event("supabase_snapshot_pushed", table=table_name(), sha256=snapshot["sha256"],
               byte_size=snapshot["byte_size"], reason=snapshot["reason"],
-              snapshot_id=row.get("id"))
+              snapshot_id=row.get("id"), withheld=withheld)
     return row
 
 

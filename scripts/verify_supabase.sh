@@ -271,6 +271,9 @@ run_tests tests.test_rollout "اختبارات التشغيل التدريجي (
 run_tests tests.test_state_persistence "اختبارات استمرارية الحالة (إقلاع · دفع تفاضلي · إشارات)"
 run_tests tests.test_brain "اختبارات الدماغ الدائم (خمول · بوابة ثلاثية · منع السريري · سقوط آمن)"
 run_tests tests.test_reply_critique "اختبارات النقد قبل الإرسال (إخلاء سريري · حجب معرّفات · ادّعاء بلا إيصال)"
+run_tests tests.test_pii "اختبارات أنماط المعرّفات (تمييز الإحصاء عن السجل · المفاتيح لا تُنقّى)"
+run_tests tests.test_cloud_payload "اختبارات عقد النسخة السحابية (حجب المرضى · تنقية · إعلان الحجب)"
+run_tests tests.test_sheet_reader "اختبارات قارئ xlsx والترحيل الكامل (شيت → حالة → حمولة) — مع تمييز التواريخ"
 run_tests tests.test_webhook_boot "اختبارات إقلاع الخدمة (فشل مُعلَن لا حلقة إعادة تشغيل)"
 
 say ""

@@ -81,8 +81,17 @@ on:
       - 'tests/test_state_safety_manager.py'
       - 'tests/test_brain.py'
       - 'tests/test_reply_critique.py'
+      - 'tests/test_pii.py'
+      - 'tests/test_cloud_payload.py'
+      - 'tests/test_sheet_reader.py'
       - 'connectors/brain.py'
       - 'connectors/reply_critique.py'
+      - 'connectors/pii.py'
+      - 'connectors/cloud_payload.py'
+      - 'connectors/supabase_state.py'
+      - 'engine/sheet_reader.py'
+      - 'engine/migrate.py'
+      - 'data/master-sheet.xlsx'
       - 'supabase/03_brain_memory.sql'
       - 'tests/test_multi_intent.py'
       - 'tests/test_manager_wo8_compat.py'
@@ -123,6 +132,9 @@ jobs:
           tests.test_state_safety_manager
           tests.test_brain
           tests.test_reply_critique
+          tests.test_pii
+          tests.test_cloud_payload
+          tests.test_sheet_reader
           tests.test_multi_intent
           tests.test_manager_wo8_compat
           tests.test_v09_master_os
@@ -135,6 +147,9 @@ jobs:
           python -m py_compile
           connectors/brain.py
           connectors/reply_critique.py
+          connectors/pii.py
+          connectors/cloud_payload.py
+          engine/sheet_reader.py
           connectors/model_gateway.py
           connectors/direct_specialists.py
           connectors/provider_diagnostics.py

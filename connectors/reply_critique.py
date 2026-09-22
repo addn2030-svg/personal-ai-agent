@@ -47,14 +47,9 @@ BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if BASE not in sys.path:
     sys.path.insert(0, BASE)
 
-# ملاحظة معمارية: الأنماط مطابقة لما يُطبَّق على المحتوى المخزَّن في
-# engine/agent_runtime._safe — التنقية تُطبَّق عند التخزين وعند الإرسال معًا،
-# فلا يعتمد أمن المخرجات على مسار واحد.
-_EMAIL_RE = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.I)
-_SAUDI_MOBILE_RE = re.compile(r"(?<!\d)(?:\+?966|0)?5\d{8}(?!\d)")
-_MRN_RE = re.compile(
-    r"(?i)(mrn|medical record|رقم الملف|رقم الهوية|id number)\s*[:#-]?\s*[A-Z0-9-]+"
-)
+# الأنماط تأتي من `connectors/pii.py` — مصدر واحد بدل نسخة لكل وحدة، فلا
+# يحدث أن تُحدَّث إحداها وتُنسى الأخرى فيصبح الحجب جزئيًا بلا ملاحظة.
+from connectors.pii import scrub as _scrub_pii  # noqa: E402
 # إخلاء المسؤولية السريري المطلوب نصًّا في تعليمات النظام.
 _CLINICAL_DISCLAIMER_RE = re.compile(
     r"مراجعة\s+(?:مختص|طبيب|أخصائي|سريرية|مهنية)|يحتاج\s+تقييم\s+سريري|"
@@ -120,11 +115,8 @@ class Verdict:
 
 def _redact(text: str) -> tuple[str, bool]:
     """تنقية المعرّفات الخاصة. تعيد (النص, هل تغيّر؟)."""
-    original = text
-    text = _EMAIL_RE.sub("[بريد محجوب]", text)
-    text = _SAUDI_MOBILE_RE.sub("[جوال محجوب]", text)
-    text = _MRN_RE.sub(lambda m: f"{m.group(1)}: [معرّف محجوب]", text)
-    return text, text != original
+    cleaned, hits = _scrub_pii(text)
+    return cleaned, bool(hits)
 
 
 def _is_clinical(question: str, category: str) -> bool:
