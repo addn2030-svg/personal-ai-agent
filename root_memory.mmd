@@ -1,0 +1,45 @@
+mindmap
+  root((ABH-Memory · Workspace Hub))
+    Active Projects
+      P1 · Personal AI Agent
+        Prompt engineering
+        Custom agent frameworks
+        Repo personal-ai-agent
+        Charter memory/projects/01-personal-ai-agent.md
+      P2 · Telegram AI Course
+        Educational content creation
+        Curriculum design
+        Charter memory/projects/02-telegram-ai-course.md
+      P3 · Pulse of Life Rehab and Home Visit
+        Jubail home-visit pilot
+        NKT and ANF protocols
+        Marketing ops
+        Charter memory/projects/03-pulse-of-life-home-rehab.md
+        Sprint memory/sprints/2026-W39-pulse-of-life-home-visit.md
+    Dormant Projects
+      None registered this cycle
+    Routing Rules
+      Route by project id first
+      Never cross patient data between projects
+      Every artefact carries provenance and classification
+      External actions are approval-gated
+    Governance
+      Global rules memory/GLOBAL_RULES.md
+      Information governance docs/information-governance.md
+      Professional profile knowledge/master-professional-profile.yaml
+      RCJY work context knowledge/rcjy-rehabilitation-work-context.md
+      RCJY service packages knowledge/rcjy-rehabilitation-service-packages.md
+    Storage Boundaries
+      Durable knowledge lives in knowledge and memory
+      Operational mutable state lives in data/state.json
+      Audit trail lives in data/audit.jsonl
+      Secrets live in environment only and never in Git
+      Patient-identifiable data never enters Git or general memory
+    Memory Layers
+      Working memory data/memory/working.json
+      Episodic memory data/memory/episodic.jsonl
+      Semantic memory data/memory/semantic.jsonl
+      Project memory connector connectors/project_memory.py
+    Validation
+      Hub validator engine/memory_hub.py
+      Hub tests tests/test_memory_hub.py

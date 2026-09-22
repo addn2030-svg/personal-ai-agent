@@ -2,6 +2,8 @@
 data/state.json
 data/audit.jsonl
 data/backups/
+# ذاكرة الوكيل التشغيلية (عاملة/عرضية/دلالية) — حالة شخصية runtime
+data/memory/
 data/.state.lock
 data/inbox.csv
 data/inbox-imported-*.csv
