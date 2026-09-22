@@ -51,9 +51,13 @@ psql_admin -q -c "create role $ROLE login nosuperuser nocreatedb password 'limit
 psql_admin -q -c "create database $DB;" >/dev/null 2>&1 \
   || { say "❌ تعذّر إنشاء قاعدة الفحص"; exit 1; }
 
-# الدور: يكتب الجداول (CREATE على المخطط) لكنه لا يستطيع تفعيل الامتداد
+# الدور: يكتب الجداول (CREATE على المخطط) لكنه لا يستطيع تفعيل الامتداد.
+# ⚠️ لا نمنح CREATE على قاعدة البيانات عن قصد: pg_trgm امتداد **موثوق**، ومنح
+# CREATE على القاعدة يكفي لتفعيله — وهذا ما جعل المحاولة السابقة «تنجح» في CI
+# ثم يُرفض الفحص (بشكل صحيح) لأنه لم يُجرَّب شيء. المطلوب هو الاتصال والإنشاء
+# في المخطط فقط.
 psql_admin -q -d "$DB" -c "grant usage, create on schema public to $ROLE;" >/dev/null 2>&1
-psql_admin -q -d "$DB" -c "grant all on database $DB to $ROLE;" >/dev/null 2>&1
+psql_admin -q -d "$DB" -c "grant connect, temporary on database $DB to $ROLE;" >/dev/null 2>&1
 
 # ------------------------------------------------------------------ التنفيذ
 ERR="$(PGUSER="$ROLE" PGPASSWORD=limited_only psql -h "${PGHOST:-localhost}" -d "$DB" \
