@@ -40,10 +40,20 @@ class GeneratedFromSqlFiles(unittest.TestCase):
         self.assertEqual(html_module.escape("<b>x</b>"), "&lt;b&gt;x&lt;/b&gt;")
         self.assertNotIn("<script>alert", page.build())
 
-    def test_page_has_a_copy_box_per_file_plus_verify_and_smoke(self):
+    def test_every_copy_box_has_a_button(self):
+        """صندوق بلا زر نسخ لا فائدة منه — والعكس صحيح."""
         html_text = page.build()
-        self.assertEqual(html_text.count('textarea class="sql"'),
-                         len(page.FILES) + 2)          # + التحقق + الاختبار الحي
+        boxes = html_text.count('textarea class="sql"')
+        self.assertGreaterEqual(boxes, len(page.FILES) + 2)   # + التحقق + الاختبار الحي
+        self.assertEqual(boxes, html_text.count('class="copy"'))
+
+    def test_page_documents_the_no_secret_status_check(self):
+        """سؤال «هل بدأ الإعداد؟» يجب أن يُجاب بلا مفتاح سري — وفي الصفحة نفسها."""
+        html_text = page.build()
+        self.assertIn("connectors.supabase_probe", html_text)
+        self.assertIn("PGRST205", html_text)
+        self.assertIn("permission denied", html_text)
+        self.assertIn("sb_secret_", html_text)               # تحذير صريح من المفتاح السري
 
     def test_verification_query_checks_every_created_object(self):
         """لولا هذا لمرّ التحقق وصفحة ناقصة: يجب أن يذكر كل جدول ودالة."""

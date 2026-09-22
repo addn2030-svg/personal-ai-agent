@@ -281,6 +281,7 @@ run_tests tests.test_pii "اختبارات أنماط المعرّفات (تمي
 run_tests tests.test_cloud_payload "اختبارات عقد النسخة السحابية (حجب المرضى · تنقية · إعلان الحجب)"
 run_tests tests.test_sheet_reader "اختبارات قارئ xlsx والترحيل الكامل (شيت → حالة → حمولة) — مع تمييز التواريخ"
 run_tests tests.test_sql_setup_page "صفحة إعداد SQL مطابقة لملفات SQL (لا مخطط قديم يُلصق)"
+run_tests tests.test_supabase_probe "فحص المشروع عن بُعد بالمفتاح العام (ورفض المفتاح السري) — ردود PostgREST حقيقية"
 run_tests tests.test_webhook_boot "اختبارات إقلاع الخدمة (فشل مُعلَن لا حلقة إعادة تشغيل)"
 
 say ""
@@ -328,6 +329,21 @@ run_tests tests.test_render_deploy "اختبارات ملف النشر (بنية
 
 say ""
 say "=== CONNECTION SETUP ==="
+# أداة الفحص عن بُعد لا تعمل بلا إعداد — لكن يجب أن تفشل بوضوح لا بانهيار،
+# وأن ترفض المفتاح السري إن مُرِّر لها.
+PROBE=$(SUPABASE_URL="https://demo-ref.supabase.co" SUPABASE_ANON_KEY="sb_secret_x" \
+        python3 -m connectors.supabase_probe 2>&1 || true)
+if printf '%s' "$PROBE" | grep -q "المفتاح سري"; then
+  chk 0 "أداة الفحص ترفض المفتاح السري وتوجّه إلى المفتاح العام"
+else
+  chk 1 "أداة الفحص قبلت مفتاحًا سريًا أو لم تفشل بوضوح"
+fi
+PROBE2=$(python3 -m connectors.supabase_probe 2>&1 || true)
+if printf '%s' "$PROBE2" | grep -q "SUPABASE_URL"; then
+  chk 0 "أداة الفحص تفشل برسالة واضحة عند غياب الإعداد"
+else
+  chk 1 "أداة الفحص لا تشرح سبب الفشل عند غياب الإعداد"
+fi
 # ملاحظة: connection_setup يعيد 2 عندما تكون قناة مطلوبة ناقصة (وهو متوقع في هذا
 # التحقق المعزول)، لذا نلتقط المخرجات أولًا بدل تمريرها في أنبوب مع pipefail.
 SETUP=$(python3 -m connectors.connection_setup 2>&1 || true)

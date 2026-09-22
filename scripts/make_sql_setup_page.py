@@ -212,6 +212,50 @@ PAGE = """<!DOCTYPE html>
 </section>
 
 <section>
+  <h2>كيف تعرف أن الإعداد بدأ؟ (بلا أي مفتاح سري)</h2>
+  <p class="why">
+    لا تحتاج المفتاح السري — ولا قراءة صف واحد — لتعرف هل نُفِّذت الملفات. يكفي
+    سؤال PostgREST عن كل جدول بالـ<strong>مفتاح العام</strong> (وهو مخصَّص للنشر
+    العام، فوجوده في رابط لا يكشف شيئًا لأن RLS يحجب كل صف عنه).
+  </p>
+  <table>
+    <tr><th>ما تراه</th><th>المعنى</th></tr>
+    <tr><td><code>PGRST205</code> أو <code>PGRST202</code></td>
+        <td><strong>غير موجود</strong> — الملف لم يُنفَّذ بعد.</td></tr>
+    <tr><td><code>permission denied</code></td>
+        <td><strong>موجود ومحجوب عن العام</strong> — وهذا هو الوضع الصحيح تمامًا.</td></tr>
+    <tr><td>قائمة <code>[]</code> فارغة</td>
+        <td>موجود <em>وله صلاحية قراءة للعام</em> — راجع <code>REVOKE</code> في الملف.</td></tr>
+  </table>
+
+  <h3>الطريقة الأسرع: من المتصفح</h3>
+  <p class="why">الصق هذا الرابط بعد استبدال <code>&lt;ref&gt;</code> و
+     <code>&lt;publishable-key&gt;</code>، واقرأ النتيجة:</p>
+  <div class="sqlwrap">
+    <button class="copy" onclick="cp(this)">Copy</button>
+    <textarea class="sql" readonly>https://&lt;ref&gt;.supabase.co/rest/v1/state_snapshots?select=id&amp;limit=1&amp;apikey=&lt;publishable-key&gt;</textarea>
+  </div>
+
+  <h3>الطريقة الأنسب: أداة الفحص</h3>
+  <p class="why">تفحص الجداول الخمسة والدوال الخمس كلها وتطبع خلاصة واحدة:</p>
+  <div class="sqlwrap">
+    <button class="copy" onclick="cp(this)">Copy</button>
+    <textarea class="sql" readonly>export SUPABASE_URL="https://&lt;ref&gt;.supabase.co"
+export SUPABASE_ANON_KEY="&lt;publishable-key&gt;"
+python3 -m connectors.supabase_probe</textarea>
+  </div>
+  <div class="expect">
+    <strong>النتيجة المتوقّعة:</strong>
+    <code>لم يبدأ الإعداد</code> قبل التنفيذ ·
+    <code>الإعداد مكتمل: 10 من 10 موجود</code> بعده.
+    <br><strong>ملاحظة أمنية مُنفَّذة في الكود:</strong> الأداة <strong>ترفض</strong>
+    المفتاح السري صراحةً (<code>sb_secret_…</code> أو JWT بـ
+    <code>role=service_role</code>) وتطبع رسالة توجّهك إلى المفتاح العام — لأن هذا
+    الفحص لا يحتاجه، ولكل مسار يمر فيه المفتاح السري احتمال أن يُسجَّل.
+  </div>
+</section>
+
+<section>
   <h2>إن ظهر خطأ</h2>
   <table>
     <tr><th>الرسالة</th><th>المعنى والحل</th></tr>
