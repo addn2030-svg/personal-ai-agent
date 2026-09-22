@@ -70,6 +70,25 @@ GUIDES = {
         "Set GEMINI_MODEL (default: google/gemini-3.7-flash) if a different enabled model is required.",
         "Verify: python3 -m connectors.connection_setup --live.",
     ],
+    "openrouter": [
+        "openrouter.ai → Sign in → Keys → Create key (paid models need a small credit balance).",
+        "Set OPENROUTER_API_KEY in Railway Variables / local .env — never in chat or git.",
+        "Model roles use the same key: AI_MANAGER_MODEL (Claude, default anthropic/claude-sonnet-4.6)",
+        "  and AI_CRITIC_MODEL (GPT, default openai/gpt-5.6-sol). Override to move versions.",
+        "Keep AI_MODEL_PROVIDER=gemini for ordinary+clinical traffic; set it to openrouter only",
+        "  when you deliberately want the gateway to answer general questions too.",
+        "Clinical/sensitive traffic through the gateway: set OPENROUTER_REQUIRE_ZDR=1",
+        "  (zero-data-collection providers only — the deny-collection policy is already default).",
+        "Verify config: python3 -m connectors.connection_setup · live: add --live (or /diag).",
+    ],
+    "bedrock": [
+        "AWS Console → Bedrock → Model access → enable the Anthropic Claude models you need.",
+        "Simplest auth: a long-term Bedrock API key → AWS_BEARER_TOKEN_BEDROCK.",
+        "Or an IAM user with bedrock-runtime → AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY.",
+        "AWS_REGION (default us-east-1) and BEDROCK_MODEL_ID (default us.anthropic.claude-sonnet-4.6).",
+        "The router (connectors/model_router.py) stays the only place allowed to call Bedrock.",
+        "Verify: python3 -m connectors.connection_setup --live.",
+    ],
     "kimi": [
         "platform.moonshot.ai → Console → API Keys (international). China: platform.moonshot.cn.",
         "Create a key and set KIMI_API_KEY in Railway — never in chat or git. MOONSHOT_API_KEY is also accepted.",
@@ -244,6 +263,51 @@ def check_gemini(env=None) -> dict:
     }
 
 
+def check_openrouter(env=None) -> dict:
+    """OpenRouter — the single gateway that serves the Claude manager role and
+    the GPT critic role with one key. Absent is optional: ordinary and clinical
+    traffic still routes to Gemini/Kimi exactly as before."""
+    env = env if env is not None else _env
+    key = env("OPENROUTER_API_KEY")
+    manager = env("AI_MANAGER_MODEL") or env("AI_MODEL_MANAGER") or "anthropic/claude-sonnet-4.6"
+    critic = env("AI_CRITIC_MODEL") or "openai/gpt-5.6-sol"
+    if key:
+        status, detail = "ok", f"API key set — Claude via {manager} · GPT via {critic}"
+    else:
+        status, detail = "optional", (
+            "OPENROUTER_API_KEY not set — Claude/GPT roles unavailable; "
+            "ordinary traffic still works on Gemini"
+        )
+    return {
+        "key": "openrouter", "name": "OpenRouter (Claude+GPT)",
+        "env": ["OPENROUTER_API_KEY", "AI_MANAGER_MODEL", "AI_CRITIC_MODEL",
+                "AI_MODEL_PROVIDER", "OPENROUTER_REQUIRE_ZDR"],
+        "status": status, "detail": detail,
+    }
+
+
+def check_bedrock(env=None) -> dict:
+    """AWS Bedrock — the native Claude route, an explicit alternative to
+    OpenRouter (single source of truth: connectors/model_router.py)."""
+    env = env if env is not None else _env
+    auth = bool(env("AWS_BEARER_TOKEN_BEDROCK")
+                 or (env("AWS_ACCESS_KEY_ID") and env("AWS_SECRET_ACCESS_KEY")))
+    model = env("BEDROCK_MODEL_ID") or "us.anthropic.claude-sonnet-4.6"
+    if auth:
+        status, detail = "ok", f"AWS auth set — Claude native via {model}"
+    else:
+        status, detail = "optional", (
+            "no AWS credentials — native Claude route off (OpenRouter covers "
+            "Claude+GPT with one key)"
+        )
+    return {
+        "key": "bedrock", "name": "Bedrock (Claude)",
+        "env": ["AWS_BEARER_TOKEN_BEDROCK", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY",
+                "AWS_REGION", "BEDROCK_MODEL_ID"],
+        "status": status, "detail": detail,
+    }
+
+
 def check_kimi(env=None) -> dict:
     env = env if env is not None else _env
     key = env("KIMI_API_KEY") or env("MOONSHOT_API_KEY")
@@ -300,7 +364,7 @@ def check_supabase(env=None) -> dict:
 
 
 CHECKS = [check_telegram, check_sheets, check_drive, check_docs, check_calendar, check_github,
-          check_gemini, check_kimi, check_buffer, check_supabase]
+          check_gemini, check_openrouter, check_bedrock, check_kimi, check_buffer, check_supabase]
 
 
 # ---------------------------------------------------------------- live probes
@@ -358,6 +422,22 @@ def _probe_gemini():
     return model_gateway.probe_gemini()
 
 
+def _probe_openrouter():
+    """Two tiny paid inferences through the one key: the manager model (Claude)
+    and the critic model (GPT). Reached only with --live and only when the key
+    is set, so an unconfigured deploy spends nothing."""
+    from . import model_gateway
+    return {
+        "claude": model_gateway.probe_openrouter(model_gateway.AI_MANAGER_MODEL),
+        "gpt": model_gateway.probe_openrouter(model_gateway.AI_CRITIC_MODEL),
+    }
+
+
+def _probe_bedrock():
+    from . import model_gateway
+    return model_gateway.probe_bedrock()
+
+
 def _probe_kimi():
     from . import model_gateway
     return model_gateway.probe_kimi()
@@ -376,6 +456,8 @@ PROBES = {
     "calendar": _probe_calendar,
     "github": _probe_github,
     "gemini": _probe_gemini,
+    "openrouter": _probe_openrouter,
+    "bedrock": _probe_bedrock,
     "kimi": _probe_kimi,
     "supabase": _probe_supabase,
 }
@@ -414,7 +496,7 @@ def render(results, live: bool = False) -> str:
     if pending:
         lines.append("")
         lines.append("Next steps (priority: " + " → ".join(PRIORITY_ORDER) + "):")
-        for key in PRIORITY_ORDER + ["sheets", "drive", "telegram", "gemini", "buffer"]:
+        for key in PRIORITY_ORDER + ["sheets", "drive", "telegram", "gemini", "openrouter", "buffer"]:
             row = next((r for r in results if r["key"] == key and r["status"] != "ok"), None)
             if row:
                 lines.append(f"  • {row['name']}: python3 -m connectors.connection_setup --guide {key}")

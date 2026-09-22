@@ -279,13 +279,18 @@ def _safe_error(exc: Exception) -> str:
     return value[:240]
 
 
-def probe_openrouter() -> dict:
-    """Perform one tiny paid inference to prove the configured OpenRouter route works."""
+def probe_openrouter(model: str | None = None) -> dict:
+    """Perform one tiny paid inference to prove the configured OpenRouter route works.
+
+    Defaults to the manager (Claude) model; connection diagnostics pass
+    AI_CRITIC_MODEL through the same key to prove the GPT route as well.
+    """
+    target = (model or AI_MANAGER_MODEL).strip()
     if not configured():
         return {"configured": False, "ok": False, "detail": "OPENROUTER_API_KEY is not configured"}
     try:
         answer, usage, latency_ms = openrouter_chat(
-            model=AI_MANAGER_MODEL,
+            model=target,
             messages=[{"role": "user", "content": "Reply with exactly: OK"}],
             sensitive=False,
             max_tokens=16,
@@ -294,12 +299,12 @@ def probe_openrouter() -> dict:
         return {
             "configured": True,
             "ok": bool(answer),
-            "model": last_route().get("model") or AI_MANAGER_MODEL,
+            "model": last_route().get("model") or target,
             "latency_ms": latency_ms,
             "usage": usage,
         }
     except Exception as exc:  # noqa: BLE001 - diagnostic boundary
-        return {"configured": True, "ok": False, "detail": _safe_error(exc), "model": AI_MANAGER_MODEL}
+        return {"configured": True, "ok": False, "detail": _safe_error(exc), "model": target}
 
 
 def probe_bedrock() -> dict:
