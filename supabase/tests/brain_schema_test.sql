@@ -108,8 +108,9 @@ $$;
 -- 8) الإحصاء والتقليم
 do $$
 declare
-  stats jsonb;
-  pruned jsonb;
+  stats    jsonb;
+  pruned   jsonb;
+  rejected boolean;
 begin
   stats := public.brain_stats();
   if (stats ->> 'episodes')::int < 3 then
@@ -119,16 +120,23 @@ begin
     raise exception 'brain_stats لا يعدّ المحتوى الحساس: %', stats;
   end if;
 
-  -- حدّ أدنى يمنع الحذف الواسع بالخطأ
+  -- حدّ أدنى يمنع الحذف الواسع بالخطأ.
+  -- ⚠️ صياغة مقصودة: نلتقط الخطأ في راية (rejected) ثم نقرّر بعدها. الالتقاط
+  -- ثم التجاهل المباشر كان يجعل الفحص ينجح حتى مع الخلل — وفحص لا يستطيع الفشل
+  -- ليس فحصًا. هنا: إن مرّ الطلب بلا اعتراض ⇒ نرفع استثناءً يُسقط الاختبار.
+  rejected := false;
   begin
     perform public.brain_prune(10);
-    raise exception 'brain_prune(10) نجح — كان يجب أن يرفض حدًّا أقل من 100';
   exception
     when others then
+      rejected := true;
       if position('100' in sqlerrm) = 0 then
-        raise;
+        raise exception 'رسالة رفض التقليم لا تذكر الحد الأدنى 100: %', sqlerrm;
       end if;
   end;
+  if not rejected then
+    raise exception 'brain_prune(10) مرّ بلا اعتراض — يجب رفض حد أقل من 100';
+  end if;
 
   pruned := public.brain_prune(100);
   if (pruned ->> 'deleted_episodes')::int <> 0 then

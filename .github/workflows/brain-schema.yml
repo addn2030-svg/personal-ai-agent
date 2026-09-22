@@ -68,7 +68,27 @@ jobs:
         run: psql -v ON_ERROR_STOP=1 -f supabase/03_brain_memory.sql
 
       - name: فحوص السلوك على pg_trgm الحقيقي
-        run: psql -v ON_ERROR_STOP=1 -f supabase/tests/brain_schema_test.sql
+        # نلتقط المخرجات ونُصدر تعليقًا (annotation) عند الفشل: رسالة psql وحدها
+        # تبقى في السجل، وسجل Actions ليس دائمًا متاحًا للقراءة من الخارج.
+        run: |
+          set +e
+          OUT=$(psql -v ON_ERROR_STOP=1 -f supabase/tests/brain_schema_test.sql 2>&1)
+          STATUS=$?
+          printf '%s\n' "$OUT"
+          if [ "$STATUS" -ne 0 ]; then
+            MSG=$(printf '%s' "$OUT" | grep -aiE "ERROR|exception|فشل|يجب" | head -3 | tr '\n' '|' | tr -d '%')
+            echo "::error::فشل فحص سلوك مخطط الدماغ: ${MSG:-غير معروف}"
+            exit 1
+          fi
 
       - name: الفشل ذرّي — قاعدة بلا pg_trgm
-        run: bash scripts/verify_brain_schema.sh
+        run: |
+          set +e
+          OUT=$(bash scripts/verify_brain_schema.sh 2>&1)
+          STATUS=$?
+          printf '%s\n' "$OUT"
+          if [ "$STATUS" -ne 0 ]; then
+            MSG=$(printf '%s' "$OUT" | grep -a "❌" | head -3 | tr '\n' '|' | tr -d '%')
+            echo "::error::فحص الذرّية فشل: ${MSG:-غير معروف}"
+            exit 1
+          fi

@@ -339,7 +339,21 @@ alter table public.brain_episodes enable row level security;
 alter table public.brain_facts    enable row level security;
 alter table public.brain_working  enable row level security;
 
--- الحجب عن المفتاح العام — مع حماية من غياب الدور نفسه.
+-- الحجب عن المفتاح العام — على ثلاث طبقات:
+--
+-- ⚠️ الفخ الذي كشفه الفحص الحقيقي: منح PostgreSQL صلاحية EXECUTE على الدوال
+--    لـPUBLIC تلقائيًا. أي أن `revoke ... from anon` وحدها **لا تكفي**: anon
+--    يبقى قادرًا على نداء brain_recall لأنه يرث من PUBLIC، وhas_function_privilege
+--    تظل تقول «نعم». لذلك نبدأ بإزالة منح PUBLIC نفسه.
+revoke all on public.brain_episodes from public;
+revoke all on public.brain_facts    from public;
+revoke all on public.brain_working  from public;
+
+revoke all on function public.brain_recall(text, integer, boolean, text[]) from public;
+revoke all on function public.brain_stats()                                from public;
+revoke all on function public.brain_prune(integer)                         from public;
+
+-- ثم الحجب عن الدورين صراحةً — مع حماية من غياب الدور نفسه.
 -- على Supabase الدوران موجودان دائمًا، لكن السكربت يجب أن يعمل أيضًا على
 -- Postgres عادي (استضافة ذاتية/فحص محلي) بلا خطأ «role anon does not exist».
 do $$
