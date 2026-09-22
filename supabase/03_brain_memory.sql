@@ -1,0 +1,330 @@
+-- ============================================================================
+-- Abdulrahman AI OS — دماغ الذاكرة الدائم (durable brain)
+--
+-- شغّله في Supabase → SQL Editor → New query → Run
+-- (مرة واحدة، بعد 01_state_snapshots.sql و02_tasks_mirror.sql)
+--
+-- ⚠️ اقرأ هذا أولًا: ما هذا وما ليس هذا؟
+--
+--   هذا الجدول **ذاكرة دائمة خارج الخادم**، وليس مصدر حقيقة تشغيلي.
+--   مصدر الحقيقة التشغيلي يبقى data/state.json (المهام والقرارات وبوابة
+--   الاعتماد). أما ما يُخزَّن هنا فهو **الذاكرة المشتقّة**: ملخّصات ما جرى
+--   (episodes) والحقائق المثبتة (facts) والذاكرة العاملة (working).
+--
+--   لماذا؟ لأن على مضيف بلا قرص دائم (Render المجاني) تُفقد كل ملفات
+--   data/memory/*.jsonl عند كل إيقاف أو إعادة نشر — ومنها تُبنى الذاكرة
+--   العرضية والدلالية. النتيجة قبل هذا المخطط: وكيل «بلا ذاكرة طويلة» يعيد
+--   السؤال عن كل شيء بعد كل إعادة تشغيل.
+--
+--   | ما | قبل | بعد |
+--   |---|---|---|
+--   | ملخصات الجلسات (episodic) | ملف واحد على قرص مؤقت | صفوف دائمة تُستعلَم |
+--   | الحقائق المثبتة (semantic) | ملف واحد على قرص مؤقت | صفوف دائمة بمرجع ومصدر |
+--   | الذاكرة العاملة (working) | ملف JSON ينتهي بـTTL | جدول بانتهاء صلاحية |
+--   | الاسترجاع | تطابق رموز حرفي محليًا | استرجاع عربي مُطبَّع + ترتيب مرجَّح |
+--
+--   ⚠️ لا متجهات (no vectors) — قرار متعمَّد موثَّق في
+--      docs/agent3-p0-adjudication.md («Defer pgvector حتى تبرّره أدلة
+--      تشغيلية»). هذا المخطط يعطي المتانة والاسترجاع الدلالي الخفيف عبر
+--      التطبيع العربي + pg_trgm، بلا تكلفة تضمين وبلا حصة API.
+--      ترقية لاحقة إلى pgvector ممكنة بلا فقدان: أضف عمود embedding إلى
+--      نفس الجدولين، ولا تتغير بقية الطبقة.
+--
+-- قواعد السلامة المطبَّقة (مطابقة لبقية مخططات Supabase في هذا المستودع):
+--   1. RLS مفعّل، وبلا أي سياسة ⇒ المفتاح العام (anon/publishable) يقرأ صفرًا.
+--   2. المفتاح السري (service_role) وحده يعمل، وهو يبقى على الخادم.
+--   3. لا عمود يحمل أسرارًا؛ ولا تُرسَل بيانات سريرية إلى هنا إطلاقًا
+--      (المنع مطبَّق في connectors/brain.py قبل الكتابة، لا هنا فقط).
+-- ============================================================================
+
+-- pg_trgm: تشابه ثلاثي الحروف — يعمل مع العربية بعد التطبيع (typos والصيغ).
+create extension if not exists pg_trgm;
+
+-- ---------------------------------------------------------------------------
+-- 1) دالة التطبيع العربي — مرآة دقيقة لـ context_service.normalize()
+--    نفس القواعد في بايثون وفي Postgres، وإلا اختلف الترتيب بين المسارين.
+--    تُطبَّع في *الاستعلام* و*التخزين* معًا ⇒ «العقود» يجد «عقد».
+-- ---------------------------------------------------------------------------
+create or replace function public.brain_norm(txt text)
+returns text
+language sql
+immutable
+parallel safe
+as $$
+  select btrim(
+    regexp_replace(
+      translate(
+        lower(coalesce(txt, '')),
+        -- التطويل والتشكيل يُحذفان أولًا (وسائط فارغة = حذف)
+        U&'\0640\064B\064C\064D\064E\064F\0650\0651\0652\0670',
+        ''
+      ),
+      '\s+', ' ', 'g'
+    )
+  )
+$$;
+
+comment on function public.brain_norm(text) is
+  'تطبيع عربي/إنجليزي: حذف التشكيل والتطويل، توحيد الألف والهمزة والتاء المربوطة والياء، وتقليص المسافات.';
+
+-- ملاحظة: نُطبِّع الحروف بعد حذف التشكيل بخطوة منفصلة، لأن translate يربط
+-- الحرف بحرف واحد فقط ولا يفهم المحارف المركّبة.
+create or replace function public.brain_fold(txt text)
+returns text
+language sql
+immutable
+parallel safe
+as $$
+  select translate(
+    public.brain_norm(txt),
+    U&'\0623\0625\0622\0671\0649\0629\0624\0626',
+    U&'\0627\0627\0627\0627\064A\0647\0648\064A'
+  )
+$$;
+
+comment on function public.brain_fold(text) is
+  'توحيد الهمزات: أ/إ/آ/ٱ ⇒ ا، ى ⇒ ي، ة ⇒ ه، ؤ ⇒ و، ئ ⇒ ي. مطابق لـcontext_service.normalize.';
+
+-- ---------------------------------------------------------------------------
+-- 2) الحلقات (episodes) — «ماذا جرى» بملخّص ومرجع
+-- ---------------------------------------------------------------------------
+create table if not exists public.brain_episodes (
+  -- معرّف حتمي يُحسب في connectors/brain.py من (النوع + الملخّص + اللحظة)
+  -- بنفس صيغة engine/memory.py ⇒ المحلي والسحابي يتفقان، والإعادة idempotent.
+  id           text        primary key,
+  occurred_at  timestamptz not null default now(),
+  kind         text        not null default 'general',   -- conversation | decision | task | approval | general
+  summary      text        not null,
+  refs         jsonb       not null default '[]'::jsonb,
+  source_ref   text        not null default '',
+  chat_id      text        not null default '',
+  sensitivity  text        not null default 'normal'
+               check (sensitivity in ('normal', 'internal', 'clinical_private', 'restricted')),
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now(),
+  -- عمود بحث مُطبَّع ومُفهرَس — لا يُكتب من الموصل، يُحسب هنا.
+  search_norm  text        generated always as (public.brain_fold(summary)) stored,
+  check (length(summary) <= 8000)
+);
+
+create index if not exists brain_episodes_occurred_idx
+  on public.brain_episodes (occurred_at desc);
+create index if not exists brain_episodes_kind_idx
+  on public.brain_episodes (kind, occurred_at desc);
+create index if not exists brain_episodes_chat_idx
+  on public.brain_episodes (chat_id, occurred_at desc) where chat_id <> '';
+create index if not exists brain_episodes_trgm_idx
+  on public.brain_episodes using gin (search_norm gin_trgm_ops);
+
+-- ---------------------------------------------------------------------------
+-- 3) الحقائق (facts) — «ما نعرفه» بصيغة (موضوع، علاقة، قيمة) + مصدر وثقة
+-- ---------------------------------------------------------------------------
+create table if not exists public.brain_facts (
+  id           text        primary key,
+  occurred_at  timestamptz not null default now(),
+  subject      text        not null,
+  predicate    text        not null default '',
+  value        text        not null default '',
+  source_ref   text        not null default '',
+  confidence   real        not null default 0.8 check (confidence >= 0 and confidence <= 1),
+  sensitivity  text        not null default 'normal'
+               check (sensitivity in ('normal', 'internal', 'clinical_private', 'restricted')),
+  -- إبطال غير حذف: الحقيقة القديمة تبقى ومرجعها يُذكر (حكم المعلومات).
+  superseded_by text       not null default '',
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now(),
+  search_norm  text        generated always as (
+                 public.brain_fold(subject || ' ' || predicate || ' ' || value)
+               ) stored
+);
+
+create index if not exists brain_facts_occurred_idx
+  on public.brain_facts (occurred_at desc);
+create index if not exists brain_facts_subject_idx
+  on public.brain_facts (subject, occurred_at desc);
+create index if not exists brain_facts_live_idx
+  on public.brain_facts (occurred_at desc) where superseded_by = '';
+create index if not exists brain_facts_trgm_idx
+  on public.brain_facts using gin (search_norm gin_trgm_ops);
+
+-- ---------------------------------------------------------------------------
+-- 4) الذاكرة العاملة (working) — سياق قصير العمر لكل محادثة
+-- ---------------------------------------------------------------------------
+create table if not exists public.brain_working (
+  chat_id     text        primary key,
+  items       jsonb       not null default '[]'::jsonb,
+  updated_at  timestamptz not null default now(),
+  expires_at  timestamptz not null
+);
+
+create index if not exists brain_working_expiry_idx
+  on public.brain_working (expires_at);
+
+-- ---------------------------------------------------------------------------
+-- 5) الاسترجاع (recall) — ترتيب هجين: تطابق تام + تشابه ثلاثي + رموز
+--
+--    لماذا دالة واحدة بدل استعلامات في الكود؟ لأن منطق الترتيب مكانه قاعدة
+--    البيانات (فهرس واحد، مرور واحد) — والموصل يبقى بسيطًا وقابلًا للاختبار.
+-- ---------------------------------------------------------------------------
+create or replace function public.brain_recall(
+  query_text      text,
+  match_count     integer default 12,
+  include_sensitive boolean default false
+)
+returns table (
+  item_type    text,
+  item_id      text,
+  occurred_at  timestamptz,
+  title        text,
+  snippet      text,
+  source_ref   text,
+  sensitivity  text,
+  score        real
+)
+language sql
+stable
+as $$
+  with q as (
+    select public.brain_fold(query_text) as norm
+  ),
+  terms as (
+    select distinct t
+    from q, lateral regexp_split_to_table(q.norm, '\s+') as t
+    where length(t) >= 3
+  ),
+  episode_hits as (
+    select
+      'episode'::text as item_type,
+      e.id            as item_id,
+      e.occurred_at,
+      e.kind          as title,
+      e.summary       as snippet,
+      e.source_ref,
+      e.sensitivity,
+      (
+        -- عدد الرموز المطابقة (المصطلح المُطبَّع كاملًا)
+        (select count(*) from terms where e.search_norm like '%' || terms.t || '%')
+        -- تشابه ثلاثي مع الاستعلام كاملًا (يرفع الجمل المتشابهة صياغةً)
+        + 2 * similarity(e.search_norm, (select norm from q))
+      )::real as score
+    from public.brain_episodes e, q
+    where (include_sensitive or e.sensitivity in ('normal', 'internal'))
+      and exists (select 1 from terms where e.search_norm like '%' || terms.t || '%')
+  ),
+  fact_hits as (
+    select
+      'fact'::text    as item_type,
+      f.id            as item_id,
+      f.occurred_at,
+      f.subject       as title,
+      btrim(f.predicate || ' ' || f.value) as snippet,
+      f.source_ref,
+      f.sensitivity,
+      (
+        (select count(*) from terms where f.search_norm like '%' || terms.t || '%')
+        + 2 * similarity(f.search_norm, (select norm from q))
+        -- الثقة ترجّح الحقيقة الأكيد قليلًا، والإبطال يُنزلها بوضوح
+        + case when f.superseded_by = '' then 1.5 * f.confidence else -1.0 end
+      )::real as score
+    from public.brain_facts f, q
+    where (include_sensitive or f.sensitivity in ('normal', 'internal'))
+      and exists (select 1 from terms where f.search_norm like '%' || terms.t || '%')
+  )
+  select * from (
+    select * from episode_hits
+    union all
+    select * from fact_hits
+  ) hits
+  where score > 0
+  order by score desc, occurred_at desc
+  limit greatest(1, least(coalesce(match_count, 12), 100))
+$$;
+
+comment on function public.brain_recall(text, integer, boolean) is
+  'استرجاع الذاكرة بترتيب مرجَّح (تطابق رموز مُطبَّعة + تشابه ثلاثي). include_sensitive=false افتراضيًا ⇒ المحتوى السريري/المقيّد لا يظهر.';
+
+-- ---------------------------------------------------------------------------
+-- 6) الإحصاء والتقليم — لـ/brain_status وللصيانة الدورية
+-- ---------------------------------------------------------------------------
+create or replace function public.brain_stats()
+returns jsonb
+language sql
+stable
+as $$
+  select jsonb_build_object(
+    'episodes',      (select count(*) from public.brain_episodes),
+    'facts',         (select count(*) from public.brain_facts),
+    'live_facts',    (select count(*) from public.brain_facts where superseded_by = ''),
+    'working',       (select count(*) from public.brain_working where expires_at > now()),
+    'sensitive',     (select count(*) from public.brain_episodes where sensitivity not in ('normal','internal'))
+                     + (select count(*) from public.brain_facts where sensitivity not in ('normal','internal')),
+    'latest_episode',(select max(occurred_at) from public.brain_episodes),
+    'latest_fact',   (select max(occurred_at) from public.brain_facts),
+    'size_pretty',   pg_size_pretty(pg_total_relation_size('public.brain_episodes')
+                                    + pg_total_relation_size('public.brain_facts')
+                                    + pg_total_relation_size('public.brain_working'))
+  )
+$$;
+
+-- تقليم بالعدد: يُبقي الأحدث فقط. لا يُحذف صف حقيقة لم يُبطَل أبدًا
+-- (المعرفة المثبتة أغلى من الحلقة) — الإبطال superseded_by هو أداة التقادم.
+create or replace function public.brain_prune(keep_episodes integer default 2000)
+returns jsonb
+language plpgsql
+as $$
+declare
+  deleted_episodes integer;
+  purged_working   integer;
+begin
+  if coalesce(keep_episodes, 0) < 100 then
+    raise exception 'الحد الأدنى للتقليم 100 حلقة — رفض حذف أوسع من ذلك';
+  end if;
+
+  with doomed as (
+    select id from public.brain_episodes
+    order by occurred_at desc
+    offset greatest(keep_episodes, 100)
+  )
+  delete from public.brain_episodes e using doomed where e.id = doomed.id;
+  get diagnostics deleted_episodes = row_count;
+
+  delete from public.brain_working where expires_at < now() - interval '7 days';
+  get diagnostics purged_working = row_count;
+
+  return jsonb_build_object(
+    'deleted_episodes', deleted_episodes,
+    'purged_working',   purged_working,
+    'kept_episodes',    keep_episodes
+  );
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- 7) الحماية الموحّدة — كما في 01 و02: محجوب عن المفتاح العام بالكامل
+-- ---------------------------------------------------------------------------
+alter table public.brain_episodes enable row level security;
+alter table public.brain_facts    enable row level security;
+alter table public.brain_working  enable row level security;
+
+revoke all on public.brain_episodes from anon, authenticated;
+revoke all on public.brain_facts    from anon, authenticated;
+revoke all on public.brain_working  from anon, authenticated;
+
+revoke all on function public.brain_recall(text, integer, boolean) from anon, authenticated;
+revoke all on function public.brain_stats()                        from anon, authenticated;
+revoke all on function public.brain_prune(integer)                 from anon, authenticated;
+
+-- ============================================================================
+-- استعلامات مراقبة (SQL Editor — للمفتاح السري فقط، الجداول محجوبة عن العام)
+-- ============================================================================
+-- الحجم والصحة:
+--   select public.brain_stats();
+-- آخر ما جرى:
+--   select occurred_at, kind, left(summary, 80) from public.brain_episodes
+--   order by occurred_at desc limit 10;
+-- استرجاع يدوي بنفس منطق البوت (اكتب استفسارك بين علامتي الاقتباس):
+--   select item_type, title, left(snippet, 120), score
+--   from public.brain_recall('العقد مع العمير', 10, false);
+-- تقليم يدوي (يبقي أحدث 2000 حلقة):
+--   select public.brain_prune(2000);
+-- ============================================================================

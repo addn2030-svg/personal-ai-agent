@@ -6,6 +6,9 @@ data/.state.lock
 data/inbox.csv
 data/inbox-imported-*.csv
 data/.manager-markers.json
+# الذاكرة الشخصية (حلقات + حقائق + ذاكرة عاملة) — بيانات خاصة بلا استثناء.
+# النسخة الدائمة منها في Supabase (connectors/brain.py)، لا في Git.
+data/memory/
 reports/
 uploads/
 # Connector credentials / tokens — local only

@@ -4,7 +4,10 @@ Indexes approved local markdown/text plus knowledge_sources metadata. It deliber
 """
 import json, os, re, sys, hashlib
 BASE=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-INDEX=os.path.join(BASE,"data","rag-index.json")
+# يحترم AI_OS_DATA_DIR مثل engine/store.py: على مضيف بلا قرص دائم يكون
+# الفهرس داخل مجلد البيانات الفعلي، لا في جذر المستودع.
+DATA_DIR=os.environ.get("AI_OS_DATA_DIR","") or os.path.join(BASE,"data")
+INDEX=os.path.join(DATA_DIR,"rag-index.json")
 ALLOW_DIRS=("docs","materials","prompts","evaluation")
 DENY_PARTS=(".env","token","secret","backups","audit.jsonl")
 

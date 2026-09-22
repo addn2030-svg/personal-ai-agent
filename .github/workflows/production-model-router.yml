@@ -79,6 +79,9 @@ on:
       - 'tests/test_mobile_calendar_confirm.py'
       - 'tests/test_task_delegation.py'
       - 'tests/test_state_safety_manager.py'
+      - 'tests/test_brain.py'
+      - 'connectors/brain.py'
+      - 'supabase/03_brain_memory.sql'
       - 'tests/test_multi_intent.py'
       - 'tests/test_manager_wo8_compat.py'
       - '.github/workflows/production-model-router.yml'
@@ -116,6 +119,7 @@ jobs:
           tests.test_mobile_calendar_confirm
           tests.test_task_delegation
           tests.test_state_safety_manager
+          tests.test_brain
           tests.test_multi_intent
           tests.test_manager_wo8_compat
           tests.test_v09_master_os
@@ -126,6 +130,7 @@ jobs:
       - name: Compile production entrypoints
         run: >-
           python -m py_compile
+          connectors/brain.py
           connectors/model_gateway.py
           connectors/direct_specialists.py
           connectors/provider_diagnostics.py

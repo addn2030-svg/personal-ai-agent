@@ -1,10 +1,18 @@
 # -*- coding: utf-8 -*-
 """Layered memory: working, episodic and durable semantic memory.
 The authoritative mutable business state remains data/state.json; this module adds memory views without replacing Store.
+
+Storage note: the memory directory honours `AI_OS_DATA_DIR` exactly like
+engine/store.py, so on a diskless host (Render free: /tmp only) memory lands in
+the same place the state is restored to, and the durable copy in Supabase
+(connectors/brain.py) mirrors it. Hardcoding `<repo>/data/memory` here silently
+split memory across two directories on those hosts — the local files looked
+empty right after every restart.
 """
 import datetime as dt, json, os, hashlib
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MEM_DIR = os.path.join(BASE, "data", "memory")
+DATA_DIR = os.environ.get("AI_OS_DATA_DIR", "") or os.path.join(BASE, "data")
+MEM_DIR = os.path.join(DATA_DIR, "memory")
 WORKING = os.path.join(MEM_DIR, "working.json")
 EPISODIC = os.path.join(MEM_DIR, "episodic.jsonl")
 SEMANTIC = os.path.join(MEM_DIR, "semantic.jsonl")

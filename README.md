@@ -74,6 +74,29 @@
   و`tests/test_supabase_tasks.py` و`tests/test_supabase_e2e.py` (خادم PostgREST محلي —
   دورة كاملة بلا شبكة خارجية، 81 اختبارًا) · التحقق: `bash scripts/verify_supabase.sh`.
 
+## الجديد — 🧠 الدماغ الدائم (ذاكرة الوكيل خارج الخادم)
+- **المشكلة التي يحلّها**: استمرارية الحالة تحمي `data/state.json` فقط. أما ذاكرة
+  الوكيل (`data/memory/*.jsonl`: الحلقات والحقائق والذاكرة العاملة) فكانت **خارج أي
+  نسخة** — وعلى مضيف بلا قرص دائم (Render المجاني: `/tmp` فقط) تُمحى عند كل إيقاف،
+  فيستيقظ الوكيل بلا ذاكرة طويلة.
+- **الحل**: جداول دائمة في Supabase (`brain_episodes` · `brain_facts` ·
+  `brain_working`) مع موصل `connectors/brain.py`. الكتابة محلية أولًا **دائمًا**،
+  ثم مرآة سحابية؛ والاسترجاع من السحابة مع **سقوط آمن** إلى المسار المحلي عند أي عطل.
+- **استرجاع عربي حقيقي**: تطبيع مطابق لـ`engine/context_service.py` لكن داخل Postgres
+  (`brain_fold`: تشكيل · تطويل · همزات · تاء مربوطة · ياء) + ترتيب مرجّح
+  (رموز مطابقة + تشابه ثلاثي `pg_trgm` + ثقة الحقيقة). **بلا متجهات** — التزامًا بقرار
+  `docs/agent3-p0-adjudication.md` الذي أجّل pgvector حتى تبرّره أدلة تشغيلية؛ والترقية
+  لاحقًا لا تفقد شيئًا (عمود `embedding` + فهرس HNSW، ولا تتغير إلا دالة الاسترجاع).
+- **سلامة**: ثلاث رايات مغلقة افتراضيًا (`BRAIN_ENABLED` · `BRAIN_RECALL_ENABLED` ·
+  `BRAIN_WRITE_ENABLED`)، والكتابة تحتاج مفتاحًا سريًا + `SUPABASE_WRITE_ENABLED=1`،
+  و**المحتوى السريري لا يُرسل إلى السحابة إطلاقًا**، وRLS مفعّل بلا سياسات + `revoke all`.
+- **الترحيل**: `python3 -m connectors.brain --import` (idempotent، ويستبعد الحساس) ·
+  الفحص: `--status` · `--live` · من الجوال: `/brain_status` و`/brain_recall`.
+- **إصلاحان مصاحبان**: `engine/memory.py` و`engine/rag.py` كانا يتجاهلان
+  `AI_OS_DATA_DIR` فيكتبان في جذر المستودع (انقسام المخزن على مضيف بلا قرص)، و
+  `data/memory/` أُضيف إلى `.gitignore` لأنها بيانات شخصية.
+- **الدليل الكامل**: `docs/brain-durable-memory.md` · الاختبارات: `tests/test_brain.py` (34).
+
 ## الجديد في v1.1 (عتبة التفويض المالي — دفع تلقائي 375 ريال)
 - **استثناء واحد ضيّق ومصرّح على قاعدة «المالي أحمر»**: التزام مالي **< 375 ريال (~100$)**
   يرتقي بفئة `money` من **L1 إلى L3** ← **دفع تلقائي** فعلي عبر موصل الدفع مع إيصال
@@ -221,6 +244,8 @@ python3 engine/chief_of_staff.py
 - **Supabase (نسخ الحالة خارج الخادم — اختياري):** `docs/supabase-setup.md`. ضع `SUPABASE_URL` و`SUPABASE_SERVICE_ROLE_KEY` و`SUPABASE_WRITE_ENABLED=1` في Railway → Variables (لا في Git ولا في محادثة)، وشغّل SQL الإعداد مرة واحدة: `python3 -m connectors.supabase_client --sql`. ثم `/backup_now` من تيليجرام. المفتاح السري يبقى على الخادم فقط؛ ومفتاح anon/publishable للقراءة فقط ولا يكتب أبدًا.
 - نقل التشغيل إلى Railway، المتغيرات، الـVolume، وتشخيص انتهاء بيئة 24 ساعة: `docs/railway-migration.md`.
 - **الانتقال إلى استضافة مجانية (Render) أو بديل مدفوع رخيص:** `docs/free-hosting-migration.md` — مع تصحيح معلومات قديمة (Fly.io ألغت خطتها المجانية)، وملف `render.yaml` جاهز، وحل مشكلة القرص الغائب عبر `connectors/state_persistence.py` (استعادة عند الإقلاع + دفع تفاضلي + دفعة عند الإيقاف).
+- **نقل التشغيل من Railway (حساب منتهٍ) إلى Render المجاني:** `docs/hosting-cutover-railway-to-render.md` — مؤقت الـ30 يومًا قبل حذف بيانات الـVolume، خطوات الـBlueprint، تحويل تيليجرام، وحساب ساعات الإبقاء مستيقظًا (~527 ساعة/شهر بدل 744).
+- **الدماغ الدائم (ذاكرة الوكيل خارج الخادم):** `docs/brain-durable-memory.md` — يحمي ما لا تحميه استمرارية الحالة: `data/memory/*.jsonl` (الحلقات والحقائق). شغّل `supabase/03_brain_memory.sql` مرة واحدة، ثم `BRAIN_ENABLED=1` و`BRAIN_RECALL_ENABLED=1` و`BRAIN_WRITE_ENABLED=1`. الفحص: `python3 -m connectors.brain --status|--live`، والترحيل: `--import`، ومن الجوال: `/brain_status`.
 - خطابات وتقارير رسمية عبر Google Docs: `python3 -m connectors.google_docs_service create "العنوان" "النص"` (تُنشأ كمسودات — الإرسال الخارجي يبقى خلف بوابة الاعتماد).
 
 ## لوحة القيادة (للحفظ على سطح المكتب)

@@ -203,11 +203,73 @@ PYEOF
 then chk 0 "المراحل · الصمام المزدوج · التراجع الفوري · منع القفز"; else chk 1 "منطق المراحل"; fi
 
 say ""
+say "=== BRAIN (ذاكرة دائمة خارج الخادم) ==="
+BRAIN_SQL=$(python3 -m connectors.brain --sql 2>&1)
+for table in brain_episodes brain_facts brain_working; do
+  echo "$BRAIN_SQL" | grep -q "create table if not exists public.$table" \
+    && chk 0 "SQL الدماغ: $table" || chk 1 "SQL الدماغ: $table مفقود"
+done
+[ "$(echo "$BRAIN_SQL" | grep -ci "enable row level security")" -ge 3 ] \
+  && chk 0 "RLS مفعّل على جداول الدماغ الثلاثة" || chk 1 "RLS غير مفعّل على جداول الدماغ"
+echo "$BRAIN_SQL" | grep -q "create or replace function public.brain_recall" \
+  && chk 0 "دالة الاسترجاع brain_recall موجودة" || chk 1 "دالة الاسترجاع مفقودة"
+
+BRAIN_STATUS=$(python3 -m connectors.brain --check 2>&1 || true)
+if printf '%s' "$BRAIN_STATUS" | grep -q "خامل"; then
+  chk 0 "الدماغ خامل افتراضيًا (لا نداء شبكة بلا راية)"
+else
+  chk 1 "الدماغ ليس خاملًا افتراضيًا"; printf '%s\n' "$BRAIN_STATUS" | sed 's/^/  /'
+fi
+
+if python3 - <<'PYEOF'
+import os
+import sys
+import tempfile
+sys.path.insert(0, ".")
+from unittest import mock
+
+from connectors import brain
+
+# 1) مغلق افتراضيًا: لا نداء شبكة ولا كتابة بلا راية صريحة
+with mock.patch.dict(os.environ, {}, clear=True):
+    assert not brain.load_settings().enabled, "BRAIN_ENABLED مفتوح افتراضيًا"
+    assert not brain.capability().can_read, "القراءة مفتوحة بلا راية"
+    assert brain.capability().problem, "لا رسالة تفسّر ما ينقص"
+
+base = {"SUPABASE_URL": "https://demo1234.supabase.co",
+        "SUPABASE_ANON_KEY": "sb_publishable_demo",
+        "SUPABASE_SERVICE_ROLE_KEY": "sb_publishable_demo",
+        "BRAIN_ENABLED": "1", "BRAIN_RECALL_ENABLED": "1",
+        "BRAIN_WRITE_ENABLED": "1", "SUPABASE_WRITE_ENABLED": "1"}
+
+# 2) مفتاح عام في خانة السرّي لا يفتح الكتابة — ولا حتى بالرايات كلها
+with mock.patch.dict(os.environ, base, clear=True):
+    assert not brain.capability().can_write, "المفتاح العام فتح الكتابة — خلل أمني"
+
+# 3) المفتاح السري + الرايات يفتحها (وإلا فالحواجز تمنع العمل الصحيح)
+secret = dict(base, SUPABASE_SERVICE_ROLE_KEY="sb_secret_demo_key")
+with mock.patch.dict(os.environ, secret, clear=True):
+    cap = brain.capability()
+    assert cap.can_read and cap.can_write, f"الحواجز أغلقت مسارًا مشروعًا: {cap.problem}"
+    # 4) المحتوى السريري لا يُرسَل إلى السحابة إطلاقًا
+    assert "clinical_private" in brain.NEVER_REMOTE and "restricted" in brain.NEVER_REMOTE
+
+# 5) مسار الذاكرة يحترم AI_OS_DATA_DIR (وإلا انقسم المخزن على مضيف بلا قرص)
+with tempfile.TemporaryDirectory() as tmp:
+    with mock.patch.dict(os.environ, {"AI_OS_DATA_DIR": tmp}, clear=True):
+        assert brain.memory_dir() == os.path.join(tmp, "memory"), brain.memory_dir()
+raise SystemExit(0)
+PYEOF
+then chk 0 "حواجز الدماغ: خمول افتراضي · المفتاح العام لا يكتب · السري يكتب · منع السريري · مسار الذاكرة"
+else chk 1 "حواجز الدماغ"; fi
+
+say ""
 say "=== UNIT ==="
 run_tests tests.test_supabase "اختبارات الوحدة (مفاتيح · حواجز · بصمة · استعادة · .env)"
 run_tests tests.test_supabase_tasks "اختبارات مرآة المهام (تعيين · إحصاء · مزامنة · جدولة · pull)"
 run_tests tests.test_rollout "اختبارات التشغيل التدريجي (مراحل · بوابة · تراجع · توازٍ)"
 run_tests tests.test_state_persistence "اختبارات استمرارية الحالة (إقلاع · دفع تفاضلي · إشارات)"
+run_tests tests.test_brain "اختبارات الدماغ الدائم (خمول · بوابة ثلاثية · منع السريري · سقوط آمن)"
 run_tests tests.test_webhook_boot "اختبارات إقلاع الخدمة (فشل مُعلَن لا حلقة إعادة تشغيل)"
 
 say ""
@@ -241,6 +303,15 @@ if [ -f render.yaml ] && [ -f docs/free-hosting-migration.md ]; then
   chk 0 "ملفا النشر موجودان (render.yaml + دليل الانتقال)"
 else
   chk 1 "ملفا النشر" "render.yaml أو docs/free-hosting-migration.md غير موجود"
+fi
+for required in docs/brain-durable-memory.md docs/hosting-cutover-railway-to-render.md \
+                .github/workflows/keepalive.yml; do
+  [ -f "$required" ] && chk 0 "موجود: $required" || chk 1 "مفقود: $required"
+done
+if grep -q "BRAIN_ENABLED" render.yaml && grep -q "data/memory/" .gitignore; then
+  chk 0 "رايات الدماغ في render.yaml + ذاكرة المستخدم خارج Git"
+else
+  chk 1 "رايات الدماغ أو استثناء data/memory/ مفقود"
 fi
 run_tests tests.test_render_deploy "اختبارات ملف النشر (بنية · أسرار · استمرارية · فحص ذاتي)"
 
