@@ -270,6 +270,7 @@ run_tests tests.test_supabase_tasks "اختبارات مرآة المهام (ت�
 run_tests tests.test_rollout "اختبارات التشغيل التدريجي (مراحل · بوابة · تراجع · توازٍ)"
 run_tests tests.test_state_persistence "اختبارات استمرارية الحالة (إقلاع · دفع تفاضلي · إشارات)"
 run_tests tests.test_brain "اختبارات الدماغ الدائم (خمول · بوابة ثلاثية · منع السريري · سقوط آمن)"
+run_tests tests.test_reply_critique "اختبارات النقد قبل الإرسال (إخلاء سريري · حجب معرّفات · ادّعاء بلا إيصال)"
 run_tests tests.test_webhook_boot "اختبارات إقلاع الخدمة (فشل مُعلَن لا حلقة إعادة تشغيل)"
 
 say ""

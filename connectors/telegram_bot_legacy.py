@@ -1327,6 +1327,18 @@ def handle_message(message: dict):
         answer, usage, latency, _ = ask_bedrock(
             chat_id, text, sheet_context=sheet_context
         )
+        # نقد ذاتي حتمي قبل الإرسال: يفرض قواعد SYSTEM_PROMPT الحرجة (إخلاء
+        # المسؤولية السريري · حجب المعرّفات · عدم ادّعاء تنفيذ بلا إيصال).
+        # بلا استدعاء نموذج (لا يستهلك الحصة).
+        # الاستيراد داخل try مستقل: لو تعذّر تحميل الوحدة لأي سبب فلا يجوز أن
+        # يسقط الرد — الحارس ليس أهم من الرسالة نفسها.
+        try:
+            from connectors import reply_critique
+            answer = reply_critique.review_and_amend(
+                answer, question=text, category=category, chat_id=cid
+            ).text
+        except Exception as exc:  # noqa: BLE001
+            print(f"Reply critique unavailable: {str(exc)[:160]}", flush=True)
         remember(chat_id, "assistant", answer, message.get("message_id", ""), category)
         _save_conversation(cid, iid, text, answer, usage, latency, "COMPLETED")
         _save_intake(iid, message, text, kind, attachment, "COMPLETED", response_id=cid)
