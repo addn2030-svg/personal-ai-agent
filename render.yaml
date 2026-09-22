@@ -48,6 +48,19 @@ services:
       - key: SUPABASE_WRITE_ENABLED
         value: "1"
 
+      # ---- الدماغ الدائم (ذاكرة خارج الخادم) ------------------------------
+      # لماذا ضروري هنا تحديدًا: data/memory/*.jsonl (الحلقات والحقائق
+      # والذاكرة العاملة) ليست داخل state.json، فلا تشملها نسخ الاستمرارية
+      # أعلاه. بلا هذه الطبقة يمحو كل إيقاف للخدمة ذاكرة الوكيل الطويلة،
+      # ويعود يسأل عن كل شيء بعد كل استيقاظ.
+      #   شغّل مرة واحدة في Supabase → SQL Editor: supabase/03_brain_memory.sql
+      - key: BRAIN_ENABLED
+        value: "1"             # يسمح بالنداء الشبكي للطبقة
+      - key: BRAIN_RECALL_ENABLED
+        value: "1"             # يحقن الذاكرة المسترجَعة في سياق الردود
+      - key: BRAIN_WRITE_ENABLED
+        value: "1"             # يرآي الكتابات المحلية إلى السحابة
+
       # ---- قنوات النظام (كما في Railway — انسخها كما هي) -----------------
       - key: TELEGRAM_BOT_TOKEN
         sync: false

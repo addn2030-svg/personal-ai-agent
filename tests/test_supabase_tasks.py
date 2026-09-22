@@ -417,5 +417,63 @@ class PullTests(unittest.TestCase):
                          os.path.join(self.tmp.name, "backups"))
 
 
+class MirrorIsScrubbedBeforeUpload(unittest.TestCase):
+    """مرآة المهام مسار رفع ثانٍ — وكان يرفع الملاحظات كما هي.
+
+    مخطط `tasks_mirror` نفسه يصف عمود `notes` بأنه «قد يحتوي تفاصيل حساسة»،
+    لكن الصفوف كانت تُرفع بلا أي تنقية. الاختبارات هنا تمنع عودة ذلك.
+    """
+
+    STATE = {
+        "meta": {"version": 7},
+        "tasks": [
+            {"العنوان": "متابعة خطة المريض أحمد", "الحالة": "لم تبدأ",
+             "ملاحظات": "والمريض أحمد يحتاج مراجعة للخطة — تواصل 0555123456",
+             "الموعد النهائي": "2026-08-23"},
+            {"العنوان": "تطبيق HEP للمرضى", "الحالة": "لم تبدأ", "ملاحظات": "مشروع عام"},
+        ],
+    }
+
+    def setUp(self):
+        self.rows, self.report = supabase_tasks.task_rows_with_report(self.STATE)
+
+    def test_patient_reference_never_leaves_the_host(self):
+        blob = json.dumps(self.rows, ensure_ascii=False)
+        self.assertNotIn("أحمد", blob)
+        self.assertNotIn("0555123456", blob)
+
+    def test_administrative_wording_survives(self):
+        """«تطبيق HEP للمرضى» إداري مشروع — لا يُحجب."""
+        blob = json.dumps(self.rows, ensure_ascii=False)
+        self.assertIn("تطبيق HEP للمرضى", blob)
+
+    def test_identity_stays_derived_from_the_local_text(self):
+        """لو نُقّي قبل حساب المعرّف لانكسرت الـidempotency (صف جديد كل مزامنة)."""
+        expected = supabase_tasks.task_id("owner", "متابعة خطة المريض أحمد",
+                                          "2026-08-23", None, 1)
+        self.assertEqual(self.rows[0]["id"], expected)
+
+    def test_report_announces_the_redactions(self):
+        """الحجب الصامت يوهم أن المرآة صورة حرفية — فيجب أن يُعلن."""
+        self.assertGreaterEqual(self.report["redacted_cells"], 1)
+        self.assertEqual(self.report["rows"], 2)
+
+    def test_sync_summary_carries_the_count(self):
+        summary = supabase_tasks.sync(state=self.STATE, dry_run=True)
+        self.assertGreaterEqual(summary["redacted_cells"], 1)
+
+    def test_dry_run_sample_is_already_scrubbed(self):
+        """العيّنة التي تُعرض للمستخدم يجب أن تكون منقّاة أيضًا."""
+        summary = supabase_tasks.sync(state=self.STATE, dry_run=True)
+        self.assertNotIn("أحمد", json.dumps(summary["sample"], ensure_ascii=False))
+
+    def test_clean_state_reports_zero_redactions(self):
+        clean = {"meta": {"version": 1}, "tasks": [{"العنوان": "إرسال التقرير",
+                                                    "الحالة": "لم تبدأ"}]}
+        rows, report = supabase_tasks.task_rows_with_report(clean)
+        self.assertEqual(report["redacted_cells"], 0)
+        self.assertEqual(rows[0]["title"], "إرسال التقرير")
+
+
 if __name__ == "__main__":
     unittest.main()

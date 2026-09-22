@@ -11,7 +11,12 @@ import sys
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from openpyxl import load_workbook
+try:                                    # openpyxl إن توفّرت (المسار الأصلي)
+    from openpyxl import load_workbook
+    READER = "openpyxl"
+except ModuleNotFoundError:             # وإلا فالقارئ القياسي في المستودع
+    from sheet_reader import load_workbook
+    READER = "stdlib"
 from store import Store, log_event
 
 SHEET = os.path.join(BASE, "data", "master-sheet.xlsx")
@@ -28,6 +33,7 @@ if os.path.exists(Store().path) and "--force" not in sys.argv:
     raise SystemExit(0)
 
 wb = load_workbook(SHEET, data_only=True)
+print(f"قارئ الشيت: {READER}")
 state = {"meta": {}, "waiting_for": [], "action_queue": []}
 
 def rows_of(tab):

@@ -1,0 +1,50 @@
+# ============================================================================
+# إبقاء خدمة Render المجانية مستيقظة خلال ساعات العمل
+#
+# المشكلة: خطة Render المجانية تُوقف الخدمة بعد 15 دقيقة بلا حركة واردة
+# (الإقلاع ~30-60 ثانية). بالنسبة لبوت تيليجرام على webhook، الرسالة التي تصل
+# أثناء النوم تحتاج انتظار الإقلاع، وقد تنتهي مهلة تيليجرام قبل أن يستيقظ.
+#
+# الحل: ping دوري على /health. لكن هناك حساب لا يجوز تجاهله:
+#   • الرصيد المجاني 750 ساعة/شهر لكل مساحة عمل.
+#   • شهر 31 يومًا = 744 ساعة ⇒ ping على مدار الساعة يستهلك الرصيد كله بلا هامش،
+#     وإن نضب الرصيد تُوقِف Render **كل** الخدمات المجانية حتى أول الشهر التالي.
+# لذلك النافذة هنا مقصودة: **07:00–24:00 بتوقيت الرياض** (‎*/10 4-20 * * * بتوقيت
+# UTC) ≈ 527 ساعة/شهر، أي نحو 70% من الرصيد مع هامش آمن.
+#
+# التفعيل (اختياري — بلا خطوة التالية لا يفعل هذا الملف شيئًا):
+#   GitHub → Settings → Secrets and variables → Actions → Variables
+#   أضف: RENDER_HEALTH_URL = https://<اسم-الخدمة>.onrender.com/health
+#
+# ملاحظة: جدولة GitHub Actions غير دقيقة تحت الحمل (قد تتأخر دقائق). الفاصل هنا
+# 10 دقائق مقابل نافذة نوم 15 دقيقة ⇒ الهامش كافٍ عمليًا.
+# ============================================================================
+name: Keep-alive (Render free)
+
+on:
+  schedule:
+    - cron: "*/10 4-20 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping health endpoint (skipped when the variable is unset)
+        env:
+          HEALTH_URL: ${{ vars.RENDER_HEALTH_URL }}
+        run: |
+          if [ -z "$HEALTH_URL" ]; then
+            echo "RENDER_HEALTH_URL غير مضبوط — لا شيء لفحصه (هذا طبيعي قبل النشر)."
+            exit 0
+          fi
+          code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 90 --retry 2 --retry-all-errors "$HEALTH_URL")
+          echo "HTTP $code من $HEALTH_URL"
+          # /health يجب أن يعود 200 حتى لو كان مزوّد خارجي متعطلًا (بالتصميم).
+          if [ "$code" != "200" ]; then
+            echo "::warning::/health أعاد $code — راجع سجل خدمة Render."
+            exit 1
+          fi

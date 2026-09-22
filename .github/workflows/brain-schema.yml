@@ -1,0 +1,135 @@
+# ============================================================================
+# التحقق من مخطط الدماغ على PostgreSQL حقيقي
+#
+# لماذا: `supabase/03_brain_memory.sql` كان يُراجَع بالعين فقط، وأهم ما فيه
+# (التطبيع العربي · ترتيب الاسترجاع · شبكة التشابه · الحماية) لا يظهر خطؤه
+# إلا بالتنفيذ. هنا يُنفَّذ المخطط على نسخة PostgreSQL حقيقية **مع pg_trgm
+# الحقيقي** — وهو نفسه المتاح على Supabase — ثم تُشغَّل فحوص السلوك.
+#
+# ما يُغطّى:
+#   1) المخطط يُنشأ كاملًا (جداول · دوال · فهارس · RLS · revoke).
+#   2) الاسترجاع العربي: صيغ ملتصقة (والعقد) · جمع مكسور (العقود) · الإبطال.
+#   3) المحتوى السريري محجوب افتراضيًا ولا يظهر إلا بالطلب الصريح.
+#   4) الفشل **ذرّي**: على قاعدة بلا pg_trgm يفشل المخطط برسالة موجّهة
+#      ولا يترك كائنًا واحدًا (لا مخطط نصف مبني).
+# ============================================================================
+name: Brain schema (PostgreSQL)
+
+on:
+  push:
+    paths:
+      - 'supabase/*.sql'
+      - 'supabase/tests/**'
+      - 'connectors/brain.py'
+      - 'scripts/verify_brain_schema.sh'
+      - '.github/workflows/brain-schema.yml'
+  pull_request:
+    paths:
+      - 'supabase/*.sql'
+      - 'supabase/tests/**'
+      - 'connectors/brain.py'
+      - 'scripts/verify_brain_schema.sh'
+      - '.github/workflows/brain-schema.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  schema:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16          # يحمل pg_trgm كما Supabase
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: brain
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: brain
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: أدوار Supabase — ليكون فحص «revoke» حقيقيًا لا متخطّى
+        run: |
+          psql -v ON_ERROR_STOP=1 -c 'create role anon nosuperuser;'
+          psql -v ON_ERROR_STOP=1 -c 'create role authenticated nosuperuser;'
+
+      - name: الملفان ١ و٢ — تنفيذ على قاعدة حقيقية (لم يُنفَّذا هنا قبل قط)
+        # اختباراتهما كانت تفحص **النص** فقط. أول تنفيذ حقيقي كان سيقع على قاعدة
+        # المستخدم. هنا يُنفَّذان ويُفحَص أثرهما فعليًا.
+        run: |
+          psql -v ON_ERROR_STOP=1 -f supabase/01_state_snapshots.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/02_tasks_mirror.sql
+
+      - name: فحص الملفين ١ و٢ (جداول · أعمدة · فهارس · RLS · إدراج وقراءة)
+        run: |
+          set +e
+          OUT=$(psql -v ON_ERROR_STOP=1 -f supabase/tests/state_schema_test.sql 2>&1)
+          STATUS=$?
+          printf '%s\n' "$OUT"
+          if [ "$STATUS" -ne 0 ]; then
+            MSG=$(printf '%s' "$OUT" | grep -aiE "ERROR|فشل|مفقود" | head -4 | tr '\n' '|' | tr -d '%')
+            echo "::error::فحص مخطط النسخ/المرآة فشل: ${MSG:-غير معروف}"
+            exit 1
+          fi
+
+      - name: تنفيذ المخطط كما هو
+        run: psql -v ON_ERROR_STOP=1 -f supabase/03_brain_memory.sql
+
+      - name: فحوص السلوك على pg_trgm الحقيقي
+        # نلتقط المخرجات ونُصدر تعليقًا (annotation) عند الفشل: رسالة psql وحدها
+        # تبقى في السجل، وسجل Actions ليس دائمًا متاحًا للقراءة من الخارج.
+        run: |
+          set +e
+          OUT=$(psql -v ON_ERROR_STOP=1 -f supabase/tests/brain_schema_test.sql 2>&1)
+          STATUS=$?
+          printf '%s\n' "$OUT"
+          if [ "$STATUS" -ne 0 ]; then
+            MSG=$(printf '%s' "$OUT" | grep -aiE "ERROR|exception|فشل|يجب" | head -3 | tr '\n' '|' | tr -d '%')
+            echo "::error::فشل فحص سلوك مخطط الدماغ: ${MSG:-غير معروف}"
+            exit 1
+          fi
+
+      - name: التحقق النهائي الذي في صفحة الإعداد — يجب أن يعيد 11 سطرًا
+        # الصفحة التي يفتحها المستخدم تنتهي باستعلام تحقق؛ هنا يُشغَّل نفسه على
+        # قاعدة حقيقية ويُتحقق من عدده، فلا تكون تعليمات الصفحة غير مجرَّبة.
+        run: |
+          set +e
+          python3 -c "import sys; sys.path.insert(0, '.'); from scripts import make_sql_setup_page as m; print(m.VERIFY_SQL)" > /tmp/verify_page.sql
+          OUT=$(psql -v ON_ERROR_STOP=1 -tA -f /tmp/verify_page.sql 2>&1)
+          STATUS=$?
+          printf '%s\n' "$OUT"
+          if [ "$STATUS" -ne 0 ]; then
+            echo "::error::استعلام التحقق في الصفحة فشل في التنفيذ"
+            exit 1
+          fi
+          N=$(printf '%s\n' "$OUT" | grep -c .)
+          if [ "$N" != "11" ]; then
+            echo "::error::التحقق النهائي أعاد $N سطرًا بدل 11 — الصفحة تعِد بما لا يتحقق"
+            exit 1
+          fi
+          echo "✅ التحقق النهائي أعاد 11 سطرًا كما تقول الصفحة"
+
+      - name: الفشل ذرّي — لا مخطط نصف مبني
+        env:
+          BRAIN_GUARD_STRICT: "1"   # تخطّي الفحص = فشل، لا نجاح صامت
+        run: |
+          set +e
+          OUT=$(bash scripts/verify_brain_schema.sh 2>&1)
+          STATUS=$?
+          printf '%s\n' "$OUT"
+          if [ "$STATUS" -ne 0 ]; then
+            MSG=$(printf '%s' "$OUT" | grep -a "❌" | head -3 | tr '\n' '|' | tr -d '%')
+            echo "::error::فحص الذرّية فشل: ${MSG:-غير معروف}"
+            exit 1
+          fi

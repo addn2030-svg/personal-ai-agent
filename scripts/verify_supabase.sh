@@ -62,6 +62,12 @@ then chk 0 "حواجز المفاتيح سليمة (عام = قراءة فقط �
 
 say ""
 say "=== SQL ==="
+# صفحة الإعداد التي يفتحها المستخدم: يجب أن تطابق ملفات SQL الحالية
+if python3 scripts/make_sql_setup_page.py --check >/dev/null 2>&1; then
+  chk 0 "صفحة إعداد SQL مطابقة لملفات SQL (لا مخطط قديم)"
+else
+  chk 1 "صفحة إعداد SQL قديمة — أعد التوليد: python3 scripts/make_sql_setup_page.py"
+fi
 SQL=$(python3 -m connectors.supabase_client --sql all 2>&1)
 echo "$SQL" | grep -q "create table if not exists public.state_snapshots" \
   && chk 0 "SQL النسخ الاحتياطي (01) متاح" || chk 1 "SQL النسخ الاحتياطي مفقود"
@@ -203,11 +209,79 @@ PYEOF
 then chk 0 "المراحل · الصمام المزدوج · التراجع الفوري · منع القفز"; else chk 1 "منطق المراحل"; fi
 
 say ""
+say "=== BRAIN (ذاكرة دائمة خارج الخادم) ==="
+BRAIN_SQL=$(python3 -m connectors.brain --sql 2>&1)
+for table in brain_episodes brain_facts brain_working; do
+  echo "$BRAIN_SQL" | grep -q "create table if not exists public.$table" \
+    && chk 0 "SQL الدماغ: $table" || chk 1 "SQL الدماغ: $table مفقود"
+done
+[ "$(echo "$BRAIN_SQL" | grep -ci "enable row level security")" -ge 3 ] \
+  && chk 0 "RLS مفعّل على جداول الدماغ الثلاثة" || chk 1 "RLS غير مفعّل على جداول الدماغ"
+echo "$BRAIN_SQL" | grep -q "create or replace function public.brain_recall" \
+  && chk 0 "دالة الاسترجاع brain_recall موجودة" || chk 1 "دالة الاسترجاع مفقودة"
+
+BRAIN_STATUS=$(python3 -m connectors.brain --check 2>&1 || true)
+if printf '%s' "$BRAIN_STATUS" | grep -q "خامل"; then
+  chk 0 "الدماغ خامل افتراضيًا (لا نداء شبكة بلا راية)"
+else
+  chk 1 "الدماغ ليس خاملًا افتراضيًا"; printf '%s\n' "$BRAIN_STATUS" | sed 's/^/  /'
+fi
+
+if python3 - <<'PYEOF'
+import os
+import sys
+import tempfile
+sys.path.insert(0, ".")
+from unittest import mock
+
+from connectors import brain
+
+# 1) مغلق افتراضيًا: لا نداء شبكة ولا كتابة بلا راية صريحة
+with mock.patch.dict(os.environ, {}, clear=True):
+    assert not brain.load_settings().enabled, "BRAIN_ENABLED مفتوح افتراضيًا"
+    assert not brain.capability().can_read, "القراءة مفتوحة بلا راية"
+    assert brain.capability().problem, "لا رسالة تفسّر ما ينقص"
+
+base = {"SUPABASE_URL": "https://demo1234.supabase.co",
+        "SUPABASE_ANON_KEY": "sb_publishable_demo",
+        "SUPABASE_SERVICE_ROLE_KEY": "sb_publishable_demo",
+        "BRAIN_ENABLED": "1", "BRAIN_RECALL_ENABLED": "1",
+        "BRAIN_WRITE_ENABLED": "1", "SUPABASE_WRITE_ENABLED": "1"}
+
+# 2) مفتاح عام في خانة السرّي لا يفتح الكتابة — ولا حتى بالرايات كلها
+with mock.patch.dict(os.environ, base, clear=True):
+    assert not brain.capability().can_write, "المفتاح العام فتح الكتابة — خلل أمني"
+
+# 3) المفتاح السري + الرايات يفتحها (وإلا فالحواجز تمنع العمل الصحيح)
+secret = dict(base, SUPABASE_SERVICE_ROLE_KEY="sb_secret_demo_key")
+with mock.patch.dict(os.environ, secret, clear=True):
+    cap = brain.capability()
+    assert cap.can_read and cap.can_write, f"الحواجز أغلقت مسارًا مشروعًا: {cap.problem}"
+    # 4) المحتوى السريري لا يُرسَل إلى السحابة إطلاقًا
+    assert "clinical_private" in brain.NEVER_REMOTE and "restricted" in brain.NEVER_REMOTE
+
+# 5) مسار الذاكرة يحترم AI_OS_DATA_DIR (وإلا انقسم المخزن على مضيف بلا قرص)
+with tempfile.TemporaryDirectory() as tmp:
+    with mock.patch.dict(os.environ, {"AI_OS_DATA_DIR": tmp}, clear=True):
+        assert brain.memory_dir() == os.path.join(tmp, "memory"), brain.memory_dir()
+raise SystemExit(0)
+PYEOF
+then chk 0 "حواجز الدماغ: خمول افتراضي · المفتاح العام لا يكتب · السري يكتب · منع السريري · مسار الذاكرة"
+else chk 1 "حواجز الدماغ"; fi
+
+say ""
 say "=== UNIT ==="
 run_tests tests.test_supabase "اختبارات الوحدة (مفاتيح · حواجز · بصمة · استعادة · .env)"
 run_tests tests.test_supabase_tasks "اختبارات مرآة المهام (تعيين · إحصاء · مزامنة · جدولة · pull)"
 run_tests tests.test_rollout "اختبارات التشغيل التدريجي (مراحل · بوابة · تراجع · توازٍ)"
 run_tests tests.test_state_persistence "اختبارات استمرارية الحالة (إقلاع · دفع تفاضلي · إشارات)"
+run_tests tests.test_brain "اختبارات الدماغ الدائم (خمول · بوابة ثلاثية · منع السريري · سقوط آمن)"
+run_tests tests.test_reply_critique "اختبارات النقد قبل الإرسال (إخلاء سريري · حجب معرّفات · ادّعاء بلا إيصال)"
+run_tests tests.test_pii "اختبارات أنماط المعرّفات (تمييز الإحصاء عن السجل · المفاتيح لا تُنقّى)"
+run_tests tests.test_cloud_payload "اختبارات عقد النسخة السحابية (حجب المرضى · تنقية · إعلان الحجب)"
+run_tests tests.test_sheet_reader "اختبارات قارئ xlsx والترحيل الكامل (شيت → حالة → حمولة) — مع تمييز التواريخ"
+run_tests tests.test_sql_setup_page "صفحة إعداد SQL مطابقة لملفات SQL (لا مخطط قديم يُلصق)"
+run_tests tests.test_supabase_probe "فحص المشروع عن بُعد بالمفتاح العام (ورفض المفتاح السري) — ردود PostgREST حقيقية"
 run_tests tests.test_webhook_boot "اختبارات إقلاع الخدمة (فشل مُعلَن لا حلقة إعادة تشغيل)"
 
 say ""
@@ -242,10 +316,34 @@ if [ -f render.yaml ] && [ -f docs/free-hosting-migration.md ]; then
 else
   chk 1 "ملفا النشر" "render.yaml أو docs/free-hosting-migration.md غير موجود"
 fi
+for required in docs/brain-durable-memory.md docs/hosting-cutover-railway-to-render.md \
+                .github/workflows/keepalive.yml; do
+  [ -f "$required" ] && chk 0 "موجود: $required" || chk 1 "مفقود: $required"
+done
+if grep -q "BRAIN_ENABLED" render.yaml && grep -q "data/memory/" .gitignore; then
+  chk 0 "رايات الدماغ في render.yaml + ذاكرة المستخدم خارج Git"
+else
+  chk 1 "رايات الدماغ أو استثناء data/memory/ مفقود"
+fi
 run_tests tests.test_render_deploy "اختبارات ملف النشر (بنية · أسرار · استمرارية · فحص ذاتي)"
 
 say ""
 say "=== CONNECTION SETUP ==="
+# أداة الفحص عن بُعد لا تعمل بلا إعداد — لكن يجب أن تفشل بوضوح لا بانهيار،
+# وأن ترفض المفتاح السري إن مُرِّر لها.
+PROBE=$(SUPABASE_URL="https://demo-ref.supabase.co" SUPABASE_ANON_KEY="sb_secret_x" \
+        python3 -m connectors.supabase_probe 2>&1 || true)
+if printf '%s' "$PROBE" | grep -q "المفتاح سري"; then
+  chk 0 "أداة الفحص ترفض المفتاح السري وتوجّه إلى المفتاح العام"
+else
+  chk 1 "أداة الفحص قبلت مفتاحًا سريًا أو لم تفشل بوضوح"
+fi
+PROBE2=$(python3 -m connectors.supabase_probe 2>&1 || true)
+if printf '%s' "$PROBE2" | grep -q "SUPABASE_URL"; then
+  chk 0 "أداة الفحص تفشل برسالة واضحة عند غياب الإعداد"
+else
+  chk 1 "أداة الفحص لا تشرح سبب الفشل عند غياب الإعداد"
+fi
 # ملاحظة: connection_setup يعيد 2 عندما تكون قناة مطلوبة ناقصة (وهو متوقع في هذا
 # التحقق المعزول)، لذا نلتقط المخرجات أولًا بدل تمريرها في أنبوب مع pipefail.
 SETUP=$(python3 -m connectors.connection_setup 2>&1 || true)
