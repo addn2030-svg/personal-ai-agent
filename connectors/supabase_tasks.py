@@ -32,6 +32,7 @@ BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if BASE not in sys.path:
     sys.path.insert(0, BASE)
 
+from connectors.pii import scrub_deep
 from connectors.supabase_client import (  # noqa: E402
     SupabaseClient, SupabaseError, load_config, read_sql, redact,
 )
@@ -139,7 +140,39 @@ def task_id(owner: str, title: str, due: str | None, source: str | None, occurre
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
 
 
+def task_rows_with_report(state: dict, owner: str = "owner",
+                          today: dt.date | None = None) -> tuple[list, dict]:
+    """يبني صفوف المرآة **وينقّيها**، ويعيد (الصفوف, تقرير التنقية).
+
+    لماذا التنقية هنا تحديدًا
+    ------------------------
+    مخطط `tasks_mirror` نفسه يقول في وصف عمود `notes`: «قد تحتوي تفاصيل حساسة».
+    وكان `sync` يرفع الصفوف كما هي — أي أن ملاحظة مهام تقول «والمريض أحمد يحتاج
+    مراجعة» كانت تُرفع إلى السحابة، تمامًا كالملاحظة الصوتية في حالة النظام.
+    الحالة كانت محميّة (`cloud_payload`) وهذا المسار لا — وهو نفس الصنف من الخلل.
+
+    **ترتيب مقصود**: المعرّف `id` يُحسب من النص **المحلي** قبل التنقية، فيبقى
+    حتميًا وثابتًا بين المزامنات (وإلا لانكسرت الـidempotency: كل مزامنة تُنشئ
+    صفًا جديدًا لأن المعرّف تغيّر). لا نُغيّر هوية الصف، بل ما يُرسل منه.
+    """
+    rows, report = _build_rows(state, owner=owner, today=today)
+    clean: list = []
+    redactions = 0
+    for row in rows:
+        scrubbed, stats = scrub_deep(row, clinical=True)
+        redactions += int(stats.get("pii", 0)) + int(stats.get("clinical", 0))
+        clean.append(scrubbed)
+    report["redacted_cells"] = redactions
+    return clean, report
+
+
 def task_rows(state: dict, owner: str = "owner", today: dt.date | None = None) -> list[dict]:
+    """الصفوف وحدها (متوافق مع الاستدعاءات القائمة)."""
+    return task_rows_with_report(state, owner=owner, today=today)[0]
+
+
+def _build_rows(state: dict, owner: str = "owner",
+                today: dt.date | None = None) -> tuple[list, dict]:
     """يحوّل قسم tasks في الحالة إلى صفوف المرآة (مع الحقول المشتقة)."""
     today = today or dt.date.today()
     rows: list[dict] = []
@@ -176,7 +209,13 @@ def task_rows(state: dict, owner: str = "owner", today: dt.date | None = None) -
             "notes": _text(_field(task, "notes")),
             "state_version": int((state.get("meta") or {}).get("version") or 0),
         })
-    return rows
+    report = {
+        "rows": len(rows),
+        "open": sum(1 for row in rows if row["is_open"]),
+        "overdue": sum(1 for row in rows if row["is_overdue"]),
+        "notes_present": sum(1 for row in rows if row.get("notes")),
+    }
+    return rows, report
 
 
 # ------------------------------------------------------------------- client
@@ -231,11 +270,14 @@ def sync(*, client: SupabaseClient | None = None, state: dict | None = None,
     client = client or SupabaseClient()
     state = state if state is not None else read_state()
     owner = owner or owner_id()
-    rows = task_rows(state, owner=owner)
+    rows, report = task_rows_with_report(state, owner=owner)
     run = f"{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:6]}"
     payload = [{**row, "sync_run": run} for row in rows]
 
     summary = {
+        # ما نُقّي قبل الرفع: يُعلن ولا يُخفى، فصاحب النظام يعرف أن مرآته ليست
+        # صورة حرفية للملاحظات المحلية.
+        "redacted_cells": int(report.get("redacted_cells") or 0),
         "run": run, "table": table_name(), "rows": len(payload),
         "open": sum(1 for row in payload if row["is_open"]),
         "overdue": sum(1 for row in payload if row["is_overdue"]),
