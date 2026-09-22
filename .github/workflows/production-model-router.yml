@@ -84,6 +84,7 @@ on:
       - 'tests/test_pii.py'
       - 'tests/test_cloud_payload.py'
       - 'tests/test_sheet_reader.py'
+      - 'tests/test_sql_setup_page.py'
       - 'connectors/brain.py'
       - 'connectors/reply_critique.py'
       - 'connectors/pii.py'
@@ -135,6 +136,7 @@ jobs:
           tests.test_pii
           tests.test_cloud_payload
           tests.test_sheet_reader
+          tests.test_sql_setup_page
           tests.test_multi_intent
           tests.test_manager_wo8_compat
           tests.test_v09_master_os
@@ -150,6 +152,7 @@ jobs:
           connectors/pii.py
           connectors/cloud_payload.py
           engine/sheet_reader.py
+          scripts/make_sql_setup_page.py
           connectors/model_gateway.py
           connectors/direct_specialists.py
           connectors/provider_diagnostics.py

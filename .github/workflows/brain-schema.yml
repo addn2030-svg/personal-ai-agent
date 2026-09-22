@@ -18,14 +18,14 @@ name: Brain schema (PostgreSQL)
 on:
   push:
     paths:
-      - 'supabase/03_brain_memory.sql'
+      - 'supabase/*.sql'
       - 'supabase/tests/**'
       - 'connectors/brain.py'
       - 'scripts/verify_brain_schema.sh'
       - '.github/workflows/brain-schema.yml'
   pull_request:
     paths:
-      - 'supabase/03_brain_memory.sql'
+      - 'supabase/*.sql'
       - 'supabase/tests/**'
       - 'connectors/brain.py'
       - 'scripts/verify_brain_schema.sh'
@@ -63,6 +63,25 @@ jobs:
         run: |
           psql -v ON_ERROR_STOP=1 -c 'create role anon nosuperuser;'
           psql -v ON_ERROR_STOP=1 -c 'create role authenticated nosuperuser;'
+
+      - name: الملفان ١ و٢ — تنفيذ على قاعدة حقيقية (لم يُنفَّذا هنا قبل قط)
+        # اختباراتهما كانت تفحص **النص** فقط. أول تنفيذ حقيقي كان سيقع على قاعدة
+        # المستخدم. هنا يُنفَّذان ويُفحَص أثرهما فعليًا.
+        run: |
+          psql -v ON_ERROR_STOP=1 -f supabase/01_state_snapshots.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/02_tasks_mirror.sql
+
+      - name: فحص الملفين ١ و٢ (جداول · أعمدة · فهارس · RLS · إدراج وقراءة)
+        run: |
+          set +e
+          OUT=$(psql -v ON_ERROR_STOP=1 -f supabase/tests/state_schema_test.sql 2>&1)
+          STATUS=$?
+          printf '%s\n' "$OUT"
+          if [ "$STATUS" -ne 0 ]; then
+            MSG=$(printf '%s' "$OUT" | grep -aiE "ERROR|فشل|مفقود" | head -4 | tr '\n' '|' | tr -d '%')
+            echo "::error::فحص مخطط النسخ/المرآة فشل: ${MSG:-غير معروف}"
+            exit 1
+          fi
 
       - name: تنفيذ المخطط كما هو
         run: psql -v ON_ERROR_STOP=1 -f supabase/03_brain_memory.sql

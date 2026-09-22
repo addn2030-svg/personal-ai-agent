@@ -62,6 +62,12 @@ then chk 0 "حواجز المفاتيح سليمة (عام = قراءة فقط �
 
 say ""
 say "=== SQL ==="
+# صفحة الإعداد التي يفتحها المستخدم: يجب أن تطابق ملفات SQL الحالية
+if python3 scripts/make_sql_setup_page.py --check >/dev/null 2>&1; then
+  chk 0 "صفحة إعداد SQL مطابقة لملفات SQL (لا مخطط قديم)"
+else
+  chk 1 "صفحة إعداد SQL قديمة — أعد التوليد: python3 scripts/make_sql_setup_page.py"
+fi
 SQL=$(python3 -m connectors.supabase_client --sql all 2>&1)
 echo "$SQL" | grep -q "create table if not exists public.state_snapshots" \
   && chk 0 "SQL النسخ الاحتياطي (01) متاح" || chk 1 "SQL النسخ الاحتياطي مفقود"
@@ -274,6 +280,7 @@ run_tests tests.test_reply_critique "اختبارات النقد قبل الإر
 run_tests tests.test_pii "اختبارات أنماط المعرّفات (تمييز الإحصاء عن السجل · المفاتيح لا تُنقّى)"
 run_tests tests.test_cloud_payload "اختبارات عقد النسخة السحابية (حجب المرضى · تنقية · إعلان الحجب)"
 run_tests tests.test_sheet_reader "اختبارات قارئ xlsx والترحيل الكامل (شيت → حالة → حمولة) — مع تمييز التواريخ"
+run_tests tests.test_sql_setup_page "صفحة إعداد SQL مطابقة لملفات SQL (لا مخطط قديم يُلصق)"
 run_tests tests.test_webhook_boot "اختبارات إقلاع الخدمة (فشل مُعلَن لا حلقة إعادة تشغيل)"
 
 say ""

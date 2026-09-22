@@ -1,0 +1,865 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>إعداد SQL في Supabase — خطوة بخطوة</title>
+<style>
+  :root { --ink:#0f172a; --muted:#5b6b85; --line:#d8e0ec; --ok:#0a7d55;
+           --warn:#a35a00; --bg:#f6f8fc; --card:#fff; --accent:#1b5fd9; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:0 0 60px; background:var(--bg); color:var(--ink);
+          font:16px/1.7 -apple-system,"Segoe UI",Tahoma,sans-serif; }
+  header { background:linear-gradient(135deg,#12306b,#1b5fd9); color:#fff;
+            padding:26px 22px; }
+  header h1 { margin:0 0 6px; font-size:24px; }
+  header p { margin:0; opacity:.9; font-size:15px; }
+  main { max-width:900px; margin:0 auto; padding:0 18px; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:14px;
+             padding:18px 20px; margin:18px 0; }
+  h2 { font-size:19px; margin:0 0 12px; }
+  h3 { font-size:16px; margin:18px 0 8px; }
+  a { color:var(--accent); }
+  .linkbox { background:#eef4ff; border:1px solid #c8daff; border-radius:10px;
+              padding:12px 14px; margin:10px 0; }
+  .linkbox a { font-weight:600; word-break:break-all; }
+  .step { border-right:5px solid var(--accent); padding-right:14px; }
+  .step h2 { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
+  .pill { font-size:12px; background:#eef4ff; color:var(--accent);
+           border-radius:99px; padding:2px 10px; font-weight:600; }
+  .file { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:13px;
+           background:#f2f5fa; border:1px solid var(--line); border-radius:6px;
+           padding:1px 6px; direction:ltr; display:inline-block; }
+  .why { color:var(--muted); font-size:15px; margin:6px 0 10px; }
+  .sqlwrap { position:relative; margin:10px 0; }
+  textarea.sql { width:100%; height:230px; direction:ltr; text-align:left;
+      font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12.5px;
+      line-height:1.5; border:1px solid var(--line); border-radius:10px;
+      padding:12px; background:#fbfcfe; color:#12233d; resize:vertical;
+      white-space:pre; overflow:auto; }
+  button.copy { position:absolute; top:8px; left:8px; z-index:2;
+      background:var(--accent); color:#fff; border:0; border-radius:8px;
+      padding:6px 12px; font-size:13px; cursor:pointer; }
+  button.copy:hover { background:#14479f; }
+  .expect { background:#eafaf3; border:1px solid #b6e7d2; border-radius:10px;
+             padding:10px 14px; font-size:15px; margin-top:8px; }
+  .warnbox { background:#fff8e8; border:1px solid #f0d9a8; border-radius:10px;
+              padding:12px 14px; margin:10px 0; }
+  .danger { background:#fdecec; border:1px solid #f3c9c9; }
+  ul { padding-right:20px; }
+  li { margin:5px 0; }
+  code { background:#f2f5fa; padding:1px 5px; border-radius:5px;
+          font-family:ui-monospace,Menlo,Consolas,monospace; font-size:13.5px;
+          direction:ltr; display:inline-block; }
+  table { width:100%; border-collapse:collapse; margin:10px 0; font-size:15px; }
+  th, td { border:1px solid var(--line); padding:8px 10px; text-align:right; }
+  th { background:#f2f5fa; }
+  .fp { font-size:12px; color:var(--muted); direction:ltr;
+         font-family:ui-monospace,monospace; }
+</style>
+</head>
+<body>
+<header>
+  <h1>إعداد SQL في Supabase — نفّذها بالترتيب</h1>
+  <p>ثلاث لصقات · لا يحتاج أي أمر على جهازك · صفحة مولَّدة من ملفات SQL نفسها</p>
+</header>
+<main>
+
+<section>
+  <h2>قبل أن تبدأ: أين أنت الآن؟</h2>
+  <table>
+    <tr><th>حالتك</th><th>ما تفعله</th></tr>
+    <tr><td>لا يوجد مشروع Supabase بعد</td>
+        <td>افتح <a href="https://supabase.com/dashboard/new" target="_blank">supabase.com/dashboard/new</a>
+            → اختر اسمًا → اختر المنطقة (الأقرب: <code>Frankfurt</code> أو
+            <code>Mumbai</code>) → احفظ كلمة مرور قاعدة البيانات في مكان آمن →
+            انتظر دقيقة حتى يجهز المشروع.</td></tr>
+    <tr><td>المشروع موجود</td>
+        <td>انتقل مباشرة إلى محرّر SQL:
+            <a href="https://supabase.com/dashboard/project/_/sql/new" target="_blank">
+            Supabase → SQL Editor → New query</a> (استبدل <code>_</code> بمعرّف مشروعك).</td></tr>
+  </table>
+  <div class="linkbox">
+    <strong>معرّف مشروعك</strong> هو الجزء الظاهر في رابط المشروع:<br>
+    <span class="fp">https://<b>&lt;ref&gt;</b>.supabase.co</span> — تجده في
+    <strong>Settings → API Keys</strong> أو زر <strong>Connect</strong>. وهو نفسه
+    الرابط الذي سيوضع في <code>SUPABASE_URL</code> لاحقًا.
+  </div>
+</section>
+
+<section class="danger">
+  <h2>⛔ ثلاثة خطوط لا تتجاوزها</h2>
+  <ul>
+    <li><strong>لا تُلصق أي مفتاح في أي محادثة</strong> — لا معي ولا في تيليجرام.</li>
+    <li>مفتاح <code>service_role</code> / <code>sb_secret_…</code> يقرأ ويكتب كل شيء:
+        مكانه خادم Render فقط، لا المتصفح ولا GitHub.</li>
+    <li>هذه الصفحة <strong>لا تحذف شيئًا</strong>: كل ملف يستخدم
+        <code>create … if not exists</code>. تكرار التنفيذ آمن.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>كيف تنفّذ كل خطوة (نفس الطريقة ثلاث مرات)</h2>
+  <ul>
+    <li>اضغط <strong>Copy</strong> في الصندوق.</li>
+    <li>في Supabase: <strong>SQL Editor → New query</strong> → الصق.</li>
+    <li>اضغط <strong>Run</strong> (أو <code>Ctrl</code>+<code>Enter</code>).</li>
+    <li>النتيجة المتوقّعة: <strong>Success. No rows returned</strong> — هذه علامة نجاح
+        لا خطأ (المخطط لا يعيد صفوفًا).</li>
+  </ul>
+</section>
+
+<section class="step">
+  <h2><span class="pill">الخطوة ١</span> جدول النسخ الكاملة (state_snapshots)
+      <span class="file">supabase/01_state_snapshots.sql</span></h2>
+  <p class="why">يحمي الحالة من فقدان الخادم. خطة Render المجانية بلا قرص دائم، فهذا الجدول هو الذاكرة التي يستعيدها البوت عند كل إقلاع.</p>
+  <div class="sqlwrap">
+    <button class="copy" onclick="cp(this)">Copy</button>
+    <textarea class="sql" readonly>-- Abdulrahman AI OS — مخطط Supabase (شغّله في SQL Editor مرة واحدة)
+-- الجدول يحتفظ بنسخ كاملة من state.json خارج الخادم (نسخ احتياطي متين).
+create table if not exists public.state_snapshots (
+  id            bigint generated by default as identity primary key,
+  created_at    timestamptz not null default now(),
+  schema        text        not null default &#x27;state/1&#x27;,
+  state_version integer     not null default 0,
+  reason        text        not null default &#x27;manual&#x27;,
+  sha256        text        not null,
+  byte_size     integer     not null,
+  payload       jsonb       not null
+);
+
+create index if not exists state_snapshots_created_at_idx
+  on public.state_snapshots (created_at desc);
+
+-- RLS مفعّل وبلا أي سياسة: لا يقرأ ولا يكتب أحد بالمفتاح العام (anon/publishable).
+-- المفتاح السري (service_role) يتجاوز RLS، وهو الوحيد المستخدم من الخادم.
+alter table public.state_snapshots enable row level security;
+revoke all on public.state_snapshots from anon, authenticated;
+
+-- إن أردت لاحقًا لوحة قراءة بالمفتاح العام، أضف سياسة ضيّقة صريحة (مثال يبقى معطّلًا):
+-- create policy &quot;anon reads snapshot dates only&quot; on public.state_snapshots
+--   for select to anon using (false);
+
+-- ============================================================================
+-- استعلامات مراقبة (شغّلها في SQL Editor — للمفتاح السري فقط، الجدول محجوب عن العام)
+-- ============================================================================
+-- كم نسخة لديّ وحجمها؟
+--   select count(*) as snapshots, pg_size_pretty(sum(byte_size)::bigint) as total
+--   from public.state_snapshots;
+-- أحدث 10 نسخ:
+--   select id, created_at, state_version, byte_size, reason, left(sha256, 12) as sha
+--   from public.state_snapshots order by created_at desc limit 10;
+--
+-- استعادة طارئة داخل قاعدة البيانات (بلا طرفية) — تُعيد الحالة بجانب النسخ:
+--   select payload from public.state_snapshots order by created_at desc limit 1;
+--
+-- استخدم موصل النظام للاستعادة الآمنة (يتحقق من البصمة ويأخذ نسخة محلية أولًا):
+--   python3 -m connectors.supabase_state restore --id N --apply
+-- ============================================================================</textarea>
+  </div>
+  <div class="expect"><strong>النتيجة المتوقّعة:</strong> Success. No rows returned
+      &nbsp;·&nbsp; <strong>عدد الأسطر:</strong> 41
+      &nbsp;·&nbsp; <strong>البصمة:</strong> <span class="fp">3de0a925ebc9b6ae…</span></div>
+</section>
+
+<section class="step">
+  <h2><span class="pill">الخطوة ٢</span> مرآة المهام (tasks_mirror)
+      <span class="file">supabase/02_tasks_mirror.sql</span></h2>
+  <p class="why">تتيح لك استعلام مهامك بـSQL أو من Table Editor على جوالك. الاتجاه واحد: النظام ← Supabase، ولا كتابة يدوية.</p>
+  <div class="sqlwrap">
+    <button class="copy" onclick="cp(this)">Copy</button>
+    <textarea class="sql" readonly>-- ============================================================================
+-- Abdulrahman AI OS — مرآة المهام (tasks mirror)
+--
+-- شغّله في Supabase → SQL Editor → New query → Run  (مرة واحدة، بعد 01)
+--
+-- ⚠️ اقرأ هذا أولًا: هذا الجدول **مرآة مشتقة**، وليس مصدر الحقيقة.
+--    مصدر الحقيقة الوحيد للمهام يبقى data/state.json داخل النظام، لأن عليه
+--    تعمل بوابة الاعتماد (action_queue) ومحرك الاستباقية والتدقيق وسجل الحلقات.
+--    لو صار للمهام مصدران، يصبح لديك «حجز مزدوج»: مهمة تُغلق هنا وتبقى مفتوحة
+--    هناك، ولا أحد يعرف أيّهما الصحيح.
+--
+--    الاتجاه واحد: state.json  ──sync──▶  tasks_mirror
+--    لا تكتب في هذا الجدول يدويًا — أي صف لا يحمل بصمة آخر مزامنة يُحذف في
+--    المزامنة التالية (الجدول قابل لإعادة البناء بالكامل في أي وقت).
+--
+-- الفائدة: تستعلم عن مهامك بـSQL، من Table Editor على جوالك، من أي أداة
+-- تحليلات، أو لاحقًا من لوحة قراءة — دون المساس بمنطق النظام ولا بحوكمته.
+-- ============================================================================
+
+-- ---------------------------------------------------------------------------
+-- 1) الجدول
+-- ---------------------------------------------------------------------------
+create table if not exists public.tasks_mirror (
+  -- معرّف حتمي يُحسب من (العنوان + الموعد + المصدر + رقم التكرار) داخل الموصل.
+  -- ثابت ما دامت هوية المهمة ثابتة، فتكون المزامنة idempotent بلا تكرار.
+  id            text primary key,
+  owner         text        not null default &#x27;owner&#x27;,
+
+  -- الحقول كما في state.json (نص عربي كما هو — بلا ترجمة ولا فقدان)
+  title         text        not null,
+  kind          text,                       -- النوع
+  priority      text,                       -- الأولوية
+  status        text,                       -- الحالة (النص الأصلي)
+  project       text,                       -- السياق/المشروع
+  source        text,                       -- المصدر
+  notes         text,                       -- ملاحظات (قد تحتوي تفاصيل حساسة)
+
+  -- حقول مشتقة تجعل الاستعلام بسيطًا وموحّدًا (تتجنب اختلاف المفردات العربية)
+  status_norm   text        not null default &#x27;unknown&#x27;
+                check (status_norm in (&#x27;not_started&#x27;,&#x27;in_progress&#x27;,&#x27;done&#x27;,&#x27;paused&#x27;,&#x27;cancelled&#x27;,&#x27;unknown&#x27;)),
+  is_open       boolean     not null default true,
+  is_overdue    boolean     not null default false,
+  due_date      date,
+
+  -- بيانات المزامنة
+  state_version integer,                    -- رقم إصدار state.json الذي أنتج الصف
+  sync_run      text        not null,       -- بصمة دورة المزامنة (للتحديث الكامل الآمن)
+  synced_at     timestamptz not null default now(),
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now()
+);
+
+-- ---------------------------------------------------------------------------
+-- 2) الفهارس (ما يسأل عنه البوت أكثر: مفتوحة؟ متأخرة؟ هذا الأسبوع؟)
+-- ---------------------------------------------------------------------------
+create index if not exists tasks_mirror_open_due_idx    on public.tasks_mirror (is_open, due_date);
+create index if not exists tasks_mirror_status_idx      on public.tasks_mirror (status_norm);
+create index if not exists tasks_mirror_due_idx         on public.tasks_mirror (due_date desc nulls last);
+create index if not exists tasks_mirror_project_idx     on public.tasks_mirror (project) where project is not null;
+create index if not exists tasks_mirror_priority_idx    on public.tasks_mirror (priority) where is_open;
+create index if not exists tasks_mirror_sync_run_idx    on public.tasks_mirror (sync_run);
+
+-- ---------------------------------------------------------------------------
+-- 3) تحديث updated_at تلقائيًا (الفكرة الجيدة من الدليل الآخر)
+-- ---------------------------------------------------------------------------
+create or replace function public.tasks_mirror_touch()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+drop trigger if exists tasks_mirror_touch_trg on public.tasks_mirror;
+create trigger tasks_mirror_touch_trg
+  before update on public.tasks_mirror
+  for each row execute function public.tasks_mirror_touch();
+
+-- ---------------------------------------------------------------------------
+-- 4) الحماية — RLS مفعّل وبلا أي سياسة
+--
+--    لا قراءة ولا كتابة إلا بالمفتاح السري (service_role) من الخادم.
+--    المفتاح العام (anon/publishable) **لا يرى ولا يكتب صفًا واحدًا**، حتى لو
+--    نشرتَه في متصفح. هذا هو الفرق الجوهري عن «permissive policies»: سياسة
+--    متساهلة + مفتاح عام = قائمة مهامك الشخصية (وسجلّها السريري) مكشوفة للعالم.
+-- ---------------------------------------------------------------------------
+alter table public.tasks_mirror enable row level security;
+revoke all on public.tasks_mirror from anon, authenticated;
+
+-- ---------------------------------------------------------------------------
+-- 5) عرض جاهز للقراءة (بلا ملاحظات — آمن للنشر لو أردت لوحة على الجوال)
+--    ملاحظة: notes مستبعدة عمدًا لأنها قد تحمل تفاصيل صحية/سريرية.
+-- ---------------------------------------------------------------------------
+create or replace view public.tasks_dashboard
+with (security_invoker = true) as
+select id, owner, title, priority, status, status_norm, is_open, is_overdue,
+       due_date, project, source, updated_at
+from public.tasks_mirror;
+
+revoke all on public.tasks_dashboard from anon, authenticated;
+
+-- للسماح بقراءة هذا العرض بالمفتاح العام لاحقًا (لوحة جوال فقط)، أزل التعليق
+-- عن السطرين التاليين — واعلم أنهما يجعلان مهامك (بلا ملاحظات) مقروءة لأي شخص
+-- يملك المفتاح العام المنشور. لا تفعلها إلا بقرار واعٍ:
+--   grant select on public.tasks_dashboard to anon;
+--   create policy &quot;public read dashboard view&quot; on public.tasks_mirror
+--     for select to anon using (false);   -- يبقى الجدول نفسه محجوبًا دائمًا
+
+-- ============================================================================
+-- 6) التحقق بعد التشغيل (انسخ/ألصق — يجب أن ترى الجدول والأعمدة والفهارس)
+-- ============================================================================
+-- أعمدة الجدول:
+--   select column_name, data_type, is_nullable
+--   from information_schema.columns
+--   where table_schema = &#x27;public&#x27; and table_name = &#x27;tasks_mirror&#x27;
+--   order by ordinal_position;
+-- الفهارس:
+--   select indexname from pg_indexes
+--   where schemaname = &#x27;public&#x27; and tablename = &#x27;tasks_mirror&#x27; order by indexname;
+-- هل RLS مفعّل؟ (rowsecurity = true، وعدد السياسات = 0)
+--   select relrowsecurity as rls_enabled, relforcerowsecurity as rls_forced
+--   from pg_class where oid = &#x27;public.tasks_mirror&#x27;::regclass;
+--   select count(*) as policies from pg_policies
+--   where schemaname = &#x27;public&#x27; and tablename = &#x27;tasks_mirror&#x27;;
+
+-- ============================================================================
+-- 7) استعلامات المتابعة اليومية (بعد أول مزامنة)
+-- ============================================================================
+-- كل المهام (الأحدث أولًا):
+--   select title, status, priority, due_date, project
+--   from public.tasks_mirror order by created_at desc limit 50;
+--
+-- توزيع الحالات:
+--   select status_norm, count(*) from public.tasks_mirror group by status_norm order by 2 desc;
+--
+-- مهام اليوم:
+--   select title, priority, project from public.tasks_mirror
+--   where due_date = current_date order by priority;
+--
+-- المتأخرة (مفتوحة وتجاوزت موعدها) — الأهم للمتابعة:
+--   select title, due_date, current_date - due_date as days_late, project
+--   from public.tasks_mirror where is_overdue order by due_date;
+--
+-- المفتوحة بلا موعد (خطر النسيان):
+--   select title, priority, project from public.tasks_mirror
+--   where is_open and due_date is null order by priority;
+--
+-- الحمل حسب المشروع:
+--   select project, count(*) filter (where is_open) as open,
+--          count(*) filter (where is_overdue) as overdue
+--   from public.tasks_mirror group by project order by overdue desc, open desc;
+--
+-- آخر مزامنة (هل البيانات حديثة؟):
+--   select max(synced_at) as last_sync, count(*) as rows from public.tasks_mirror;
+-- ============================================================================</textarea>
+  </div>
+  <div class="expect"><strong>النتيجة المتوقّعة:</strong> Success. No rows returned
+      &nbsp;·&nbsp; <strong>عدد الأسطر:</strong> 157
+      &nbsp;·&nbsp; <strong>البصمة:</strong> <span class="fp">0bd3a37ea484c7ca…</span></div>
+</section>
+
+<section class="step">
+  <h2><span class="pill">الخطوة ٣</span> الدماغ الدائم (brain_episodes · brain_facts · brain_working)
+      <span class="file">supabase/03_brain_memory.sql</span></h2>
+  <p class="why">ذاكرة الوكيل طويلة المدى: حلقات · حقائق مُثبتة · سياق مؤقت. يفعّل أوامر /brain و/brain_recall و/brain_stats.</p>
+  <div class="sqlwrap">
+    <button class="copy" onclick="cp(this)">Copy</button>
+    <textarea class="sql" readonly>-- ============================================================================
+-- Abdulrahman AI OS — دماغ الذاكرة الدائم (durable brain)
+--
+-- شغّله في Supabase → SQL Editor → New query → Run
+-- (مرة واحدة، بعد 01_state_snapshots.sql و02_tasks_mirror.sql)
+--
+-- ⚠️ اقرأ هذا أولًا: ما هذا وما ليس هذا؟
+--
+--   هذا الجدول **ذاكرة دائمة خارج الخادم**، وليس مصدر حقيقة تشغيلي.
+--   مصدر الحقيقة التشغيلي يبقى data/state.json (المهام والقرارات وبوابة
+--   الاعتماد). أما ما يُخزَّن هنا فهو **الذاكرة المشتقّة**: ملخّصات ما جرى
+--   (episodes) والحقائق المثبتة (facts) والذاكرة العاملة (working).
+--
+--   لماذا؟ لأن على مضيف بلا قرص دائم (Render المجاني) تُفقد كل ملفات
+--   data/memory/*.jsonl عند كل إيقاف أو إعادة نشر — ومنها تُبنى الذاكرة
+--   العرضية والدلالية. النتيجة قبل هذا المخطط: وكيل «بلا ذاكرة طويلة» يعيد
+--   السؤال عن كل شيء بعد كل إعادة تشغيل.
+--
+--   | ما | قبل | بعد |
+--   |---|---|---|
+--   | ملخصات الجلسات (episodic) | ملف واحد على قرص مؤقت | صفوف دائمة تُستعلَم |
+--   | الحقائق المثبتة (semantic) | ملف واحد على قرص مؤقت | صفوف دائمة بمرجع ومصدر |
+--   | الذاكرة العاملة (working) | ملف JSON ينتهي بـTTL | جدول بانتهاء صلاحية |
+--   | الاسترجاع | تطابق رموز حرفي محليًا | استرجاع عربي مُطبَّع + ترتيب مرجَّح |
+--
+--   ⚠️ لا متجهات (no vectors) — قرار متعمَّد موثَّق في
+--      docs/agent3-p0-adjudication.md («Defer pgvector حتى تبرّره أدلة
+--      تشغيلية»). هذا المخطط يعطي المتانة والاسترجاع الدلالي الخفيف عبر
+--      التطبيع العربي + pg_trgm، بلا تكلفة تضمين وبلا حصة API.
+--      ترقية لاحقة إلى pgvector ممكنة بلا فقدان: أضف عمود embedding إلى
+--      نفس الجدولين، ولا تتغير بقية الطبقة.
+--
+-- قواعد السلامة المطبَّقة (مطابقة لبقية مخططات Supabase في هذا المستودع):
+--   1. RLS مفعّل، وبلا أي سياسة ⇒ المفتاح العام (anon/publishable) يقرأ صفرًا.
+--   2. المفتاح السري (service_role) وحده يعمل، وهو يبقى على الخادم.
+--   3. لا عمود يحمل أسرارًا؛ ولا تُرسَل بيانات سريرية إلى هنا إطلاقًا
+--      (المنع مطبَّق في connectors/brain.py قبل الكتابة، لا هنا فقط).
+-- ============================================================================
+
+-- ---------------------------------------------------------------------------
+-- 0) ذرّية التنفيذ + فحص مسبق
+--
+-- لماذا؟ لأن السكربت لو فشل في منتصفه (أشهر سبب: pg_trgm غير مُفعّل) ترك
+-- «مخططًا نصف مبني»: الجداول موجودة وbrain_recall مفقودة — وهي حالة أسوأ من
+-- الفشل النظيف، لأن /brain_status يقول «الجداول جاهزة» ثم تفشل كل عملية استرجاع.
+-- الفحص المسبق يرفع رسالة عربية واضحة قبل إنشاء أي شيء، والمعاملة (transaction)
+-- تعني: إما المخطط كامل، أو لا شيء منه.
+-- ---------------------------------------------------------------------------
+begin;
+
+do $$
+begin
+  if not exists (select 1 from pg_available_extensions where name = &#x27;pg_trgm&#x27;) then
+    raise exception using
+      message = &#x27;امتداد pg_trgm غير متاح في هذا المشروع — المخطط لم يُنشأ (تراجع كامل).&#x27;,
+      detail  = &#x27;استرجاع الذاكرة العربية يحتاج تشابه ثلاثي الحروف (pg_trgm).&#x27;,
+      hint    = &#x27;Supabase → Database → Extensions → ابحث عن pg_trgm → Enable، ثم أعد تشغيل هذا الملف.&#x27;;
+  end if;
+end
+$$;
+
+-- pg_trgm: تشابه ثلاثي الحروف — يعمل مع العربية بعد التطبيع (typos والصيغ).
+create extension if not exists pg_trgm;
+
+-- ---------------------------------------------------------------------------
+-- 1) دالة التطبيع العربي — مرآة دقيقة لـ context_service.normalize()
+--    نفس القواعد في بايثون وفي Postgres، وإلا اختلف الترتيب بين المسارين.
+--    تُطبَّع في *الاستعلام* و*التخزين* معًا ⇒ «العقود» يجد «عقد».
+-- ---------------------------------------------------------------------------
+create or replace function public.brain_norm(txt text)
+returns text
+language sql
+immutable
+parallel safe
+as $$
+  select btrim(
+    regexp_replace(
+      translate(
+        lower(coalesce(txt, &#x27;&#x27;)),
+        -- التطويل والتشكيل يُحذفان أولًا (وسائط فارغة = حذف)
+        U&amp;&#x27;\0640\064B\064C\064D\064E\064F\0650\0651\0652\0670&#x27;,
+        &#x27;&#x27;
+      ),
+      &#x27;\s+&#x27;, &#x27; &#x27;, &#x27;g&#x27;
+    )
+  )
+$$;
+
+comment on function public.brain_norm(text) is
+  &#x27;تطبيع عربي/إنجليزي: حذف التشكيل والتطويل، توحيد الألف والهمزة والتاء المربوطة والياء، وتقليص المسافات.&#x27;;
+
+-- ملاحظة: نُطبِّع الحروف بعد حذف التشكيل بخطوة منفصلة، لأن translate يربط
+-- الحرف بحرف واحد فقط ولا يفهم المحارف المركّبة.
+create or replace function public.brain_fold(txt text)
+returns text
+language sql
+immutable
+parallel safe
+as $$
+  select translate(
+    public.brain_norm(txt),
+    U&amp;&#x27;\0623\0625\0622\0671\0649\0629\0624\0626&#x27;,
+    U&amp;&#x27;\0627\0627\0627\0627\064A\0647\0648\064A&#x27;
+  )
+$$;
+
+comment on function public.brain_fold(text) is
+  &#x27;توحيد الهمزات: أ/إ/آ/ٱ ⇒ ا، ى ⇒ ي، ة ⇒ ه، ؤ ⇒ و، ئ ⇒ ي. مطابق لـcontext_service.normalize.&#x27;;
+
+-- ---------------------------------------------------------------------------
+-- 2) الحلقات (episodes) — «ماذا جرى» بملخّص ومرجع
+-- ---------------------------------------------------------------------------
+create table if not exists public.brain_episodes (
+  -- معرّف حتمي يُحسب في connectors/brain.py من (النوع + الملخّص + اللحظة)
+  -- بنفس صيغة engine/memory.py ⇒ المحلي والسحابي يتفقان، والإعادة idempotent.
+  id           text        primary key,
+  occurred_at  timestamptz not null default now(),
+  kind         text        not null default &#x27;general&#x27;,   -- conversation | decision | task | approval | general
+  summary      text        not null,
+  refs         jsonb       not null default &#x27;[]&#x27;::jsonb,
+  source_ref   text        not null default &#x27;&#x27;,
+  chat_id      text        not null default &#x27;&#x27;,
+  sensitivity  text        not null default &#x27;normal&#x27;
+               check (sensitivity in (&#x27;normal&#x27;, &#x27;internal&#x27;, &#x27;clinical_private&#x27;, &#x27;restricted&#x27;)),
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now(),
+  -- عمود بحث مُطبَّع ومُفهرَس — لا يُكتب من الموصل، يُحسب هنا.
+  search_norm  text        generated always as (public.brain_fold(summary)) stored,
+  check (length(summary) &lt;= 8000)
+);
+
+create index if not exists brain_episodes_occurred_idx
+  on public.brain_episodes (occurred_at desc);
+create index if not exists brain_episodes_kind_idx
+  on public.brain_episodes (kind, occurred_at desc);
+create index if not exists brain_episodes_chat_idx
+  on public.brain_episodes (chat_id, occurred_at desc) where chat_id &lt;&gt; &#x27;&#x27;;
+create index if not exists brain_episodes_trgm_idx
+  on public.brain_episodes using gin (search_norm gin_trgm_ops);
+
+-- ---------------------------------------------------------------------------
+-- 3) الحقائق (facts) — «ما نعرفه» بصيغة (موضوع، علاقة، قيمة) + مصدر وثقة
+-- ---------------------------------------------------------------------------
+create table if not exists public.brain_facts (
+  id           text        primary key,
+  occurred_at  timestamptz not null default now(),
+  subject      text        not null,
+  predicate    text        not null default &#x27;&#x27;,
+  value        text        not null default &#x27;&#x27;,
+  source_ref   text        not null default &#x27;&#x27;,
+  confidence   real        not null default 0.8 check (confidence &gt;= 0 and confidence &lt;= 1),
+  sensitivity  text        not null default &#x27;normal&#x27;
+               check (sensitivity in (&#x27;normal&#x27;, &#x27;internal&#x27;, &#x27;clinical_private&#x27;, &#x27;restricted&#x27;)),
+  -- إبطال غير حذف: الحقيقة القديمة تبقى ومرجعها يُذكر (حكم المعلومات).
+  superseded_by text       not null default &#x27;&#x27;,
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now(),
+  search_norm  text        generated always as (
+                 public.brain_fold(subject || &#x27; &#x27; || predicate || &#x27; &#x27; || value)
+               ) stored
+);
+
+create index if not exists brain_facts_occurred_idx
+  on public.brain_facts (occurred_at desc);
+create index if not exists brain_facts_subject_idx
+  on public.brain_facts (subject, occurred_at desc);
+create index if not exists brain_facts_live_idx
+  on public.brain_facts (occurred_at desc) where superseded_by = &#x27;&#x27;;
+create index if not exists brain_facts_trgm_idx
+  on public.brain_facts using gin (search_norm gin_trgm_ops);
+
+-- ---------------------------------------------------------------------------
+-- 4) الذاكرة العاملة (working) — سياق قصير العمر لكل محادثة
+-- ---------------------------------------------------------------------------
+create table if not exists public.brain_working (
+  chat_id     text        primary key,
+  items       jsonb       not null default &#x27;[]&#x27;::jsonb,
+  updated_at  timestamptz not null default now(),
+  expires_at  timestamptz not null
+);
+
+create index if not exists brain_working_expiry_idx
+  on public.brain_working (expires_at);
+
+-- ---------------------------------------------------------------------------
+-- 5) الاسترجاع (recall) — ترتيب هجين: تطابق تام + تشابه ثلاثي + رموز
+--
+--    لماذا دالة واحدة بدل استعلامات في الكود؟ لأن منطق الترتيب مكانه قاعدة
+--    البيانات (فهرس واحد، مرور واحد) — والموصل يبقى بسيطًا وقابلًا للاختبار.
+-- ---------------------------------------------------------------------------
+create or replace function public.brain_recall(
+  query_text        text,
+  match_count       integer default 12,
+  include_sensitive boolean default false,
+  query_terms       text[]  default null
+)
+returns table (
+  item_type    text,
+  item_id      text,
+  occurred_at  timestamptz,
+  title        text,
+  snippet      text,
+  source_ref   text,
+  sensitivity  text,
+  score        real
+)
+language sql
+stable
+as $$
+  with q as (
+    select public.brain_fold(query_text) as norm
+  ),
+  -- الرموز تأتي من الخارج (connectors/brain.py يمرّر expand_query من
+  -- context_service: توسيع المفاهيم + إزالة حروف الجر الملتصقة)، وإن غابت
+  -- نستخرجها من الاستعلام نفسه — فنبقى صالحين للاستدعاء المباشر من SQL Editor.
+  raw_terms as (
+    select unnest(
+             coalesce(
+               nullif(query_terms, &#x27;{}&#x27;::text[]),
+               string_to_array((select norm from q), &#x27; &#x27;)
+             )
+           ) as term
+  ),
+  terms as (
+    select distinct public.brain_fold(term) as term
+    from raw_terms
+    where length(btrim(coalesce(term, &#x27;&#x27;))) &gt;= 3
+  ),
+  episode_hits as (
+    select
+      &#x27;episode&#x27;::text as item_type, e.id as item_id, e.occurred_at, e.kind as title,
+      e.summary as snippet, e.source_ref, e.sensitivity,
+      (
+        (select count(*) from terms where e.search_norm like &#x27;%&#x27; || terms.term || &#x27;%&#x27;)
+        + 2 * word_similarity((select norm from q), e.search_norm)
+        + case when (select norm from q) &lt;&gt; &#x27;&#x27; and e.search_norm like &#x27;%&#x27; || (select norm from q) || &#x27;%&#x27;
+               then 4 else 0 end
+      )::real as score
+    from public.brain_episodes e, q
+    where (include_sensitive or e.sensitivity in (&#x27;normal&#x27;, &#x27;internal&#x27;))
+      and (
+        exists (select 1 from terms where e.search_norm like &#x27;%&#x27; || terms.term || &#x27;%&#x27;)
+        -- شبكة أمان للصيغ غير المتوقعة (جمع مكسور مثل «العقود» مقابل «العقد»):
+        -- التشابه الكلمة-داخل-النص يكفي للقبول، لا للتزيين فقط.
+        or word_similarity((select norm from q), e.search_norm) &gt;= 0.30
+      )
+  ),
+  fact_hits as (
+    select
+      &#x27;fact&#x27;::text as item_type, f.id as item_id, f.occurred_at, f.subject as title,
+      btrim(f.predicate || &#x27; &#x27; || f.value) as snippet, f.source_ref, f.sensitivity,
+      (
+        (select count(*) from terms where f.search_norm like &#x27;%&#x27; || terms.term || &#x27;%&#x27;)
+        + 2 * word_similarity((select norm from q), f.search_norm)
+        + case when (select norm from q) &lt;&gt; &#x27;&#x27; and f.search_norm like &#x27;%&#x27; || (select norm from q) || &#x27;%&#x27;
+               then 4 else 0 end
+        + case when f.superseded_by = &#x27;&#x27; then 1.5 * f.confidence else -1.0 end
+      )::real as score
+    from public.brain_facts f, q
+    where (include_sensitive or f.sensitivity in (&#x27;normal&#x27;, &#x27;internal&#x27;))
+      and (
+        exists (select 1 from terms where f.search_norm like &#x27;%&#x27; || terms.term || &#x27;%&#x27;)
+        or word_similarity((select norm from q), f.search_norm) &gt;= 0.30
+      )
+  )
+  select * from (
+    select * from episode_hits
+    union all
+    select * from fact_hits
+  ) hits
+  where score &gt; 0
+  order by score desc, occurred_at desc
+  limit greatest(1, least(coalesce(match_count, 12), 100))
+$$;
+
+comment on function public.brain_recall(text, integer, boolean, text[]) is
+  &#x27;استرجاع بترتيب مرجَّح: رموز مُطبَّعة + تطابق كامل + تشابه ثلاثي (كلمة-داخل-نص). query_terms اختيارية يمرّرها connectors/brain.py من توسيع context_service. include_sensitive=false افتراضيًا ⇒ المحتوى السريري/المقيّد لا يظهر.&#x27;;
+
+-- ---------------------------------------------------------------------------
+-- 6) الإحصاء والتقليم — لـ/brain_status وللصيانة الدورية
+-- ---------------------------------------------------------------------------
+create or replace function public.brain_stats()
+returns jsonb
+language sql
+stable
+as $$
+  select jsonb_build_object(
+    &#x27;episodes&#x27;,      (select count(*) from public.brain_episodes),
+    &#x27;facts&#x27;,         (select count(*) from public.brain_facts),
+    &#x27;live_facts&#x27;,    (select count(*) from public.brain_facts where superseded_by = &#x27;&#x27;),
+    &#x27;working&#x27;,       (select count(*) from public.brain_working where expires_at &gt; now()),
+    &#x27;sensitive&#x27;,     (select count(*) from public.brain_episodes where sensitivity not in (&#x27;normal&#x27;,&#x27;internal&#x27;))
+                     + (select count(*) from public.brain_facts where sensitivity not in (&#x27;normal&#x27;,&#x27;internal&#x27;)),
+    &#x27;latest_episode&#x27;,(select max(occurred_at) from public.brain_episodes),
+    &#x27;latest_fact&#x27;,   (select max(occurred_at) from public.brain_facts),
+    &#x27;size_pretty&#x27;,   pg_size_pretty(pg_total_relation_size(&#x27;public.brain_episodes&#x27;)
+                                    + pg_total_relation_size(&#x27;public.brain_facts&#x27;)
+                                    + pg_total_relation_size(&#x27;public.brain_working&#x27;))
+  )
+$$;
+
+-- تقليم بالعدد: يُبقي الأحدث فقط. لا يُحذف صف حقيقة لم يُبطَل أبدًا
+-- (المعرفة المثبتة أغلى من الحلقة) — الإبطال superseded_by هو أداة التقادم.
+create or replace function public.brain_prune(keep_episodes integer default 2000)
+returns jsonb
+language plpgsql
+as $$
+declare
+  deleted_episodes integer;
+  purged_working   integer;
+begin
+  if coalesce(keep_episodes, 0) &lt; 100 then
+    raise exception &#x27;الحد الأدنى للتقليم 100 حلقة — رفض حذف أوسع من ذلك&#x27;;
+  end if;
+
+  with doomed as (
+    select id from public.brain_episodes
+    order by occurred_at desc
+    offset greatest(keep_episodes, 100)
+  )
+  delete from public.brain_episodes e using doomed where e.id = doomed.id;
+  get diagnostics deleted_episodes = row_count;
+
+  delete from public.brain_working where expires_at &lt; now() - interval &#x27;7 days&#x27;;
+  get diagnostics purged_working = row_count;
+
+  return jsonb_build_object(
+    &#x27;deleted_episodes&#x27;, deleted_episodes,
+    &#x27;purged_working&#x27;,   purged_working,
+    &#x27;kept_episodes&#x27;,    keep_episodes
+  );
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- 7) الحماية الموحّدة — كما في 01 و02: محجوب عن المفتاح العام بالكامل
+-- ---------------------------------------------------------------------------
+alter table public.brain_episodes enable row level security;
+alter table public.brain_facts    enable row level security;
+alter table public.brain_working  enable row level security;
+
+-- الحجب عن المفتاح العام — على ثلاث طبقات:
+--
+-- ⚠️ الفخ الذي كشفه الفحص الحقيقي: منح PostgreSQL صلاحية EXECUTE على الدوال
+--    لـPUBLIC تلقائيًا. أي أن `revoke ... from anon` وحدها **لا تكفي**: anon
+--    يبقى قادرًا على نداء brain_recall لأنه يرث من PUBLIC، وhas_function_privilege
+--    تظل تقول «نعم». لذلك نبدأ بإزالة منح PUBLIC نفسه.
+revoke all on public.brain_episodes from public;
+revoke all on public.brain_facts    from public;
+revoke all on public.brain_working  from public;
+
+revoke all on function public.brain_recall(text, integer, boolean, text[]) from public;
+revoke all on function public.brain_stats()                                from public;
+revoke all on function public.brain_prune(integer)                         from public;
+
+-- ثم الحجب عن الدورين صراحةً — مع حماية من غياب الدور نفسه.
+-- على Supabase الدوران موجودان دائمًا، لكن السكربت يجب أن يعمل أيضًا على
+-- Postgres عادي (استضافة ذاتية/فحص محلي) بلا خطأ «role anon does not exist».
+do $$
+declare
+  role_name text;
+  target    text;
+begin
+  foreach role_name in array array[&#x27;anon&#x27;, &#x27;authenticated&#x27;] loop
+    if exists (select 1 from pg_roles where rolname = role_name) then
+      foreach target in array array[
+        &#x27;public.brain_episodes&#x27;, &#x27;public.brain_facts&#x27;, &#x27;public.brain_working&#x27;
+      ] loop
+        execute format(&#x27;revoke all on %s from %I&#x27;, target, role_name);
+      end loop;
+      foreach target in array array[
+        &#x27;public.brain_recall(text, integer, boolean, text[])&#x27;,
+        &#x27;public.brain_stats()&#x27;,
+        &#x27;public.brain_prune(integer)&#x27;
+      ] loop
+        execute format(&#x27;revoke all on function %s from %I&#x27;, target, role_name);
+      end loop;
+    end if;
+  end loop;
+end
+$$;
+
+-- إغلاق المعاملة: من هنا إما أن يكون المخطط كاملًا، أو لم يتغير شيء أصلًا.
+commit;
+
+-- ============================================================================
+-- استعلامات مراقبة (SQL Editor — للمفتاح السري فقط، الجداول محجوبة عن العام)
+-- ============================================================================
+-- الحجم والصحة:
+--   select public.brain_stats();
+-- آخر ما جرى:
+--   select occurred_at, kind, left(summary, 80) from public.brain_episodes
+--   order by occurred_at desc limit 10;
+-- استرجاع يدوي بنفس منطق البوت (اكتب استفسارك بين علامتي الاقتباس):
+--   select item_type, title, left(snippet, 120), score
+--   from public.brain_recall(&#x27;العقد مع العمير&#x27;, 10, false);
+-- تقليم يدوي (يبقي أحدث 2000 حلقة):
+--   select public.brain_prune(2000);
+-- ============================================================================</textarea>
+  </div>
+  <div class="expect"><strong>النتيجة المتوقّعة:</strong> Success. No rows returned
+      &nbsp;·&nbsp; <strong>عدد الأسطر:</strong> 399
+      &nbsp;·&nbsp; <strong>البصمة:</strong> <span class="fp">fe6c84be2f4b6571…</span></div>
+</section>
+
+<section>
+  <h2>التحقق النهائي — الصق هذا بعد الملف الثلاثة</h2>
+  <div class="sqlwrap">
+    <button class="copy" onclick="cp(this)">Copy</button>
+    <textarea class="sql" readonly>-- التحقق بعد تنفيذ الملفات الثلاثة: المتوقّع 11 سطرًا
+-- 5 جداول + 5 دوال + امتداد pg_trgm واحد
+select &#x27;جدول&#x27; as النوع, table_name as الاسم
+  from information_schema.tables
+ where table_schema = &#x27;public&#x27;
+   and table_name in (&#x27;state_snapshots&#x27;,&#x27;tasks_mirror&#x27;,
+                      &#x27;brain_episodes&#x27;,&#x27;brain_facts&#x27;,&#x27;brain_working&#x27;)
+union all
+select &#x27;دالة&#x27;, p.proname
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+ where n.nspname = &#x27;public&#x27;
+   and p.proname in (&#x27;brain_norm&#x27;,&#x27;brain_fold&#x27;,&#x27;brain_recall&#x27;,&#x27;brain_stats&#x27;,&#x27;brain_prune&#x27;)
+union all
+select &#x27;امتداد&#x27;, extname from pg_extension where extname = &#x27;pg_trgm&#x27;
+order by 1, 2;</textarea>
+  </div>
+  <div class="expect">
+    <strong>المتوقّع: 11 سطرًا</strong> — ٥ جداول
+    (<code>state_snapshots</code> · <code>tasks_mirror</code> · <code>brain_episodes</code> ·
+    <code>brain_facts</code> · <code>brain_working</code>) · ٥ دوال
+    (<code>brain_norm</code> · <code>brain_fold</code> · <code>brain_recall</code> ·
+    <code>brain_stats</code> · <code>brain_prune</code>) · امتداد <code>pg_trgm</code>.
+    إن ظهر أقل من ذلك، فالملف الناقص لم يُنفَّذ — أعد تشغيله وحده.
+  </div>
+</section>
+
+<section>
+  <h2>اختبار حيّ (اختياري لكن مفيد)</h2>
+  <div class="sqlwrap">
+    <button class="copy" onclick="cp(this)">Copy</button>
+    <textarea class="sql" readonly>-- اختبار حيّ: يجب أن يعيد صفًا واحدًا بأصفار (الجداول فارغة الآن — هذا صحيح)
+select jsonb_pretty(public.brain_stats()) as حالة_الدماغ;</textarea>
+  </div>
+  <div class="expect">
+    يجب أن يعيد صفًا واحدًا فيه <code>episodes: 0</code> و<code>facts: 0</code>.
+    الأصفار صحيحة تمامًا: الدماغ فارغ لأننا لم نبدأ الاستخدام بعد. المهم أن الدالة
+    تعمل — هذا يعني أن الـRPC الذي سيستدعيه البوت جاهز.
+  </div>
+</section>
+
+<section>
+  <h2>إن ظهر خطأ</h2>
+  <table>
+    <tr><th>الرسالة</th><th>المعنى والحل</th></tr>
+    <tr>
+      <td>رسالة تذكر <code>pg_trgm</code></td>
+      <td>الامتداد غير متاح في مشروعك. المشروع يتراجع بالكامل (لا مخطط نصف مبني).
+          الحل: <strong>Database → Extensions</strong> → ابحث <code>pg_trgm</code> →
+          <strong>Enable</strong> → ثم أعد تنفيذ ملف ٣.</td>
+    </tr>
+    <tr>
+      <td><code>already exists</code></td>
+      <td>طبيعي: الملف نُفِّذ قبل ذلك. الملفات آمنة التكرار —
+          <code>if not exists</code> في كل مكان. تجاهلها وواصل.</td>
+    </tr>
+    <tr>
+      <td><code>permission denied</code></td>
+      <td>أنت في المشروع الخطأ أو بحساب لا يملك التحرير. تأكد أنك في
+          <strong>SQL Editor</strong> الخاص بمشروعك أنت.</td>
+    </tr>
+    <tr>
+      <td><code>relation "state_snapshots" does not exist</code> عند تشغيل البوت</td>
+      <td>ملف ١ لم يُنفَّذ. نفّذه ثم أعد المحاولة.</td>
+    </tr>
+  </table>
+</section>
+
+<section>
+  <h2>ماذا بعد هذه الخطوة؟</h2>
+  <ul>
+    <li><strong>الخطوة التالية مباشرة</strong>: ترحيل الشيت إلى الحالة على جهازك
+        (<code>python3 engine/migrate.py</code>) — التفاصيل في
+        <span class="file">docs/git-data-to-sql.md</span>.</li>
+    <li>ثم ربط Render بالمفاتيح نفسها، وفحص <code>/brain_status</code> في تيليجرام.</li>
+    <li><strong>لا ترسل لي أي مفتاح.</strong> أخبرني فقط: نجحت الخطوات، أو الصق نص
+        الخطأ كما هو (بلا مفاتيح).</li>
+  </ul>
+</section>
+
+<section>
+  <h2>لماذا هذه الصفحة مولَّدة؟</h2>
+  <p class="why">
+    نص SQL هنا ليس منسوخًا يدويًا: يولّده
+    <span class="file">scripts/make_sql_setup_page.py</span> من ملفات
+    <span class="file">supabase/*.sql</span> نفسها، وتُطبع بصمة كل ملف أدناه. ولو
+    عُدِّل ملف SQL ولم تُعِد التوليد، يفشل اختبار
+    <span class="file">tests/test_sql_setup_page.py</span> — فلا يمكن أن يُنفَّذ على
+    قاعدة بياناتك مخطط قديم بلا أن يظهر ذلك. مصدر حقيقة واحد.
+  </p>
+  <table>
+    <tr><th>الملف</th><th>البصمة (sha256)</th></tr>
+        <tr><td><span class="file">supabase/01_state_snapshots.sql</span></td><td class="fp">3de0a925ebc9b6aecbb45896a2f5fa5e…</td></tr>
+    <tr><td><span class="file">supabase/02_tasks_mirror.sql</span></td><td class="fp">0bd3a37ea484c7cacfe9b462c7259002…</td></tr>
+    <tr><td><span class="file">supabase/03_brain_memory.sql</span></td><td class="fp">fe6c84be2f4b6571d414400016f6e699…</td></tr>
+  </table>
+</section>
+
+</main>
+<script>
+function cp(button) {
+  var area = button.parentNode.querySelector('textarea');
+  area.select();
+  var done = function () {
+    var old = button.textContent;
+    button.textContent = '✓ نُسخ';
+    setTimeout(function () { button.textContent = old; }, 1500);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(area.value).then(done, function () { document.execCommand('copy'); done(); });
+  } else {
+    document.execCommand('copy'); done();
+  }
+}
+</script>
+</body>
+</html>
