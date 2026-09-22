@@ -28,10 +28,10 @@ FULL_ENV = {
     "BUFFER_API_KEY": "buffer-test",
 }
 
-ALL_KEYS = ["telegram", "sheets", "drive", "docs", "calendar", "github", "gemini", "kimi",
-            "buffer", "supabase"]
+ALL_KEYS = ["telegram", "sheets", "drive", "docs", "calendar", "github", "gemini",
+            "openrouter", "bedrock", "kimi", "buffer", "supabase"]
 # Optional integrations: unset is a valid, non-blocking state (never a "missing" failure).
-OPTIONAL_KEYS = ["kimi", "supabase"]
+OPTIONAL_KEYS = ["kimi", "supabase", "openrouter", "bedrock"]
 REQUIRED_KEYS = [key for key in ALL_KEYS if key not in OPTIONAL_KEYS]
 
 
@@ -139,6 +139,54 @@ class OutputTests(EnvIsolation):
         self.assertEqual(results["kimi"]["status"], "ok")
         self.assertIn("kimi-k2.5", results["kimi"]["detail"])
 
+    def test_openrouter_key_reports_ok_with_both_roles(self):
+        """One key, two providers: the manager (Claude) and critic (GPT) models
+        must both be visible in the status detail."""
+        env = {**FULL_ENV, "OPENROUTER_API_KEY": "sk-or-test"}
+        with mock.patch.dict(os.environ, env, clear=True):
+            results = {r["key"]: r for r in connection_setup.run()}
+        self.assertEqual(results["openrouter"]["status"], "ok")
+        self.assertIn("anthropic/claude-sonnet-4.6", results["openrouter"]["detail"])
+        self.assertIn("openai/gpt-5.6-sol", results["openrouter"]["detail"])
+
+    def test_openrouter_model_overrides_are_surfaced(self):
+        env = {**FULL_ENV, "OPENROUTER_API_KEY": "sk-or-test",
+               "AI_MANAGER_MODEL": "anthropic/claude-fable-5",
+               "AI_CRITIC_MODEL": "openai/gpt-5.6-pro"}
+        with mock.patch.dict(os.environ, env, clear=True):
+            results = {r["key"]: r for r in connection_setup.run()}
+        self.assertIn("claude-fable-5", results["openrouter"]["detail"])
+        self.assertIn("gpt-5.6-pro", results["openrouter"]["detail"])
+
+    def test_bedrock_bearer_token_reports_ok(self):
+        env = {**FULL_ENV, "AWS_BEARER_TOKEN_BEDROCK": "bedrock-test-token"}
+        with mock.patch.dict(os.environ, env, clear=True):
+            results = {r["key"]: r for r in connection_setup.run()}
+        self.assertEqual(results["bedrock"]["status"], "ok")
+        self.assertIn("us.anthropic.claude-sonnet-4.6", results["bedrock"]["detail"])
+
+    def test_bedrock_iam_pair_counts_as_configured(self):
+        env = {**FULL_ENV, "AWS_ACCESS_KEY_ID": "AKIATEST", "AWS_SECRET_ACCESS_KEY": "sekret"}
+        with mock.patch.dict(os.environ, env, clear=True):
+            results = {r["key"]: r for r in connection_setup.run()}
+        self.assertEqual(results["bedrock"]["status"], "ok")
+
+    def test_model_probes_registered_for_new_channels(self):
+        """--live must reach the Claude/GPT routes when their config is present."""
+        for key in ("openrouter", "bedrock"):
+            self.assertIn(key, connection_setup.PROBES,
+                          f"live probe missing for {key}")
+
+    def test_openrouter_live_probe_covers_claude_and_gpt(self):
+        from connectors import model_gateway
+        fake = mock.Mock(side_effect=lambda model=None: {"ok": True, "model": model})
+        with mock.patch.object(model_gateway, "probe_openrouter", fake):
+            out = connection_setup._probe_openrouter()
+        self.assertEqual({"claude", "gpt"}, set(out))
+        self.assertIn("claude", out["claude"]["model"])
+        self.assertIn("gpt", out["gpt"]["model"])
+        self.assertEqual(2, fake.call_count)  # one tiny inference per role
+
     def test_guide_lookup(self):
         with mock.patch("builtins.print") as printer:
             self.assertEqual(connection_setup.main(["--guide", "calendar"]), 0)
@@ -151,6 +199,17 @@ class OutputTests(EnvIsolation):
         text = "\n".join(str(call.args[0]) for call in printer.call_args_list)
         self.assertIn("KIMI_API_KEY", text)
         self.assertIn("platform.moonshot.ai", text)
+        with mock.patch("builtins.print") as printer:
+            self.assertEqual(connection_setup.main(["--guide", "openrouter"]), 0)
+        text = "\n".join(str(call.args[0]) for call in printer.call_args_list)
+        self.assertIn("OPENROUTER_API_KEY", text)
+        self.assertIn("openrouter.ai", text)
+        self.assertIn("OPENROUTER_REQUIRE_ZDR", text)
+        with mock.patch("builtins.print") as printer:
+            self.assertEqual(connection_setup.main(["--guide", "bedrock"]), 0)
+        text = "\n".join(str(call.args[0]) for call in printer.call_args_list)
+        self.assertIn("AWS_BEARER_TOKEN_BEDROCK", text)
+        self.assertIn("BEDROCK_MODEL_ID", text)
 
 
 if __name__ == "__main__":

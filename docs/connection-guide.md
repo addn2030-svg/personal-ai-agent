@@ -218,6 +218,25 @@ Telegram: `/backup_now` نسخة الآن · `/backups` آخر النسخ · `/t
 
 ---
 
+## 🔟 Model providers — Gemini (native) · Claude · GPT
+
+Routing policy in code (`connectors/model_gateway.py` → `desired_provider`):
+
+| Provider | Role it serves | Route | Auth env |
+|---|---|---|---|
+| **Gemini** | primary for ordinary **and** clinical traffic | direct Google API | `GEMINI_API_KEY` |
+| **Claude** | manager role (`AI_MANAGER_MODEL`) — reasoning, synthesis | OpenRouter, or native AWS Bedrock (`BEDROCK_MODEL_ID`) | `OPENROUTER_API_KEY` · `AWS_BEARER_TOKEN_BEDROCK` |
+| **GPT** | critic role (`AI_CRITIC_MODEL`) — second opinion, review | OpenRouter (same key as Claude) | `OPENROUTER_API_KEY` |
+| **Kimi** | overflow when Gemini's free daily cap is hit | OpenAI-compatible endpoint | `KIMI_API_KEY` / `MOONSHOT_API_KEY` |
+
+- One OpenRouter key covers **both** Claude and GPT — no separate vendor accounts.
+- To make general traffic go through the gateway instead of Gemini: `AI_MODEL_PROVIDER=openrouter`.
+- Clinical/sensitive traffic via the gateway must keep `OPENROUTER_REQUIRE_ZDR=1`
+  (zero-data-collection providers only); clinical primary stays `AI_CLINICAL_PROVIDER=gemini` unless changed deliberately.
+- Keys belong in Railway Variables / local `.env` only — never chat, never git.
+- Verify config (no network): `python3 -m connectors.connection_setup`
+  Live one-shot inferences proving each route (tiny paid calls): add `--live` · From the phone: `/diag`.
+
 ## 📋 Environment variable summary
 
 | Integration | Required | Optional |
@@ -230,6 +249,8 @@ Telegram: `/backup_now` نسخة الآن · `/backups` آخر النسخ · `/t
 | Calendar | `GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_CALENDAR_ID` | `MANAGER_TIMEZONE` |
 | GitHub | `GITHUB_TOKEN` | `AI_OS_GITHUB_REPO` |
 | Gemini API | `GEMINI_API_KEY` | `GEMINI_MODEL` |
+| OpenRouter (Claude manager + GPT critic) | — | `OPENROUTER_API_KEY`, `AI_MANAGER_MODEL`, `AI_CRITIC_MODEL`, `AI_MODEL_PROVIDER`, `OPENROUTER_REQUIRE_ZDR` |
+| Bedrock (native Claude alternative) | — | `AWS_BEARER_TOKEN_BEDROCK` or AWS key pair, `AWS_REGION`, `BEDROCK_MODEL_ID` |
 | Kimi API (Gemini 20/day overflow) | — | `KIMI_API_KEY`, `KIMI_MODEL`, `KIMI_BASE_URL` |
 | YouTube search | — | `YOUTUBE_API_KEY` |
 | Supabase backups + tasks mirror | `SUPABASE_URL` (+ `SUPABASE_SERVICE_ROLE_KEY` and `SUPABASE_WRITE_ENABLED=1` to write) | `SUPABASE_ANON_KEY`, `SUPABASE_STATE_TABLE`, `SUPABASE_TASKS_TABLE`, `SUPABASE_BACKUP_SCHEDULE_ENABLED`, `SUPABASE_BACKUP_HOUR` |
