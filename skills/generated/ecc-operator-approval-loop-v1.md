@@ -239,4 +239,4 @@ approved by operator-a · receipt 118 · draft sha256 9f2c8a1b2d3e4f50
 - Auto-ttl never fires against text the operator has since re-filed.
 
 ## Safety
-Risk tier: review. External effects remain approval-gated.
+Risk tier: locked. External effects remain approval-gated.

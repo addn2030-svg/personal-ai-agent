@@ -375,4 +375,4 @@ v2.1 is fully compatible with v2.0 and v1:
 *Instinct-based learning: teaching Claude your patterns, one project at a time.*
 
 ## Safety
-Risk tier: review. External effects remain approval-gated.
+Risk tier: locked. External effects remain approval-gated.

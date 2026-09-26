@@ -1,16 +1,21 @@
 # -*- coding: utf-8 -*-
-"""استيراد مهارات خارجية (ECC) إلى الذاكرة الإجرائية — تحت البوابة نفسها، بلا استثناء.
+"""استيراد مهارات خارجية إلى الذاكرة الإجرائية — تحت البوابة نفسها، بلا استثناء.
 
 المبدأ: كتالوج خارجي ضخم لا يعني ثقة. كل مهارة مستوردة تدخل كـ CANDIDATE فقط،
 وطبقة الخطر لا تنزل أبدًا إلى `low` مهما بدا الوصف بريئًا — لأن النص لم يكتبه المالك.
+ومن تشحن كودًا تُصعَّد إلى `locked` لأن غرضها تنفيذ لا إرشاد.
 الترقية تبقى حكرًا على skill_evaluator/skill_admin بالأدلة والتوقيع البشري.
 
+البنية المتوقعة للمصدر: <الجذر>/<slug>/SKILL.md
+
+الأعلام: --dir الجذر · --source اسم المصدر · --license · --slug a,b · --filter · --limit
+
 الأوامر:
-    python3 engine/skill_import.py scan
-    python3 engine/skill_import.py plan   [--filter نص] [--limit N] [--slug a,b]
-    python3 engine/skill_import.py import [--filter نص] [--limit N] [--slug a,b]
+    python3 engine/skill_import.py scan   --dir vendor/ecc/skills --source ecc
+    python3 engine/skill_import.py plan   --dir ... --source ... [--filter نص] [--limit N]
+    python3 engine/skill_import.py import --dir ... --source ... [--slug a,b]
     python3 engine/skill_import.py status
-    python3 engine/skill_import.py drift
+    python3 engine/skill_import.py drift  --dir ... --source ...
 """
 from __future__ import annotations
 
@@ -29,6 +34,14 @@ from skill_registry import annotate, create_candidate, list_skills, risk_tier  #
 SOURCE = "ecc"
 DEFAULT_DIR = os.path.join(BASE, "vendor", "ecc", "skills")
 MAX_BODY_CHARS = 20000
+
+# سقف `skill_runtime.context_for` الافتراضي. ما تجاوزه لا يُحمَّل أبدًا بالإعداد الحالي —
+# لا نمنعه (قد يرفع المالك السقف) لكن نقوله صراحةً بدل أن يكتشفه بعد الاعتماد.
+RUNTIME_CONTEXT_BUDGET = 6000
+
+# ملفات تُنفَّذ. مهارة تشحن كودًا ليست «نصًا إجرائيًا محايدًا»:
+# نستورد SKILL.md وحده، فيبقى الكود خارجًا بينما النص يحيل إليه.
+EXEC_SUFFIXES = (".py", ".js", ".cjs", ".mjs", ".ts", ".sh", ".bash", ".rb", ".ps1", ".gs")
 
 # التصنيف يعتمد أولًا على **رموز الاسم** (slug) لا على الوصف الحر:
 # الوصف نثر تسويقي يوقع في تطابقات كاذبة (مهارة هندسية تُصنَّف «سريرية» لأن وصفها
@@ -124,14 +137,27 @@ def source_dir():
     return os.environ.get("ECC_SKILLS_DIR") or DEFAULT_DIR
 
 
-def discover(root=None):
-    """يمسح مجلد مهارات ECC ويعيد سجلات موحّدة مرتبة."""
+def companions(folder):
+    """يعيد (الملفات القابلة للتنفيذ، بقية المرافقات) بجوار SKILL.md."""
+    execs, others = [], []
+    for root, _dirs, files in os.walk(folder):
+        for name in files:
+            if name == "SKILL.md":
+                continue
+            rel = os.path.relpath(os.path.join(root, name), folder).replace("\\", "/")
+            (execs if name.endswith(EXEC_SUFFIXES) else others).append(rel)
+    return sorted(execs), sorted(others)
+
+
+def discover(root=None, system=SOURCE):
+    """يمسح مجلد مهارات خارجيًا (<root>/<slug>/SKILL.md) ويعيد سجلات موحّدة مرتبة."""
     root = root or source_dir()
     out = []
     if not os.path.isdir(root):
         return out
     for slug in sorted(os.listdir(root)):
-        path = os.path.join(root, slug, "SKILL.md")
+        folder = os.path.join(root, slug)
+        path = os.path.join(folder, "SKILL.md")
         if not os.path.isfile(path):
             continue
         with open(path, encoding="utf-8") as f:
@@ -140,8 +166,26 @@ def discover(root=None):
         name = meta.get("name") or slug
         desc = meta.get("description", "").strip()
         domain, tier = classify(slug, desc)
+        execs, others = companions(folder)
+
+        # تصعيد: مهارة تشحن كودًا تُعامَل كتنفيذ خارجي مهما قال اسمها.
+        # نستورد نصها فقط، والنص يحيل إلى سكربتات لا تُنقل — فلا تُفعَّل تلقائيًا أبدًا.
+        escalated = bool(execs) and tier != "locked"
+        if execs:
+            domain, tier = "external_execution", risk_tier("external_execution")
+
+        warnings = []
+        if len(body) > RUNTIME_CONTEXT_BUDGET:
+            warnings.append(f"يتجاوز سقف التحميل {RUNTIME_CONTEXT_BUDGET} حرفًا — لن يُحمَّل بالإعداد الحالي")
+        if execs:
+            warnings.append(f"{len(execs)} ملف تنفيذي لا يُستورَد")
+        if others:
+            warnings.append(f"{len(others)} مرافق (references/data) لا يُستورَد")
+
         out.append({
+            "system": system,
             "slug": slug,
+            "registry_slug": f"{system}-{slug}",
             "name": name,
             "description": desc,
             "body": body,
@@ -149,6 +193,10 @@ def discover(root=None):
             "sha256": hashlib.sha256(body.encode("utf-8")).hexdigest(),
             "domain": domain,
             "risk_tier": tier,
+            "escalated": escalated,
+            "execs": execs,
+            "companions": others,
+            "warnings": warnings,
             "secrets": scan_secrets(text),
             "path": os.path.relpath(path, BASE).replace("\\", "/"),
         })
@@ -158,14 +206,17 @@ def discover(root=None):
 # ---------------------------------------------------------------- registry view
 
 def imported_index():
-    """آخر نسخة مستوردة لكل مهارة مصدر: {source_slug: record}."""
+    """آخر نسخة مستوردة لكل مهارة: {(system, slug): record}.
+
+    المفتاح مركّب لأن مستودعين مختلفين قد يحملان الاسم نفسه (`design-system`
+    موجود في ECC وفي ui-ux-pro-max) — والمفتاح بالـslug وحده كان سيخلط بينهما
+    فيظهر المستورد الجديد «نسخة ثانية» من مهارة لا تمت له بصلة.
+    """
     idx = {}
     for rec in list_skills():
         src = rec.get("source") or {}
-        if src.get("system") != SOURCE:
-            continue
-        key = src.get("slug")
-        if key and (key not in idx or rec["version"] > idx[key]["version"]):
+        key = (src.get("system"), src.get("slug"))
+        if all(key) and (key not in idx or rec["version"] > idx[key]["version"]):
             idx[key] = rec
     return idx
 
@@ -178,7 +229,7 @@ def decide(item, index, max_chars=MAX_BODY_CHARS):
         return "blocked", "بلا وصف في frontmatter — لا نستورد مهارة مجهولة الغرض"
     if item["chars"] > max_chars:
         return "blocked", f"الجسم {item['chars']} حرفًا > الحد {max_chars} (ميزانية السياق)"
-    prev = index.get(item["slug"])
+    prev = index.get((item["system"], item["slug"]))
     if prev is None:
         return "new", "جديدة"
     if (prev.get("source") or {}).get("sha256") == item["sha256"]:
@@ -201,22 +252,23 @@ def select(items, slugs=None, text_filter=None, limit=None):
 
 # ---------------------------------------------------------------- actions
 
-def plan(root=None, slugs=None, text_filter=None, limit=None):
-    items = select(discover(root), slugs, text_filter, limit)
+def plan(root=None, slugs=None, text_filter=None, limit=None, system=SOURCE):
+    items = select(discover(root, system), slugs, text_filter, limit)
     index = imported_index()
     report = {"new": [], "update": [], "unchanged": [], "blocked": []}
     for item in items:
         action, reason = decide(item, index)
         report[action].append({
-            "slug": item["slug"], "domain": item["domain"],
-            "risk_tier": item["risk_tier"], "chars": item["chars"], "reason": reason,
+            "slug": item["slug"], "domain": item["domain"], "risk_tier": item["risk_tier"],
+            "chars": item["chars"], "reason": reason, "escalated": item["escalated"],
+            "warnings": item["warnings"],
         })
     return report
 
 
-def import_skills(root=None, slugs=None, text_filter=None, limit=None):
+def import_skills(root=None, slugs=None, text_filter=None, limit=None, system=SOURCE, license_note=""):
     """يستورد المؤهّل فقط كـ CANDIDATE — ولا يفعّل شيئًا."""
-    items = select(discover(root), slugs, text_filter, limit)
+    items = select(discover(root, system), slugs, text_filter, limit)
     index = imported_index()
     created, skipped = [], []
     for item in items:
@@ -229,40 +281,45 @@ def import_skills(root=None, slugs=None, text_filter=None, limit=None):
             domain=item["domain"],
             purpose=item["description"],
             procedure=item["body"],
-            evidence_ids=[f"{SOURCE.upper()}:{item['slug']}@{item['sha256'][:12]}"],
+            evidence_ids=[f"{system.upper()}:{item['slug']}@{item['sha256'][:12]}"],
             confidence=0.5,
+            slug=item["registry_slug"],
         )
         if rec["risk_tier"] == "low":  # حزام أمان: لا يحدث بالتصنيف الحالي، ولو حدث نوقف
             raise AssertionError("imported skill resolved to low tier: " + item["slug"])
         rec = annotate(rec["id"], source={
-            "system": SOURCE,
+            "system": system,
             "slug": item["slug"],
             "sha256": item["sha256"],
             "path": item["path"],
-            "license": "MIT (affaan-m/ecc)",
+            "license": license_note or "انظر مستودع المصدر",
+            "escalated_for_executables": item["escalated"],
+            "not_imported": {"executables": len(item["execs"]), "companions": len(item["companions"])},
+            "warnings": item["warnings"],
         })
         created.append({"id": rec["id"], "slug": item["slug"], "version": rec["version"],
-                        "domain": rec["domain"], "risk_tier": rec["risk_tier"], "action": action})
+                        "domain": rec["domain"], "risk_tier": rec["risk_tier"], "action": action,
+                        "escalated": item["escalated"], "warnings": item["warnings"]})
     return {"created": created, "skipped": skipped}
 
 
 def status():
     rows = []
-    for slug, rec in sorted(imported_index().items()):
-        rows.append({"slug": slug, "id": rec["id"], "version": rec["version"],
+    for (system, slug), rec in sorted(imported_index().items()):
+        rows.append({"system": system, "slug": slug, "id": rec["id"], "version": rec["version"],
                      "status": rec["status"], "risk_tier": rec["risk_tier"], "domain": rec["domain"]})
     return rows
 
 
-def drift(root=None):
+def drift(root=None, system=SOURCE):
     """مهارات مستوردة تغيّر نصها في المصدر — مرشّحة لنسخة جديدة."""
     index = imported_index()
     out = []
-    for item in discover(root):
-        prev = index.get(item["slug"])
+    for item in discover(root, system):
+        prev = index.get((item["system"], item["slug"]))
         if prev and (prev.get("source") or {}).get("sha256") != item["sha256"]:
-            out.append({"slug": item["slug"], "imported_version": prev["version"],
-                        "status": prev["status"]})
+            out.append({"system": system, "slug": item["slug"],
+                        "imported_version": prev["version"], "status": prev["status"]})
     return out
 
 
@@ -282,36 +339,46 @@ def main():
     slugs = (_arg("--slug") or "").split(",") if _arg("--slug") else None
     text_filter = _arg("--filter")
     limit = _arg("--limit")
+    system = _arg("--source", SOURCE)
+    root = _arg("--dir")
+    license_note = _arg("--license", "")
 
     if cmd == "scan":
-        items = discover()
+        items = discover(root, system)
         if not items:
-            print(f"لا مصدر: {source_dir()} — استنسخ ECC أو عيّن ECC_SKILLS_DIR"); return 1
+            print(f"لا مصدر: {root or source_dir()} — استنسخ المستودع أو عيّن --dir / ECC_SKILLS_DIR")
+            return 1
         for it in select(items, slugs, text_filter, limit):
-            flag = "!" if it["secrets"] else " "
-            print(f"{flag} {it['slug']:<42} {it['domain']:<20} {it['risk_tier']:<8} {it['chars']:>6}")
-        print(f"\nالإجمالي: {len(items)} مهارة في {source_dir()}")
+            flag = "!" if it["secrets"] else ("^" if it["escalated"] else " ")
+            print(f"{flag} {it['slug']:<42} {it['domain']:<20} {it['risk_tier']:<8} {it['chars']:>6}"
+                  + ("  ⚠ " + " · ".join(it["warnings"]) if it["warnings"] else ""))
+        print(f"\nالإجمالي: {len(items)} مهارة في {root or source_dir()}  (^ = صُعّدت لشحنها كودًا)")
     elif cmd == "plan":
-        rep = plan(None, slugs, text_filter, limit)
+        rep = plan(root, slugs, text_filter, limit, system)
         for key in ("new", "update", "unchanged", "blocked"):
             print(f"\n== {key} ({len(rep[key])}) ==")
             for r in rep[key][:200]:
-                print(f"  {r['slug']:<42} {r['risk_tier']:<8} {r['reason']}")
+                mark = "^" if r.get("escalated") else " "
+                print(f" {mark}{r['slug']:<42} {r['risk_tier']:<8} {r['reason']}")
+                for w in r.get("warnings", []):
+                    print(f"    ⚠ {w}")
         print("\nلا شيء كُتب. للتنفيذ: python3 engine/skill_import.py import ...")
     elif cmd == "import":
-        res = import_skills(None, slugs, text_filter, limit)
+        res = import_skills(root, slugs, text_filter, limit, system, license_note)
         for r in res["created"]:
-            print(f"+ {r['id']} v{r['version']} {r['slug']} → {r['domain']}/{r['risk_tier']} CANDIDATE")
+            mark = " ^صُعّدت" if r["escalated"] else ""
+            print(f"+ {r['id']} v{r['version']} {r['slug']} → {r['domain']}/{r['risk_tier']} CANDIDATE{mark}")
+            for w in r["warnings"]:
+                print(f"    ⚠ {w}")
         print(f"\nأُنشئت {len(res['created'])} · تُخطّيت {len(res['skipped'])}")
         print("كلها CANDIDATE — التفعيل يمر بـ skill_evaluator ثم skill_admin approve/activate.")
     elif cmd == "status":
         rows = status()
         for r in rows:
-            print(f"{r['id']} v{r['version']:<3} {r['status']:<10} {r['risk_tier']:<8} {r['slug']}")
+            print(f"{r['id']} v{r['version']:<3} {r['status']:<10} {r['risk_tier']:<8} {r['system']}/{r['slug']}")
         print(f"\nمستوردة: {len(rows)}")
     elif cmd == "drift":
-        rows = drift()
-        print(json.dumps(rows, ensure_ascii=False, indent=2))
+        print(json.dumps(drift(root, system), ensure_ascii=False, indent=2))
     else:
         print(__doc__); return 2
     return 0

@@ -225,6 +225,94 @@ class SkillImportTestCase(unittest.TestCase):
     def test_missing_source_directory_is_not_an_error(self):
         self.assertEqual(skill_import.discover(os.path.join(self.tmp.name, "absent")), [])
 
+    # ------------------------------------------------------------ مصادر متعددة وشحن الكود
+
+    def test_source_label_is_recorded_not_hardcoded(self):
+        write_skill(self.src, "slides", SKILL_OK.replace("context-budget", "slides"))
+        skill_import.import_skills(self.src, system="uiux")
+        self.assertEqual(skill_registry.list_skills()[0]["source"]["system"], "uiux")
+
+    def test_same_slug_from_two_sources_does_not_collide(self):
+        """`design-system` موجود في ECC وفي ui-ux-pro-max — ولا علاقة بينهما."""
+        other = os.path.join(self.tmp.name, "other")
+        os.makedirs(other)
+        write_skill(self.src, "design-system", SKILL_OK.replace("context-budget", "design-system"))
+        write_skill(other, "design-system",
+                    SKILL_OK.replace("context-budget", "design-system").replace("evict by age", "different body"))
+        skill_import.import_skills(self.src, system="ecc")
+        skill_import.import_skills(other, system="uiux")
+
+        records = skill_registry.list_skills()
+        self.assertEqual(len(records), 2)
+        # لا واحدة منهما «نسخة ثانية» من الأخرى
+        self.assertEqual({r["version"] for r in records}, {1})
+        self.assertEqual({r["slug"] for r in records}, {"ecc-design-system", "uiux-design-system"})
+
+    def test_reimport_after_other_source_stays_unchanged(self):
+        other = os.path.join(self.tmp.name, "other")
+        os.makedirs(other)
+        write_skill(self.src, "design-system", SKILL_OK)
+        write_skill(other, "design-system", SKILL_OK)
+        skill_import.import_skills(self.src, system="ecc")
+        skill_import.import_skills(other, system="uiux")
+        again = skill_import.import_skills(self.src, system="ecc")
+        self.assertEqual(again["created"], [])
+        self.assertEqual(again["skipped"][0]["action"], "unchanged")
+
+    def test_skill_shipping_executables_is_escalated_to_locked(self):
+        write_skill(self.src, "brand", SKILL_OK.replace("context-budget", "brand"))
+        os.makedirs(os.path.join(self.src, "brand", "scripts"))
+        with open(os.path.join(self.src, "brand", "scripts", "extract.py"), "w") as handle:
+            handle.write("print('side effect')\n")
+
+        item = skill_import.discover(self.src)[0]
+        self.assertTrue(item["escalated"])
+        self.assertEqual((item["domain"], item["risk_tier"]), ("external_execution", "locked"))
+
+        created = skill_import.import_skills(self.src)["created"][0]
+        self.assertEqual(created["risk_tier"], "locked")
+        rec = skill_registry.list_skills()[0]
+        self.assertTrue(rec["source"]["escalated_for_executables"])
+        self.assertEqual(rec["source"]["not_imported"]["executables"], 1)
+
+    def test_escalated_skill_cannot_be_activated_even_after_approval_path(self):
+        """المقفلة تحتاج APPROVED صراحةً؛ لا تفعيل مباشر من CANDIDATE."""
+        write_skill(self.src, "brand", SKILL_OK)
+        with open(os.path.join(self.src, "brand", "run.sh"), "w") as handle:
+            handle.write("echo hi\n")
+        sid = skill_import.import_skills(self.src)["created"][0]["id"]
+        with self.assertRaises(PermissionError):
+            skill_registry.set_status(sid, "ACTIVE")
+
+    def test_already_locked_skill_is_not_marked_escalated(self):
+        write_skill(self.src, "healthcare-emr", SKILL_OK)
+        with open(os.path.join(self.src, "healthcare-emr", "tool.py"), "w") as handle:
+            handle.write("pass\n")
+        item = skill_import.discover(self.src)[0]
+        self.assertFalse(item["escalated"])
+        self.assertEqual(item["risk_tier"], "locked")
+
+    def test_companions_are_reported_as_not_imported(self):
+        write_skill(self.src, "design", SKILL_OK)
+        os.makedirs(os.path.join(self.src, "design", "references"))
+        with open(os.path.join(self.src, "design", "references", "guide.md"), "w") as handle:
+            handle.write("# guide\n")
+        item = skill_import.discover(self.src)[0]
+        self.assertEqual(item["companions"], ["references/guide.md"])
+        self.assertTrue(any("مرافق" in w for w in item["warnings"]))
+
+    def test_body_over_runtime_budget_is_warned_but_not_blocked(self):
+        """يُستورد ويُقال صراحةً إنه لن يُحمَّل — لا يُرفض صامتًا ولا يُقبل صامتًا."""
+        big = "---\nname: big\ndescription: Long but legitimate guide.\n---\n" + ("x" * 9000)
+        write_skill(self.src, "big", big)
+        item = skill_import.discover(self.src)[0]
+        self.assertTrue(any("سقف التحميل" in w for w in item["warnings"]))
+        self.assertEqual(len(skill_import.import_skills(self.src)["created"]), 1)
+
+    def test_body_within_runtime_budget_has_no_warning(self):
+        write_skill(self.src, "context-budget", SKILL_OK)
+        self.assertEqual(skill_import.discover(self.src)[0]["warnings"], [])
+
     # ------------------------------------------------------------ governance
 
     def test_imported_skill_is_not_loaded_into_context(self):

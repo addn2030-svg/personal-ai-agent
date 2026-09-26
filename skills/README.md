@@ -9,12 +9,17 @@ Lifecycle:
 Sources: skills are either **generated** from the owner's own experience (`reflection_engine`)
 or **imported** from an external catalogue (`skill_import`). Both enter at CANDIDATE.
 An imported skill is never granted the `low` tier — the permissive tier belongs to
-lessons this system learned, not to text a stranger wrote. See `docs/ecc-skill-import.md`.
+lessons this system learned, not to text a stranger wrote. See `docs/skill-import.md`.
 
 Rules:
 - Generated skills live in `skills/generated/` and are versioned.
-- Imported skills carry a `source` record (system, slug, sha256, path, license); re-importing
-  identical content is a no-op, and changed upstream content becomes a new version.
+- Imported skills carry a `source` record (system, slug, sha256, path, license) and are tracked
+  by the composite key `(system, slug)`; their registry slug is namespaced (`ecc-design-system`
+  vs `uiux-design-system`) so two catalogues sharing a name never inherit each other's history.
+- An imported skill that ships executable files (`scripts/*.py`, `*.sh`, `*.cjs`) is escalated to
+  `external_execution`/locked regardless of its name: only `SKILL.md` is imported, so its "run
+  this script" steps point at code that was never copied.
+- Re-importing identical content is a no-op; changed upstream content becomes a new version.
 - Only ACTIVE skills may be loaded by `engine/skill_runtime.py`.
 - Low-risk skills may be auto-approved after >=90% regression pass, but still cannot create external side effects.
 - Administrative/staff/communications/projects/finance skills require human approval before ACTIVE.

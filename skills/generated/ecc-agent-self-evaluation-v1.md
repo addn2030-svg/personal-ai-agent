@@ -182,4 +182,4 @@ FAIL: "Score: 3. I don't like Python decorators."
 - `security-review` — Security-focused code review checklist
 
 ## Safety
-Risk tier: review. External effects remain approval-gated.
+Risk tier: locked. External effects remain approval-gated.

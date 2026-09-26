@@ -41,8 +41,9 @@ def slugify(name):
     return s[:70] or "skill"
 
 
-def create_candidate(name, domain, purpose, procedure, evidence_ids, confidence=0.6):
-    data = _load(); slug = slugify(name)
+def create_candidate(name, domain, purpose, procedure, evidence_ids, confidence=0.6, slug=None):
+    """`slug` صريح يسمح بفصل مصادر مختلفة تحمل الاسم نفسه (مثل design-system في مستودعين)."""
+    data = _load(); slug = slugify(slug or name)
     versions = [x for x in data["skills"] if x["slug"] == slug]
     v = 1 + max([x["version"] for x in versions] or [0])
     sid = f"SK-{hashlib.sha256((slug+str(v)).encode()).hexdigest()[:8].upper()}"
