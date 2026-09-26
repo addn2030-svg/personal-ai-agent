@@ -1,0 +1,305 @@
+{
+  "schema": "skills/1",
+  "skills": [
+    {
+      "id": "SK-E6F07420",
+      "slug": "agent-self-evaluation",
+      "name": "agent-self-evaluation",
+      "domain": "projects",
+      "version": 1,
+      "status": "CANDIDATE",
+      "risk_tier": "review",
+      "confidence": 0.5,
+      "evidence_ids": [
+        "ECC:agent-self-evaluation@5cb1ca903cf5"
+      ],
+      "created_at": "2026-09-26T02:40:39",
+      "updated_at": "2026-09-26T02:40:39",
+      "file": "skills/generated/agent-self-evaluation-v1.md",
+      "metrics": {
+        "tests": 0,
+        "passed": 0,
+        "uses": 0,
+        "successes": 0
+      },
+      "supersedes": null,
+      "source": {
+        "system": "ecc",
+        "slug": "agent-self-evaluation",
+        "sha256": "5cb1ca903cf53f97a97ffb49b8ff5b52809cdcccd9202a929e380eb7b8a26738",
+        "path": "vendor/ecc/skills/agent-self-evaluation/SKILL.md",
+        "license": "MIT (affaan-m/ecc)"
+      }
+    },
+    {
+      "id": "SK-0A95E475",
+      "slug": "context-budget",
+      "name": "context-budget",
+      "domain": "projects",
+      "version": 1,
+      "status": "CANDIDATE",
+      "risk_tier": "review",
+      "confidence": 0.5,
+      "evidence_ids": [
+        "ECC:context-budget@c262b62ad27c"
+      ],
+      "created_at": "2026-09-26T02:40:39",
+      "updated_at": "2026-09-26T02:40:39",
+      "file": "skills/generated/context-budget-v1.md",
+      "metrics": {
+        "tests": 0,
+        "passed": 0,
+        "uses": 0,
+        "successes": 0
+      },
+      "supersedes": null,
+      "source": {
+        "system": "ecc",
+        "slug": "context-budget",
+        "sha256": "c262b62ad27c9d573e7481fd2e3cac02a544a95042f7dbde80e5f3bfdbd8d004",
+        "path": "vendor/ecc/skills/context-budget/SKILL.md",
+        "license": "MIT (affaan-m/ecc)"
+      }
+    },
+    {
+      "id": "SK-1EC65108",
+      "slug": "continuous-learning-v2",
+      "name": "continuous-learning-v2",
+      "domain": "projects",
+      "version": 1,
+      "status": "CANDIDATE",
+      "risk_tier": "review",
+      "confidence": 0.5,
+      "evidence_ids": [
+        "ECC:continuous-learning-v2@759774868504"
+      ],
+      "created_at": "2026-09-26T02:40:39",
+      "updated_at": "2026-09-26T02:40:39",
+      "file": "skills/generated/continuous-learning-v2-v1.md",
+      "metrics": {
+        "tests": 0,
+        "passed": 0,
+        "uses": 0,
+        "successes": 0
+      },
+      "supersedes": null,
+      "source": {
+        "system": "ecc",
+        "slug": "continuous-learning-v2",
+        "sha256": "759774868504b28a4a11a294ac91482b851d5d2a8bf2764cd945227b8bd28a7f",
+        "path": "vendor/ecc/skills/continuous-learning-v2/SKILL.md",
+        "license": "MIT (affaan-m/ecc)"
+      }
+    },
+    {
+      "id": "SK-6B98B1CC",
+      "slug": "deep-research",
+      "name": "deep-research",
+      "domain": "projects",
+      "version": 1,
+      "status": "CANDIDATE",
+      "risk_tier": "review",
+      "confidence": 0.5,
+      "evidence_ids": [
+        "ECC:deep-research@08264f81eb64"
+      ],
+      "created_at": "2026-09-26T02:40:39",
+      "updated_at": "2026-09-26T02:40:39",
+      "file": "skills/generated/deep-research-v1.md",
+      "metrics": {
+        "tests": 0,
+        "passed": 0,
+        "uses": 0,
+        "successes": 0
+      },
+      "supersedes": null,
+      "source": {
+        "system": "ecc",
+        "slug": "deep-research",
+        "sha256": "08264f81eb6422a1e89ec1f1a7ae125918e2768fbae023b22a20897740349acf",
+        "path": "vendor/ecc/skills/deep-research/SKILL.md",
+        "license": "MIT (affaan-m/ecc)"
+      }
+    },
+    {
+      "id": "SK-59852957",
+      "slug": "eval-harness",
+      "name": "eval-harness",
+      "domain": "projects",
+      "version": 1,
+      "status": "CANDIDATE",
+      "risk_tier": "review",
+      "confidence": 0.5,
+      "evidence_ids": [
+        "ECC:eval-harness@107a530f227e"
+      ],
+      "created_at": "2026-09-26T02:40:39",
+      "updated_at": "2026-09-26T02:40:39",
+      "file": "skills/generated/eval-harness-v1.md",
+      "metrics": {
+        "tests": 0,
+        "passed": 0,
+        "uses": 0,
+        "successes": 0
+      },
+      "supersedes": null,
+      "source": {
+        "system": "ecc",
+        "slug": "eval-harness",
+        "sha256": "107a530f227e25436453707c8d63a4929d727aef0c3f5a6c8b14eec841ecd7c2",
+        "path": "vendor/ecc/skills/eval-harness/SKILL.md",
+        "license": "MIT (affaan-m/ecc)"
+      }
+    },
+    {
+      "id": "SK-DA31DB11",
+      "slug": "iterative-retrieval",
+      "name": "iterative-retrieval",
+      "domain": "projects",
+      "version": 1,
+      "status": "CANDIDATE",
+      "risk_tier": "review",
+      "confidence": 0.5,
+      "evidence_ids": [
+        "ECC:iterative-retrieval@0d055874ba19"
+      ],
+      "created_at": "2026-09-26T02:40:39",
+      "updated_at": "2026-09-26T02:40:39",
+      "file": "skills/generated/iterative-retrieval-v1.md",
+      "metrics": {
+        "tests": 0,
+        "passed": 0,
+        "uses": 0,
+        "successes": 0
+      },
+      "supersedes": null,
+      "source": {
+        "system": "ecc",
+        "slug": "iterative-retrieval",
+        "sha256": "0d055874ba199bb425beb622f0eddac1e87d5204b736a05004414ff1e86c991d",
+        "path": "vendor/ecc/skills/iterative-retrieval/SKILL.md",
+        "license": "MIT (affaan-m/ecc)"
+      }
+    },
+    {
+      "id": "SK-8C37CA8E",
+      "slug": "operator-approval-loop",
+      "name": "operator-approval-loop",
+      "domain": "projects",
+      "version": 1,
+      "status": "CANDIDATE",
+      "risk_tier": "review",
+      "confidence": 0.5,
+      "evidence_ids": [
+        "ECC:operator-approval-loop@aeeff9dc8a4a"
+      ],
+      "created_at": "2026-09-26T02:40:39",
+      "updated_at": "2026-09-26T02:40:39",
+      "file": "skills/generated/operator-approval-loop-v1.md",
+      "metrics": {
+        "tests": 0,
+        "passed": 0,
+        "uses": 0,
+        "successes": 0
+      },
+      "supersedes": null,
+      "source": {
+        "system": "ecc",
+        "slug": "operator-approval-loop",
+        "sha256": "aeeff9dc8a4a4bb26f19082b8a34ff0ec2edc4ab04c78ee2c73828b09388af51",
+        "path": "vendor/ecc/skills/operator-approval-loop/SKILL.md",
+        "license": "MIT (affaan-m/ecc)"
+      }
+    },
+    {
+      "id": "SK-EBAA9123",
+      "slug": "prompt-optimizer",
+      "name": "prompt-optimizer",
+      "domain": "projects",
+      "version": 1,
+      "status": "CANDIDATE",
+      "risk_tier": "review",
+      "confidence": 0.5,
+      "evidence_ids": [
+        "ECC:prompt-optimizer@e3d44fd6d39c"
+      ],
+      "created_at": "2026-09-26T02:40:39",
+      "updated_at": "2026-09-26T02:40:39",
+      "file": "skills/generated/prompt-optimizer-v1.md",
+      "metrics": {
+        "tests": 0,
+        "passed": 0,
+        "uses": 0,
+        "successes": 0
+      },
+      "supersedes": null,
+      "source": {
+        "system": "ecc",
+        "slug": "prompt-optimizer",
+        "sha256": "e3d44fd6d39c283eeb870acc46a6406284449bf68b657e9af746ae8a99d24d8b",
+        "path": "vendor/ecc/skills/prompt-optimizer/SKILL.md",
+        "license": "MIT (affaan-m/ecc)"
+      }
+    },
+    {
+      "id": "SK-C54AEF19",
+      "slug": "unified-memory",
+      "name": "unified-memory",
+      "domain": "projects",
+      "version": 1,
+      "status": "CANDIDATE",
+      "risk_tier": "review",
+      "confidence": 0.5,
+      "evidence_ids": [
+        "ECC:unified-memory@797b6cebaf4b"
+      ],
+      "created_at": "2026-09-26T02:40:39",
+      "updated_at": "2026-09-26T02:40:39",
+      "file": "skills/generated/unified-memory-v1.md",
+      "metrics": {
+        "tests": 0,
+        "passed": 0,
+        "uses": 0,
+        "successes": 0
+      },
+      "supersedes": null,
+      "source": {
+        "system": "ecc",
+        "slug": "unified-memory",
+        "sha256": "797b6cebaf4b054bf55c8ad86fa07c56cc4f4bd6e313ae0b4e2a6377d7fcc864",
+        "path": "vendor/ecc/skills/unified-memory/SKILL.md",
+        "license": "MIT (affaan-m/ecc)"
+      }
+    },
+    {
+      "id": "SK-B3B896EF",
+      "slug": "verification-loop",
+      "name": "verification-loop",
+      "domain": "projects",
+      "version": 1,
+      "status": "CANDIDATE",
+      "risk_tier": "review",
+      "confidence": 0.5,
+      "evidence_ids": [
+        "ECC:verification-loop@05770c8c7cd4"
+      ],
+      "created_at": "2026-09-26T02:40:39",
+      "updated_at": "2026-09-26T02:40:39",
+      "file": "skills/generated/verification-loop-v1.md",
+      "metrics": {
+        "tests": 0,
+        "passed": 0,
+        "uses": 0,
+        "successes": 0
+      },
+      "supersedes": null,
+      "source": {
+        "system": "ecc",
+        "slug": "verification-loop",
+        "sha256": "05770c8c7cd4cf0c7f57c7445c173218a70b8f7d94473ac0306430056d6fc39c",
+        "path": "vendor/ecc/skills/verification-loop/SKILL.md",
+        "license": "MIT (affaan-m/ecc)"
+      }
+    }
+  ]
+}

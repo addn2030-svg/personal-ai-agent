@@ -73,6 +73,20 @@ def set_status(skill_id, status, note=""):
     _save(data); return rec
 
 
+def annotate(skill_id, **fields):
+    """يُلحق بيانات مصدر/وصف إضافية بسجل مهارة — بلا أي مساس بالحالة أو طبقة الخطر.
+
+    الحقول المحمية لا تُكتب من هنا إطلاقًا: ترقية المهارة تمر من set_status وحدها.
+    """
+    protected = {"id", "slug", "version", "status", "risk_tier", "domain", "file", "metrics"}
+    blocked = protected & set(fields)
+    if blocked:
+        raise PermissionError("annotate cannot modify protected fields: " + ", ".join(sorted(blocked)))
+    data = _load(); rec = next(x for x in data["skills"] if x["id"] == skill_id)
+    rec.update(fields); rec["updated_at"] = dt.datetime.now().isoformat(timespec="seconds")
+    _save(data); return rec
+
+
 def record_test(skill_id, passed):
     data = _load(); rec = next(x for x in data["skills"] if x["id"] == skill_id)
     rec["metrics"]["tests"] += 1; rec["metrics"]["passed"] += int(bool(passed)); _save(data); return rec
