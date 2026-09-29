@@ -85,8 +85,8 @@ def _unified_ask(chat_id: int, text: str, sheet_context: str = ""):
             chat_id=chat_id,
             sheet_context=sheet_context,
             sensitive=sensitive,
-            max_tokens=1200,
-            temperature=0.2,
+            # General/clinical defaults come from config.json.  Explicit callers
+            # elsewhere can still provide narrower values for probes or jobs.
         )
         return result.text, result.usage, result.latency_ms, sources
     except ImportError:

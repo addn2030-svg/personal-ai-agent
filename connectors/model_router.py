@@ -22,6 +22,8 @@ import threading
 from dataclasses import dataclass, field
 from typing import Any
 
+from engine.agent_contract import inference_defaults
+
 # Re-use existing gateway for OpenRouter config & helpers
 from . import model_gateway as gateway
 
@@ -30,10 +32,9 @@ BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "us.anthropic.claude-sonne
 AI_MODEL_MANAGER = os.environ.get("AI_MODEL_MANAGER", "anthropic/claude-sonnet-4.6").strip()
 AI_MANAGER_MODEL = os.environ.get("AI_MANAGER_MODEL", AI_MODEL_MANAGER).strip()
 AI_CRITIC_MODEL = os.environ.get("AI_CRITIC_MODEL", "openai/gpt-5.6-sol").strip()
-AI_GEMINI_MODEL = os.environ.get(
-    "GEMINI_MODEL",
-    os.environ.get("AI_GOOGLE_MODEL", "google/gemini-3.7-flash"),
-).strip()
+# model_gateway resolves environment overrides first and the reviewed contract
+# default second; keep the router on that one source of truth.
+AI_GEMINI_MODEL = gateway.GEMINI_MODEL
 
 _ROUTE = threading.local()
 
@@ -323,8 +324,8 @@ def call(
     prompt: str,
     model: str | None = None,
     system: str = "",
-    max_tokens: int = 1200,
-    temperature: float = 0.2,
+    max_tokens: int | None = None,
+    temperature: float | None = None,
     chat_id: int | None = None,
     sheet_context: str = "",
     sensitive: bool = False,
@@ -346,6 +347,14 @@ def call(
     Returns RouterResponse (str() gives text).
     """
     domain = (domain or "general").strip().lower()
+
+    # Calls that do not request an explicit inference setting inherit the
+    # reviewed model tier from config.json.  Explicit callers (for tiny probes,
+    # specialist jobs, and existing compatibility routes) retain their values.
+    profile = "clinical" if (domain in {"clinical", "bedrock", "sensitive"} or sensitive) else domain
+    default_tokens, default_temperature = inference_defaults(profile)
+    max_tokens = int(default_tokens if max_tokens is None else max_tokens)
+    temperature = float(default_temperature if temperature is None else temperature)
 
     clinical_domain = domain in {"clinical", "bedrock", "sensitive"} or sensitive
     provider = (

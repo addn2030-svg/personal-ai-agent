@@ -11,11 +11,17 @@ from store import Store, log_event
 
 try:  # production layout: engine/ is on sys.path
     from runtime_clock import runtime_time_context
+    from agent_contract import memory_limits
 except ImportError:  # pragma: no cover - package layout fallback
     from engine.runtime_clock import runtime_time_context
+    from engine.agent_contract import memory_limits
 
 ALLOWED_EXT = {".md", ".txt", ".yaml", ".yml"}
-MAX_MEMORY_TURNS = int(os.environ.get("AGENT_MEMORY_TURNS", "10"))
+_MEMORY_LIMITS = memory_limits()
+# Deployment variables may reduce/increase retention deliberately, but the
+# versioned contract defines the reviewed defaults instead of hidden literals.
+MAX_MEMORY_TURNS = int(os.environ.get("AGENT_MEMORY_TURNS", _MEMORY_LIMITS["working_turns_verbatim"]))
+MAX_SESSION_MESSAGES = int(os.environ.get("AGENT_SESSION_TURNS", _MEMORY_LIMITS["session_turns_persisted"]))
 MAX_CONTEXT_CHARS = int(os.environ.get("AGENT_CONTEXT_CHARS", "14000"))
 PRIVATE_MEMORY_PLACEHOLDER = "[CLINICAL_PRIVATE_REDACTED_AT_SOURCE]"
 
@@ -76,8 +82,8 @@ def remember(chat_id, role, content, message_id="", category="GENERAL"):
         "message_id": str(message_id), "category": category,
     })
     per_chat = [r for r in rows if str(r.get("chat_id")) == str(chat_id)]
-    if len(per_chat) > 60:
-        remove = {id(x) for x in per_chat[:-60]}
+    if len(per_chat) > MAX_SESSION_MESSAGES:
+        remove = {id(x) for x in per_chat[:-MAX_SESSION_MESSAGES]}
         rows[:] = [x for x in rows if id(x) not in remove]
     store.commit(state, "conversation_remember", chat_id=str(chat_id), role=role)
     log_event("CONVERSATION_MEMORY_ADDED", chat_id=str(chat_id), role=role, category=category)

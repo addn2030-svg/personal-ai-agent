@@ -87,6 +87,13 @@ guess a year. If that block is absent, say the current date cannot be determined
 rather than guessing.
 """
 
+# The versioned Smart Agent contract is the source-controlled definition of the
+# persona, memory boundary, escalation cases and hard safety rules.  Keeping the
+# conversational guidance above and this contract together gives every model
+# route the same reviewed policy without placing secrets in prompts.
+from engine.agent_contract import render_system_contract
+SYSTEM_PROMPT += render_system_contract()
+
 
 def _now():
     return dt.datetime.now(dt.timezone(dt.timedelta(hours=3))).isoformat(timespec="seconds")

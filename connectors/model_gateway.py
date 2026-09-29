@@ -15,13 +15,18 @@ import time
 import urllib.error
 import urllib.request
 
+from engine.agent_contract import model_name
+
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "").strip()
 OPENROUTER_BASE_URL = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").strip().rstrip("/")
 OPENROUTER_TIMEOUT_SECONDS = int(os.environ.get("OPENROUTER_TIMEOUT_SECONDS", "90"))
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
+# Environment values remain the deployment override.  The checked-in Smart
+# Agent contract supplies the reviewed default when the operator has not chosen
+# a different Gemini model.
 GEMINI_MODEL = os.environ.get(
     "GEMINI_MODEL",
-    os.environ.get("AI_GOOGLE_MODEL", "google/gemini-3.7-flash"),
+    os.environ.get("AI_GOOGLE_MODEL", model_name("general")),
 ).strip()
 # Kimi / Moonshot — OpenAI-compatible overflow for Gemini's ~20 questions/day cap.
 # Official env alias is MOONSHOT_API_KEY; KIMI_API_KEY is the Railway name.
