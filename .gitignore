@@ -22,6 +22,9 @@ secrets/
 __pycache__/
 *.pyc
 .DS_Store
+# أدوات Railway IaC فقط — ليست جزءًا من زمن تشغيل التطبيق (التطبيق Python عبر Dockerfile)
+# package-lock.json يُرفع عمدًا ليكون التثبيت في CI حتميًا
+node_modules/
 data/.telegram*
 # مرحلة التشغيل التدريجي — حالة تشغيلية محلية (بالكامل خارج # تعليق السطر)
 data/.rollout.json

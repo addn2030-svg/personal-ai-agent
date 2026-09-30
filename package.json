@@ -1,0 +1,16 @@
+{
+  "name": "abdulrahman-ai-os-infra",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Railway Infrastructure as Code for Abdulrahman AI OS. Node is NOT part of the application runtime — the app is Python and is built from the repository Dockerfile. This package exists only so the Railway CLI can evaluate .railway/railway.ts.",
+  "scripts": {
+    "railway:check": "tsc --noEmit -p tsconfig.json && node --import tsx scripts/check_railway_iac.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.3",
+    "railway": "^3.12.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  }
+}

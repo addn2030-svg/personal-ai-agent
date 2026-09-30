@@ -1,5 +1,15 @@
 # Railway migration runbook
 
+> **Setting up a new Railway project rather than migrating one?** Use
+> [`docs/railway-setup.md`](railway-setup.md). This repository now ships
+> `.railway/railway.ts` (Infrastructure as Code), which declares the service,
+> the volume and the variables in one reviewable file, so most of the manual
+> dashboard steps below are handled by `railway config apply`.
+>
+> This runbook remains the reference for **moving an existing deployment**:
+> what must be transferred, provider-side permissions, and the diagnosis of a
+> deployment that appears to expire.
+
 This repository is already packaged for a long-running Railway deployment. The
 Dockerfile starts the production Telegram webhook as a module:
 
@@ -248,34 +258,53 @@ identifiers in Git or in a variable used for diagnostics.
 
 ### Railway CLI
 
-The Railway CLI supports listing variables and setting one variable from stdin.
-That avoids putting a secret in shell history or command-line arguments.
+> **Corrected syntax.** The command is `railway variables --set "KEY=value"` —
+> plural `variables`, with a `--set` flag that repeats. There is no
+> `railway variable set` subcommand and no `--stdin` flag; earlier revisions of
+> this runbook showed both and they fail.
 
-1. Authenticate and link the CLI to the **target** project/service.
-2. Set scalar values without printing them:
-
-   ```bash
-   printf '%s' "$TELEGRAM_BOT_TOKEN" \
-     | railway variable set TELEGRAM_BOT_TOKEN --stdin --skip-deploys
-   printf '%s' "$GOOGLE_SERVICE_ACCOUNT_JSON" \
-     | railway variable set GOOGLE_SERVICE_ACCOUNT_JSON --stdin --skip-deploys
-   ```
-
-3. Set non-secret values normally, for example:
+1. Authenticate and link the CLI to the **target** project/service:
 
    ```bash
-   railway variable set \
-     AI_OS_DATA_DIR=/data \
-     MANAGER_TIMEZONE=Asia/Riyadh \
-     AI_MODEL_PROVIDER=gemini \
-     AI_CLINICAL_PROVIDER=gemini \
-     GEMINI_MODEL=google/gemini-3.7-flash \
-     CLINICAL_SHEET_ID=1Te-dD6B9USOzURbTjMoZQgYtDeoygwR6QRGeHHGAzaQ \
-     --skip-deploys
+   railway login
+   railway link
    ```
 
-4. Redeploy once after the complete set is present. `--skip-deploys` prevents a
-   half-configured deployment after every individual variable.
+2. Set every value in **one** command. `--skip-deploys` matters: without it
+   Railway redeploys after each variable, so a ten-variable migration produces
+   ten deployments, most of them half-configured.
+
+   ```bash
+   railway variables --skip-deploys \
+     --set "AI_OS_DATA_DIR=/data" \
+     --set "MANAGER_TIMEZONE=Asia/Riyadh" \
+     --set "AI_MODEL_PROVIDER=gemini" \
+     --set "AI_CLINICAL_PROVIDER=gemini" \
+     --set "GEMINI_MODEL=google/gemini-3.7-flash" \
+     --set "CLINICAL_SHEET_ID=1Te-dD6B9USOzURbTjMoZQgYtDeoygwR6QRGeHHGAzaQ"
+   ```
+
+3. Secrets travel the same way, but the value lands in your shell history.
+   Either prefix the command with a space (when `HISTCONTROL=ignorespace`), read
+   from an environment variable you exported from a restricted file, or — for
+   anything multi-line such as `GOOGLE_SERVICE_ACCOUNT_JSON` — paste it in the
+   dashboard instead:
+
+   ```bash
+    railway variables --skip-deploys --set "TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN"
+   ```
+
+4. Redeploy once after the complete set is present:
+
+   ```bash
+   railway redeploy
+   ```
+
+5. Verify without printing secrets:
+
+   ```bash
+   railway variables --kv | cut -d= -f1 | sort
+   ```
 
 If the source is another Railway service, export its variables only to a
 permission-restricted local file, link the target service, and set them there.

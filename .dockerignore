@@ -1,0 +1,41 @@
+# The Dockerfile does `COPY . .`, so anything not excluded here is baked into
+# the production image. Keep this list in step with .gitignore.
+
+# Railway IaC tooling — never part of the Python runtime (43 MB of Node
+# packages that the container would carry forever)
+node_modules/
+.railway/
+package.json
+package-lock.json
+tsconfig.json
+
+# VCS and CI
+.git/
+.github/
+.vscode/
+
+# Secrets and local runtime state — must never reach an image layer
+.env
+.env.*
+!.env.example
+secrets/
+*.credentials.json
+*.token.json
+data/state.json
+data/audit.jsonl
+data/backups/
+data/memory/
+data/.state.lock
+data/.telegram*
+data/.rollout.json
+data/.last-state-snapshot.json
+data/rag-index.json
+data/inbox.csv
+reports/
+uploads/
+
+# Build noise
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
