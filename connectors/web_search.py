@@ -279,6 +279,24 @@ def verified_context_block(results: list, query: str = "") -> str:
     return "\n".join(lines)
 
 
+# ---------------------------------------------------------------- self-check
+
+def self_check(timeout: int = 25) -> dict:
+    """One tiny live search, so `connection_setup --live` can prove the route works.
+
+    Fail-soft like the rest of this module: never raises, never prints keys.
+    """
+    key_set = bool(os.environ.get("YOUTUBE_API_KEY", "").strip())
+    try:
+        out = search_videos("تهيئة البحث", max_results=1, timeout=timeout)
+    except Exception as exc:  # noqa: BLE001 - diagnostic boundary
+        return {"ok": False, "api_key_set": key_set, "provider": "youtube_api" if key_set else "ddg",
+                "results": 0, "error": str(exc)[:200]}
+    return {"ok": bool(out.get("ok")), "api_key_set": key_set,
+            "provider": out.get("provider"), "results": len(out.get("results") or []),
+            "error": out.get("error")}
+
+
 # ---------------------------------------------------------------- CLI
 
 def main(argv: list | None = None) -> int:
@@ -293,13 +311,8 @@ def main(argv: list | None = None) -> int:
             print("usage: --max N", file=sys.stderr)
             return 2
     if "--check" in args:
-        key = bool(os.environ.get("YOUTUBE_API_KEY", "").strip())
-        print(json.dumps({"provider": "youtube_api" if key else "ddg",
-                          "api_key_set": key}, ensure_ascii=False))
-        out = search_videos("تهيئة البحث", max_results=1, timeout=25)
-        print(json.dumps({"ok": out["ok"], "provider": out["provider"],
-                          "results": len(out["results"]),
-                          "error": out["error"]}, ensure_ascii=False))
+        out = self_check()
+        print(json.dumps(out, ensure_ascii=False))
         return 0 if out["ok"] else 1
     query = " ".join(a for a in args if not a.startswith("--")).strip()
     if not query:

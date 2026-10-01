@@ -29,9 +29,9 @@ FULL_ENV = {
 }
 
 ALL_KEYS = ["telegram", "sheets", "drive", "docs", "calendar", "github", "gemini", "kimi",
-            "buffer", "supabase"]
+            "bedrock", "search", "buffer", "supabase"]
 # Optional integrations: unset is a valid, non-blocking state (never a "missing" failure).
-OPTIONAL_KEYS = ["kimi", "supabase"]
+OPTIONAL_KEYS = ["kimi", "bedrock", "search", "supabase"]
 REQUIRED_KEYS = [key for key in ALL_KEYS if key not in OPTIONAL_KEYS]
 
 
@@ -139,6 +139,43 @@ class OutputTests(EnvIsolation):
         self.assertEqual(results["kimi"]["status"], "ok")
         self.assertIn("kimi-k2.5", results["kimi"]["detail"])
 
+    def test_bedrock_bearer_token_reports_ok(self):
+        env = {**FULL_ENV, "AWS_BEARER_TOKEN_BEDROCK": "bedrock-token",
+               "AWS_REGION": "us-east-1"}
+        with mock.patch.dict(os.environ, env, clear=True):
+            results = {r["key"]: r for r in connection_setup.run()}
+        row = results["bedrock"]
+        self.assertEqual(row["status"], "ok")
+        self.assertIn("us-east-1", row["detail"])
+        self.assertNotIn("bedrock-token", row["detail"])  # never echo a secret
+
+    def test_bedrock_iam_pair_and_half_pair(self):
+        full = {**FULL_ENV, "AWS_ACCESS_KEY_ID": "AKIA", "AWS_SECRET_ACCESS_KEY": "shh"}
+        with mock.patch.dict(os.environ, full, clear=True):
+            self.assertEqual(connection_setup.check_bedrock()["status"], "ok")
+        half = {**FULL_ENV, "AWS_ACCESS_KEY_ID": "AKIA"}
+        with mock.patch.dict(os.environ, half, clear=True):
+            row = connection_setup.check_bedrock()
+        self.assertEqual(row["status"], "partial")
+        self.assertIn("AWS_SECRET_ACCESS_KEY", row["detail"])
+
+    def test_bedrock_unset_is_optional_not_failure(self):
+        with mock.patch.dict(os.environ, FULL_ENV, clear=True):
+            row = connection_setup.check_bedrock()
+        self.assertEqual(row["status"], "optional")
+
+    def test_search_provider_keys(self):
+        with mock.patch.dict(os.environ, FULL_ENV, clear=True):
+            self.assertEqual(connection_setup.check_search()["status"], "optional")
+        with mock.patch.dict(os.environ, {**FULL_ENV, "TAVILY_API_KEY": "tvly"}, clear=True):
+            row = connection_setup.check_search()
+        self.assertEqual(row["status"], "ok")
+        self.assertIn("Tavily", row["detail"])
+
+    def test_probes_registered_for_new_checks(self):
+        self.assertIn("bedrock", connection_setup.PROBES)
+        self.assertIn("search", connection_setup.PROBES)
+
     def test_guide_lookup(self):
         with mock.patch("builtins.print") as printer:
             self.assertEqual(connection_setup.main(["--guide", "calendar"]), 0)
@@ -151,6 +188,11 @@ class OutputTests(EnvIsolation):
         text = "\n".join(str(call.args[0]) for call in printer.call_args_list)
         self.assertIn("KIMI_API_KEY", text)
         self.assertIn("platform.moonshot.ai", text)
+        with mock.patch("builtins.print") as printer:
+            self.assertEqual(connection_setup.main(["--guide", "bedrock"]), 0)
+        text = "\n".join(str(call.args[0]) for call in printer.call_args_list)
+        self.assertIn("BEDROCK_MODEL_ID", text)
+        self.assertIn("AWS_BEARER_TOKEN_BEDROCK", text)
 
 
 if __name__ == "__main__":

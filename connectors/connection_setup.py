@@ -79,6 +79,22 @@ GUIDES = {
         "Clinical traffic stays on Gemini unless you explicitly set AI_CLINICAL_PROVIDER=kimi.",
         "Verify: python3 -m connectors.connection_setup --live  or Telegram /kimi_test.",
     ],
+    "bedrock": [
+        "AWS Console → Bedrock → Model access → request access to the Anthropic Claude models.",
+        "Pick the region you were granted access in and set AWS_REGION (e.g. us-east-1).",
+        "Set BEDROCK_MODEL_ID (default: us.anthropic.claude-sonnet-4-6) — use an inference-profile id.",
+        "Auth, either way: AWS_BEARER_TOKEN_BEDROCK (API key), or AWS_ACCESS_KEY_ID + "
+        "AWS_SECRET_ACCESS_KEY (IAM user with bedrock:InvokeModel / bedrock:Converse).",
+        "Never put the keys in chat or git — Railway → Variables (or local .env) only.",
+        "Verify: python3 -m connectors.connection_setup --live  ·  or --guide bedrock for these steps.",
+    ],
+    "search": [
+        "Zero-config default: DuckDuckGo HTML (no key) — read-only, verified links.",
+        "More reliable: Tavily (tavily.com) → API key → set TAVILY_API_KEY.",
+        "Alternative: Serper (serper.dev) → API key → set SERPER_API_KEY.",
+        "YouTube video search: enable \"YouTube Data API v3\" and set YOUTUBE_API_KEY.",
+        "Verify: python3 -m connectors.web_search --check",
+    ],
     "buffer": [
         "publish.buffer.com/settings/api → create a personal API key.",
         "Set BUFFER_API_KEY locally / in the deployment variables — never in chat or git.",
@@ -262,6 +278,56 @@ def check_kimi(env=None) -> dict:
     }
 
 
+def check_bedrock(env=None) -> dict:
+    """AWS Bedrock (Claude) — explicit compatibility route; optional when unset."""
+    env = env if env is not None else _env
+    bearer = env("AWS_BEARER_TOKEN_BEDROCK")
+    access = env("AWS_ACCESS_KEY_ID")
+    secret = env("AWS_SECRET_ACCESS_KEY")
+    region = env("AWS_REGION") or "us-east-1"
+    model = env("BEDROCK_MODEL_ID") or "us.anthropic.claude-sonnet-4-6"
+    row = {
+        "key": "bedrock", "name": "AWS Bedrock",
+        "env": ["AWS_BEARER_TOKEN_BEDROCK", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY",
+                "AWS_REGION", "BEDROCK_MODEL_ID"],
+    }
+    if bearer or (access and secret):
+        kind = "bearer token" if bearer else "IAM access key"
+        row.update(status="ok", detail=f"{kind} set — {model} @ {region}")
+    elif access or secret:
+        missing = "AWS_SECRET_ACCESS_KEY" if access else "AWS_ACCESS_KEY_ID"
+        row.update(status="partial", detail=f"{missing} is missing — Bedrock cannot authenticate")
+    else:
+        row.update(status="optional", detail=(
+            "not configured (optional) — Gemini/Kimi handle normal traffic. "
+            "Steps: python3 -m connectors.connection_setup --guide bedrock"
+        ))
+    return row
+
+
+def check_search(env=None) -> dict:
+    """Web/video search provider (sheet step ST-06). DuckDuckGo works with no key."""
+    env = env if env is not None else _env
+    providers = [name for name, var in (
+        ("Tavily", "TAVILY_API_KEY"),
+        ("Serper", "SERPER_API_KEY"),
+        ("YouTube Data API", "YOUTUBE_API_KEY"),
+    ) if env(var)]
+    row = {
+        "key": "search", "name": "Web Search",
+        "env": ["TAVILY_API_KEY", "SERPER_API_KEY", "YOUTUBE_API_KEY"],
+    }
+    if providers:
+        row.update(status="ok", detail="keyed provider(s): " + ", ".join(providers)
+                   + " (+ DuckDuckGo fallback)")
+    else:
+        row.update(status="optional", detail=(
+            "no search key — DuckDuckGo fallback only (rate-limited). "
+            "Steps: python3 -m connectors.connection_setup --guide search"
+        ))
+    return row
+
+
 def check_buffer(env=None) -> dict:
     env = env if env is not None else _env
     key = env("BUFFER_API_KEY")
@@ -300,7 +366,7 @@ def check_supabase(env=None) -> dict:
 
 
 CHECKS = [check_telegram, check_sheets, check_drive, check_docs, check_calendar, check_github,
-          check_gemini, check_kimi, check_buffer, check_supabase]
+          check_gemini, check_kimi, check_bedrock, check_search, check_buffer, check_supabase]
 
 
 # ---------------------------------------------------------------- live probes
@@ -363,6 +429,16 @@ def _probe_kimi():
     return model_gateway.probe_kimi()
 
 
+def _probe_bedrock():
+    from . import model_gateway
+    return model_gateway.probe_bedrock()
+
+
+def _probe_search():
+    from . import web_search
+    return web_search.self_check()
+
+
 def _probe_supabase():
     from . import supabase_client
     return supabase_client.doctor()
@@ -377,6 +453,8 @@ PROBES = {
     "github": _probe_github,
     "gemini": _probe_gemini,
     "kimi": _probe_kimi,
+    "bedrock": _probe_bedrock,
+    "search": _probe_search,
     "supabase": _probe_supabase,
 }
 
