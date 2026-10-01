@@ -14,6 +14,12 @@ uploads/
 secrets/
 *.credentials.json
 *.token.json
+# الأنماط أعلاه لا تطابق اسمًا مجردًا: `credentials.json` (وهو بالضبط الاسم الذي
+# تنزّله Google Cloud لعميل OAuth) كان يمر بلا تجاهل. تحقق: git check-ignore -v credentials.json
+credentials.json
+token.json
+client_secret*.json
+service-account*.json
 .env
 .env.*
 # القالب فقط يُرفع — بلا أي قيمة حقيقية
