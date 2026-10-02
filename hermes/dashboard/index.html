@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hermes Agent — Monitoring</title>
+<style>
+  :root {
+    --bg: #0b0f17; --panel: #121826; --panel2: #1a2234; --border: #232e45;
+    --text: #e7ecf5; --muted: #8b98b0; --accent: #5b9dff;
+    --ok: #3ecf8e; --warn: #f5b84d; --err: #ff6b6b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text);
+    font: 15px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif; padding: 20px; }
+  .wrap { max-width: 1000px; margin: 0 auto; }
+  header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
+  h1 { font-size: 22px; }
+  #mode { font-size: 12px; padding: 3px 10px; border-radius: 99px;
+    border: 1px solid var(--border); color: var(--muted); }
+  #mode.live { color: var(--ok); border-color: var(--ok); }
+  #updated { color: var(--muted); font-size: 12px; margin-bottom: 18px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px; margin-bottom: 20px; }
+  .card { background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 14px 16px; }
+  .card .label { color: var(--muted); font-size: 12px; text-transform: uppercase;
+    letter-spacing: .06em; }
+  .card .value { font-size: 26px; font-weight: 700; margin-top: 4px; }
+  .card .sub { color: var(--muted); font-size: 12px; }
+  .panel { background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 16px; margin-bottom: 20px; overflow-x: auto; }
+  .panel h2 { font-size: 14px; color: var(--muted); text-transform: uppercase;
+    letter-spacing: .06em; margin-bottom: 12px; }
+  #trend { display: flex; align-items: flex-end; gap: 4px; height: 90px; }
+  #trend .bar { flex: 1; min-width: 6px; background: var(--accent);
+    border-radius: 3px 3px 0 0; opacity: .85; }
+  #trend .bar.failed { background: var(--err); }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th { text-align: left; color: var(--muted); font-weight: 600; padding: 6px 10px;
+    border-bottom: 1px solid var(--border); white-space: nowrap; }
+  td { padding: 7px 10px; border-bottom: 1px solid var(--panel2); white-space: nowrap; }
+  td.msg { white-space: normal; }
+  .pill { font-size: 11.5px; padding: 2px 9px; border-radius: 99px; font-weight: 600; }
+  .pill.completed { background: rgba(62,207,142,.15); color: var(--ok); }
+  .pill.running   { background: rgba(91,157,255,.15); color: var(--accent); }
+  .pill.failed    { background: rgba(255,107,107,.15); color: var(--err); }
+  .lvl-info  { color: var(--muted); } .lvl-warn { color: var(--warn); }
+  .lvl-error { color: var(--err); font-weight: 600; }
+  .empty { color: var(--muted); padding: 10px; }
+  footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><h1>🤖 Hermes Agent — Monitoring</h1><span id="mode">demo data</span></header>
+  <div id="updated">loading…</div>
+
+  <div class="cards">
+    <div class="card"><div class="label">Runs (total)</div><div class="value" id="c-total">–</div><div class="sub" id="c-today"></div></div>
+    <div class="card"><div class="label">Success rate</div><div class="value" id="c-rate">–</div><div class="sub" id="c-failed"></div></div>
+    <div class="card"><div class="label">Avg duration</div><div class="value" id="c-dur">–</div><div class="sub">completed runs</div></div>
+    <div class="card"><div class="label">Tokens (total)</div><div class="value" id="c-tok">–</div><div class="sub" id="c-cost"></div></div>
+  </div>
+
+  <div class="panel"><h2>Token trend — last 30 runs</h2><div id="trend"></div></div>
+  <div class="panel"><h2>Recent runs</h2><div id="runs"></div></div>
+  <div class="panel"><h2>Recent errors &amp; warnings</h2><div id="errors"></div></div>
+  <footer>Reads with the anon key + read-only RLS · writes happen server-side only · auto-refresh</footer>
+</div>
+
+<script src="config.js" onerror="void 0"></script>
+<script>
+const CFG = window.HERMES_DASHBOARD_CONFIG || null;
+const LIVE = !!(CFG && CFG.SUPABASE_URL && CFG.SUPABASE_URL.startsWith("https://") &&
+  !CFG.SUPABASE_URL.includes("YOUR_PROJECT_REF") && CFG.SUPABASE_ANON_KEY);
+
+const DEMO_RUNS = (() => {
+  const labels = ["telegram chat","daily brief","web research","cron: morning summary",
+    "whatsapp chat","skill: calendar check","telegram chat","file summary"];
+  const now = Date.now(), runs = [];
+  for (let i = 0; i < 24; i++) {
+    const started = new Date(now - (24 - i) * 3600e3 * 1.7);
+    const failed = i === 7 || i === 15;
+    const dur = 20 + Math.round(Math.abs(Math.sin(i * 1.7)) * 160);
+    runs.push({
+      id: i + 1, run_label: labels[i % labels.length],
+      status: failed ? "failed" : (i === 23 ? "running" : "completed"),
+      started_at: started.toISOString(),
+      completed_at: i === 23 ? null : new Date(started.getTime() + dur * 1000).toISOString(),
+      total_tokens: i === 23 ? null : 800 + Math.round(Math.abs(Math.cos(i)) * 5200),
+      estimated_cost: i === 23 ? null : +(0.001 + Math.abs(Math.cos(i)) * 0.012).toFixed(4),
+    });
+  }
+  return runs.reverse();
+})();
+const DEMO_LOGS = [
+  { level: "error", message: "run #16: LLM request timed out after 60s (retried ok)", created_at: new Date(Date.now() - 4.1e7).toISOString() },
+  { level: "warn",  message: "run #8: token budget 80% consumed", created_at: new Date(Date.now() - 8.3e7).toISOString() },
+  { level: "error", message: "run #8: tool browse failed — connection reset", created_at: new Date(Date.now() - 8.4e7).toISOString() },
+];
+
+async function rest(path) {
+  const r = await fetch(CFG.SUPABASE_URL + "/rest/v1/" + path, {
+    headers: { apikey: CFG.SUPABASE_ANON_KEY, Authorization: "Bearer " + CFG.SUPABASE_ANON_KEY },
+  });
+  if (!r.ok) throw new Error("Supabase " + r.status + " on " + path);
+  return r.json();
+}
+
+const fmtTok = n => n == null ? "–" : (n >= 1e6 ? (n/1e6).toFixed(1)+"M" : n >= 1e3 ? (n/1e3).toFixed(1)+"k" : String(n));
+const fmtAgo = iso => {
+  const s = (Date.now() - new Date(iso)) / 1000;
+  return s < 60 ? Math.round(s)+"s ago" : s < 3600 ? Math.round(s/60)+"m ago"
+       : s < 86400 ? (s/3600).toFixed(1)+"h ago" : (s/86400).toFixed(1)+"d ago";
+};
+const durOf = r => (r.completed_at && r.started_at)
+  ? Math.max(0, (new Date(r.completed_at) - new Date(r.started_at)) / 1000) : null;
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c =>
+  ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+function render(runs, logs) {
+  const done = runs.filter(r => r.status === "completed");
+  const failed = runs.filter(r => r.status === "failed");
+  const closed = done.length + failed.length;
+  const today = runs.filter(r => new Date(r.started_at).toDateString() === new Date().toDateString());
+  document.getElementById("c-total").textContent = runs.length;
+  document.getElementById("c-today").textContent = today.length + " today";
+  document.getElementById("c-rate").textContent = closed ? Math.round(done.length / closed * 100) + "%" : "–";
+  document.getElementById("c-failed").textContent = failed.length + " failed";
+  const durs = done.map(durOf).filter(d => d != null);
+  document.getElementById("c-dur").textContent =
+    durs.length ? Math.round(durs.reduce((a,b)=>a+b,0)/durs.length) + "s" : "–";
+  const tok = runs.reduce((a,r)=>a+(r.total_tokens||0),0);
+  const cost = runs.reduce((a,r)=>a+(+r.estimated_cost||0),0);
+  document.getElementById("c-tok").textContent = fmtTok(tok);
+  document.getElementById("c-cost").textContent = "≈ $" + cost.toFixed(3);
+
+  const last30 = runs.slice(0, 30).reverse();
+  const max = Math.max(1, ...last30.map(r=>r.total_tokens||0));
+  document.getElementById("trend").innerHTML = last30.map(r =>
+    `<div class="bar${r.status==="failed"?" failed":""}" title="#${r.id} ${esc(r.run_label)} — ${fmtTok(r.total_tokens)} tok" style="height:${Math.max(4,(r.total_tokens||0)/max*100)}%"></div>`
+  ).join("") || '<div class="empty">no runs yet</div>';
+
+  document.getElementById("runs").innerHTML = runs.length ? `<table>
+    <tr><th>#</th><th>Label</th><th>Status</th><th>Started</th><th>Duration</th><th>Tokens</th><th>Cost</th></tr>` +
+    runs.slice(0, 12).map(r => {
+      const d = durOf(r);
+      return `<tr><td>${r.id}</td><td>${esc(r.run_label)}</td>
+        <td><span class="pill ${esc(r.status)}">${esc(r.status)}</span></td>
+        <td>${fmtAgo(r.started_at)}</td><td>${d==null?"–":Math.round(d)+"s"}</td>
+        <td>${fmtTok(r.total_tokens)}</td>
+        <td>${r.estimated_cost==null?"–":"$"+(+r.estimated_cost).toFixed(4)}</td></tr>`;
+    }).join("") + "</table>" : '<div class="empty">no runs yet — send the bot a message</div>';
+
+  const bad = logs.filter(l => l.level !== "info").slice(0, 10);
+  document.getElementById("errors").innerHTML = bad.length ? `<table>` +
+    bad.map(l => `<tr><td class="lvl-${esc(l.level)}">${esc(l.level)}</td>
+      <td class="msg">${esc(l.message)}</td><td>${fmtAgo(l.created_at)}</td></tr>`).join("")
+    + "</table>" : '<div class="empty">no errors or warnings 🎉</div>';
+}
+
+async function refresh() {
+  const updated = document.getElementById("updated");
+  try {
+    let runs, logs;
+    if (LIVE) {
+      [runs, logs] = await Promise.all([
+        rest("agent_runs?select=*&order=started_at.desc&limit=100"),
+        rest("agent_logs?select=level,message,created_at&order=created_at.desc&limit=100"),
+      ]);
+    } else { runs = DEMO_RUNS; logs = DEMO_LOGS; }
+    render(runs, logs);
+    updated.textContent = "updated " + new Date().toLocaleTimeString() +
+      (LIVE ? "" : " — demo mode: copy config.example.js → config.js to go live");
+  } catch (e) { updated.textContent = "⚠ " + e.message; }
+}
+
+const modeEl = document.getElementById("mode");
+if (LIVE) { modeEl.textContent = "live"; modeEl.classList.add("live"); }
+refresh();
+setInterval(refresh, ((CFG && CFG.REFRESH_SECONDS) || 15) * 1000);
+</script>
+</body>
+</html>
