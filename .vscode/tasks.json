@@ -19,8 +19,15 @@
     {
       "label": "🧪 Level 2 — اختبارات المدير الشخصي",
       "type": "shell",
-      "command": "python3 -m pytest tests/test_level2.py -q",
-      "windows": { "command": "python -m pytest tests/test_level2.py -q" },
+      "command": "python3 -m pytest tests/test_level2.py tests/test_level2_e2e.py -q",
+      "windows": { "command": "python -m pytest tests/test_level2.py tests/test_level2_e2e.py -q" },
+      "problemMatcher": []
+    },
+    {
+      "label": "🎭 Level 2 — محاكاة يوم كامل (اختبار سير العمل)",
+      "type": "shell",
+      "command": "python3 -m level2.demo",
+      "windows": { "command": "python -m level2.demo" },
       "problemMatcher": []
     },
     {

@@ -47,6 +47,9 @@ INTENTS = [
 
 def classify(text: str) -> str:
     t = (text or "").strip().lower()
+    # «أعاني من ...» ⇒ استشارة نقطة ضعف دائمًا — حتى لو ذكر كلمة «قرار» داخلها
+    if "أعاني" in t:
+        return "weakness"
     best, best_score = "consult", 0
     for intent, kws in INTENTS:
         score = sum(1 for kw in kws if kw in t)
