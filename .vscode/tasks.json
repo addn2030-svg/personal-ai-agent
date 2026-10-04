@@ -2,11 +2,32 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "🎙️ Level 2 — المدير الشخصي (حوار صوتي)",
+      "type": "shell",
+      "command": "python3 -m level2.server",
+      "windows": { "command": "python -m level2.server" },
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "🤖 Level 2 — جسر تيليجرام (اختياري)",
+      "type": "shell",
+      "command": "python3 -m level2.telegram_bridge",
+      "windows": { "command": "python -m level2.telegram_bridge" },
+      "problemMatcher": []
+    },
+    {
+      "label": "🧪 Level 2 — اختبارات المدير الشخصي",
+      "type": "shell",
+      "command": "python3 -m pytest tests/test_level2.py -q",
+      "windows": { "command": "python -m pytest tests/test_level2.py -q" },
+      "problemMatcher": []
+    },
+    {
       "label": "🔄 تحديث اللوحة والبريف (دورة كاملة)",
       "type": "shell",
       "command": "python3 engine/manager.py full",
       "windows": { "command": "python engine/manager.py full" },
-      "group": { "kind": "build", "isDefault": true },
       "problemMatcher": []
     },
     {

@@ -27,3 +27,9 @@ data/.telegram*
 data/.rollout.json
 data/.last-state-snapshot.json
 data/rag-index.json
+# Level 2 — حالة المدير الشخصي المحلية (خصوصية: لا تُرفع أبدًا)
+level2/data/*.json
+level2/data/*.bak
+level2/data/.l2-*
+# تصدير Google Sheets المرجعي (بيانات شخصية)
+google_drive/
