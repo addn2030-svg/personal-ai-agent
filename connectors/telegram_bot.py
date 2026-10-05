@@ -126,10 +126,7 @@ def _command_ai_status(chat_id: int):
         f"Model: {status['omniroute_model'] or 'not configured'}",
         f"Manager: {role_models['manager']}",
         f"Critic: {role_models['critic']}",
-        f"Google adviser: {role_models['google']}",
     ]
-    if status["clinical_policy"].get("zdr"):
-        lines.append("Clinical OpenRouter compatibility policy: ZDR + data_collection=deny")
     _impl.send(chat_id, "\n".join(lines))
 
 
