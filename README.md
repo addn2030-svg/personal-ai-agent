@@ -316,3 +316,8 @@ python3 -u connectors/telegram_bot.py
   run `createRehabSupervisorForm` once, authorize it, then run
   `testRehabIntegration`. Re-running creation returns the existing form unless
   `createRehabSupervisorForm(true)` is used intentionally.
+
+
+## بروتوكول Cognitive OS
+
+تستخدم ردود تيليجرام وSuper Manager احتكاكًا فكريًا بنّاءً، وتلخيصًا معرفيًا، وبوابات قرار ومسودات قابلة للمراجعة. بروتوكولات الصباح/منتصف اليوم/المساء والمراجعات الأسبوعية والشهرية تعمل عند تحفيز المستخدم أو عبر سير عمل مهيأ مسبقًا؛ لا تنشئ وظائف خلفية أو تكتب معرفة دائمة بصمت. راجع [دليل بروتوكول Cognitive OS](docs/cognitive-os-operating-protocol.md).
