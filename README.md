@@ -149,7 +149,7 @@
 - **مولّد الخرائط الذهنية** `engine/mindmap.py`: أي Markdown ← خريطة Mermaid
   (`mindmap`) + شجرة نصية + مكتبة `mind_maps`، وخريطة الجمعة الأسبوعية.
 - **خط الملخصات المسموعة** `engine/audio_digest.py`: `QUEUED → DIGESTED → NARRATED`
-  مع سكربت سردي 5–7 دقائق، وتوليد mp3 عبر `ELEVENLABS_API_KEY` في البيئة فقط.
+  مع سكربت سردي 5–7 دقائق، وتوليد mp3 اختياريًا عبر OmniRoute عند ضبط `OMNIROUTE_TTS_MODEL`.
 - **إجراءات اليوم الفورية**: `python3 engine/scheduler.py today-actions` (تكليف DHS
   17 سبتمبر + إغلاق NEEDS_INPUT + تفعيل التحويل الصوتي) ثم اعتمادها عبر
   `engine/approve.py`.
