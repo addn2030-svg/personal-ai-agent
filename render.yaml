@@ -77,14 +77,6 @@ services:
         sync: false
       - key: GITHUB_TOKEN
         sync: false
-      - key: OMNIROUTE_MANAGER_MODEL
-        sync: false
-      - key: OMNIROUTE_CRITIC_MODEL
-        sync: false
-      - key: OMNIROUTE_IMAGE_MODEL
-        sync: false
-      - key: OMNIROUTE_VIDEO_MODEL
-        sync: false
       - key: BUFFER_API_KEY
         sync: false
 
