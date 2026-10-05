@@ -61,7 +61,11 @@ services:
         sync: false
       - key: GOOGLE_CALENDAR_ID
         sync: false
-      - key: GEMINI_API_KEY
+      - key: OMNIROUTE_BASE_URL
+        sync: false
+      - key: OMNIROUTE_API_KEY
+        sync: false
+      - key: OMNIROUTE_MODEL
         sync: false
 
       # ---- اختياري --------------------------------------------------------
@@ -73,7 +77,13 @@ services:
         sync: false
       - key: GITHUB_TOKEN
         sync: false
-      - key: KIMI_API_KEY
+      - key: OMNIROUTE_MANAGER_MODEL
+        sync: false
+      - key: OMNIROUTE_CRITIC_MODEL
+        sync: false
+      - key: OMNIROUTE_IMAGE_MODEL
+        sync: false
+      - key: OMNIROUTE_VIDEO_MODEL
         sync: false
       - key: BUFFER_API_KEY
         sync: false
