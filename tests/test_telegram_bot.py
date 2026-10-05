@@ -13,15 +13,25 @@ class TelegramBotTests(unittest.TestCase):
         self.assertIn("المهارات", text)
         self.assertIn("الإجمالي", text)
 
-    def test_first_private_chat_claims_owner(self):
+    def test_unconfigured_bot_fails_closed_without_claiming_owner(self):
         with tempfile.TemporaryDirectory() as tmp:
             owner_file = Path(tmp) / "owner"
             with patch.object(telegram_bot, "ALLOWED_CHAT_ID", ""), patch.object(
                 telegram_bot, "OWNER_FILE", owner_file
             ):
+                self.assertFalse(telegram_bot._authorized(12345, "private"))
+                self.assertFalse(telegram_bot._authorized(12345, "group"))
+                self.assertFalse(owner_file.exists())
+
+    def test_owner_file_is_an_explicit_local_allowlist(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            owner_file = Path(tmp) / "owner"
+            owner_file.write_text("12345", encoding="utf-8")
+            with patch.object(telegram_bot, "ALLOWED_CHAT_ID", ""), patch.object(
+                telegram_bot, "OWNER_FILE", owner_file
+            ):
                 self.assertTrue(telegram_bot._authorized(12345, "private"))
                 self.assertFalse(telegram_bot._authorized(99999, "private"))
-                self.assertEqual(owner_file.read_text(encoding="utf-8"), "12345")
 
     def test_group_cannot_claim_unconfigured_bot(self):
         with tempfile.TemporaryDirectory() as tmp:
