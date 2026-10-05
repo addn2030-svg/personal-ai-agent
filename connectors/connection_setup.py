@@ -64,20 +64,11 @@ GUIDES = {
         "Set GITHUB_TOKEN locally / in the deployment variables — never in chat or git.",
         "Set AI_OS_GITHUB_REPO (default: addn2030-svg/personal-ai-agent).",
     ],
-    "gemini": [
-        "console.cloud.google.com → enable the Gemini API for the selected project.",
-        "Create a Gemini API key and set GEMINI_API_KEY in Railway — never in chat or git.",
-        "Set GEMINI_MODEL (default: google/gemini-3.7-flash) if a different enabled model is required.",
+    "omniroute": [
+        "Configure the OmniRoute service and copy its OpenAI-compatible API base URL.",
+        "Set OMNIROUTE_BASE_URL, OMNIROUTE_API_KEY, and OMNIROUTE_MODEL in Railway Variables.",
+        "Choose model IDs from the OmniRoute catalog; optional role/media models use OMNIROUTE_MANAGER_MODEL, OMNIROUTE_CRITIC_MODEL, OMNIROUTE_IMAGE_MODEL, and OMNIROUTE_VIDEO_MODEL.",
         "Verify: python3 -m connectors.connection_setup --live.",
-    ],
-    "kimi": [
-        "platform.moonshot.ai → Console → API Keys (international). China: platform.moonshot.cn.",
-        "Create a key and set KIMI_API_KEY in Railway — never in chat or git. MOONSHOT_API_KEY is also accepted.",
-        "Optional: KIMI_MODEL (default kimi-k2.5), KIMI_BASE_URL (default https://api.moonshot.ai/v1).",
-        "Keep AI_MODEL_PROVIDER=gemini to use Kimi only after Gemini's ~20 questions/day quota.",
-        "Or set AI_MODEL_PROVIDER=kimi to send ordinary questions to Kimi immediately.",
-        "Clinical traffic stays on Gemini unless you explicitly set AI_CLINICAL_PROVIDER=kimi.",
-        "Verify: python3 -m connectors.connection_setup --live  or Telegram /kimi_test.",
     ],
     "buffer": [
         "publish.buffer.com/settings/api → create a personal API key.",
@@ -232,34 +223,19 @@ def check_github(env=None) -> dict:
     }
 
 
-def check_gemini(env=None) -> dict:
+def check_omniroute(env=None) -> dict:
     env = env if env is not None else _env
-    key = env("GEMINI_API_KEY")
-    model = env("GEMINI_MODEL") or env("AI_GOOGLE_MODEL") or "google/gemini-3.7-flash"
-    return {
-        "key": "gemini", "name": "Gemini API",
-        "env": ["GEMINI_API_KEY", "GEMINI_MODEL"],
-        "status": "ok" if key else "missing",
-        "detail": f"API key set — model {model}" if key else "GEMINI_API_KEY is not set",
-    }
+    base = env("OMNIROUTE_BASE_URL")
+    key = env("OMNIROUTE_API_KEY")
+    model = env("OMNIROUTE_MODEL")
+    missing = [name for name, value in (("OMNIROUTE_BASE_URL", base),
+               ("OMNIROUTE_API_KEY", key), ("OMNIROUTE_MODEL", model)) if not value]
+    status = "missing" if missing else "ok"
+    detail = ("missing " + ", ".join(missing)) if missing else f"gateway and model configured — {model}"
+    return {"key": "omniroute", "name": "OmniRoute", "env": [
+        "OMNIROUTE_BASE_URL", "OMNIROUTE_API_KEY", "OMNIROUTE_MODEL"],
+        "status": status, "detail": detail}
 
-
-def check_kimi(env=None) -> dict:
-    env = env if env is not None else _env
-    key = env("KIMI_API_KEY") or env("MOONSHOT_API_KEY")
-    model = env("KIMI_MODEL") or "kimi-k2.5"
-    base = env("KIMI_BASE_URL") or "https://api.moonshot.ai/v1"
-    if key:
-        status, detail = "ok", f"API key set — model {model} @ {base}"
-    else:
-        status, detail = "optional", (
-            "KIMI_API_KEY not set — optional overflow after Gemini's ~20 questions/day"
-        )
-    return {
-        "key": "kimi", "name": "Kimi API",
-        "env": ["KIMI_API_KEY", "KIMI_MODEL", "KIMI_BASE_URL"],
-        "status": status, "detail": detail,
-    }
 
 
 def check_buffer(env=None) -> dict:
@@ -300,7 +276,7 @@ def check_supabase(env=None) -> dict:
 
 
 CHECKS = [check_telegram, check_sheets, check_drive, check_docs, check_calendar, check_github,
-          check_gemini, check_kimi, check_buffer, check_supabase]
+          check_omniroute, check_buffer, check_supabase]
 
 
 # ---------------------------------------------------------------- live probes
@@ -353,14 +329,9 @@ def _probe_calendar():
     return {"summary": cal.get("summary", ""), "timeZone": cal.get("timeZone", "")}
 
 
-def _probe_gemini():
+def _probe_omniroute():
     from . import model_gateway
-    return model_gateway.probe_gemini()
-
-
-def _probe_kimi():
-    from . import model_gateway
-    return model_gateway.probe_kimi()
+    return model_gateway.probe_omniroute()
 
 
 def _probe_supabase():
@@ -375,8 +346,7 @@ PROBES = {
     "docs": _probe_docs,
     "calendar": _probe_calendar,
     "github": _probe_github,
-    "gemini": _probe_gemini,
-    "kimi": _probe_kimi,
+    "omniroute": _probe_omniroute,
     "supabase": _probe_supabase,
 }
 
@@ -414,7 +384,7 @@ def render(results, live: bool = False) -> str:
     if pending:
         lines.append("")
         lines.append("Next steps (priority: " + " → ".join(PRIORITY_ORDER) + "):")
-        for key in PRIORITY_ORDER + ["sheets", "drive", "telegram", "gemini", "buffer"]:
+        for key in PRIORITY_ORDER + ["sheets", "drive", "telegram", "omniroute", "buffer"]:
             row = next((r for r in results if r["key"] == key and r["status"] != "ok"), None)
             if row:
                 lines.append(f"  • {row['name']}: python3 -m connectors.connection_setup --guide {key}")
