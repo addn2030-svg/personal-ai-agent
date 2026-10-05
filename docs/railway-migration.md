@@ -79,7 +79,7 @@ service does not inherit them):
 | Variable | Required | Value |
 |---|---:|---|
 | `TELEGRAM_BOT_TOKEN` | yes | Current token from BotFather; secret |
-| `TELEGRAM_ALLOWED_CHAT_ID` | strongly recommended | Your private Telegram chat ID |
+| `TELEGRAM_ALLOWED_CHAT_ID` | yes | Your private Telegram chat ID; without it, the bot denies all chats unless an explicit local owner file is provisioned |
 | `TELEGRAM_WEBHOOK_SECRET` | recommended | A new random HTTPS-safe secret; keep it stable across restarts |
 | `AI_OS_DATA_DIR` | yes | `/data` |
 | `MANAGER_TIMEZONE` | recommended | `Asia/Riyadh` |
@@ -89,9 +89,11 @@ service does not inherit them):
 | `GEMINI_MODEL` | recommended | `google/gemini-3.7-flash` or an enabled Gemini model ID |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | for direct Google access | Complete service-account JSON, preferably pasted as one value or base64; secret |
 | `GOOGLE_SHEET_ID` | for operational Sheets | ID between `/d/` and `/edit` in the general workbook URL |
-| `CLINICAL_SHEET_ID` | for clinical cases | `1Te-dD6B9USOzURbTjMoZQgYtDeoygwR6QRGeHHGAzaQ` |
+| `CLINICAL_SHEET_ID` | for clinical cases | Your approved restricted workbook ID; keep the actual ID in deployment configuration, not repository docs |
 | `CLINICAL_SHEET_TAB` | recommended | Approved clinical tab name; if omitted, the connector uses the workbook's first existing tab |
 | `GOOGLE_CALENDAR_ID` | for Calendar actions | Real Calendar ID from **Integrate calendar**; do not use `primary` with a service account |
+
+The bot requires `TELEGRAM_ALLOWED_CHAT_ID`; when it is missing and no local owner file is provisioned, all chats are denied. It never enrolls the first private chat automatically.
 
 The webhook secret is derived from the Telegram token when omitted, but an
 explicit secret avoids changing the webhook secret if the token is rotated.
@@ -112,7 +114,7 @@ Share each target Sheet, Drive folder, Doc, and Calendar with the
 clinical workbook:
 
 ```text
-https://docs.google.com/spreadsheets/d/1Te-dD6B9USOzURbTjMoZQgYtDeoygwR6QRGeHHGAzaQ/edit
+Configured clinical workbook ID: set `CLINICAL_SHEET_ID` in Railway Variables; do not put the actual ID in repository documentation.
 ```
 
 Give the service account Editor access to that workbook and set
@@ -270,7 +272,7 @@ That avoids putting a secret in shell history or command-line arguments.
      AI_MODEL_PROVIDER=gemini \
      AI_CLINICAL_PROVIDER=gemini \
      GEMINI_MODEL=google/gemini-3.7-flash \
-     CLINICAL_SHEET_ID=1Te-dD6B9USOzURbTjMoZQgYtDeoygwR6QRGeHHGAzaQ \
+     CLINICAL_SHEET_ID="$CLINICAL_SHEET_ID" \
      --skip-deploys
    ```
 
