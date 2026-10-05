@@ -38,7 +38,7 @@ class TaskDelegationTests(unittest.TestCase):
         fallback = Mock(return_value=("fallback", {}, 4, []))
         with patch.object(team, "_openrouter_agent", side_effect=RuntimeError("HTTP 402")):
             result = team.delegate(1, "ابحث عن اتجاهات عامة", bedrock_fallback=fallback)
-        self.assertEqual(result.provider, "bedrock")
+        self.assertEqual(result.provider, "omniroute")
         self.assertTrue(result.fallback)
 
     def test_named_gemini_failure_does_not_impersonate_with_bedrock(self):
