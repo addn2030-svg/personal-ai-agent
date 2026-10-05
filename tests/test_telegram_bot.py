@@ -217,5 +217,13 @@ class TelegramBotTests(unittest.TestCase):
             self.assertIn("رُفض", answered[-1].get("text", ""))
 
 
+    def test_system_prompt_applies_cognitive_os_protocol(self):
+        prompt = telegram_bot._impl.SYSTEM_PROMPT
+        self.assertIn("COGNITIVE OPERATING PROTOCOL", prompt)
+        self.assertIn("14-30 days", prompt)
+        self.assertIn("48 hours", prompt)
+        self.assertIn("Do not create schedules", prompt)
+        self.assertIn("clinician review", prompt)
+
 if __name__ == "__main__":
     unittest.main()
