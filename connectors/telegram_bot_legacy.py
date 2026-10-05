@@ -129,14 +129,9 @@ def _owner_id():
 
 
 def _authorized(chat_id: int, chat_type: str):
+    """Authorize only the explicitly configured owner; never enroll callers implicitly."""
     owner = _owner_id()
-    if owner:
-        return str(chat_id) == owner
-    if chat_type != "private":
-        return False
-    OWNER_FILE.parent.mkdir(parents=True, exist_ok=True)
-    OWNER_FILE.write_text(str(chat_id), encoding="utf-8")
-    return True
+    return bool(owner) and str(chat_id) == owner
 
 
 def _bedrock_configured():
