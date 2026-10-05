@@ -216,7 +216,7 @@ python3 engine/chief_of_staff.py
 
 ## الربط بالخدمات الخارجية (Sheets · Drive · Docs · Calendar · GitHub)
 - فحص فوري لحالة كل القنوات: `python3 -m connectors.connection_setup` (أضف `--live` للفحص الحي عبر الشبكة، و`--guide calendar` لخطوات قناة محددة).
-- **Kimi API (تجاوز حد Gemini ~20 سؤال/يوم):** أضف في Railway `KIMI_API_KEY` من platform.moonshot.ai. اختياري: `KIMI_MODEL=kimi-k2.5` و`KIMI_BASE_URL=https://api.moonshot.ai/v1`. اترك `AI_MODEL_PROVIDER=gemini` ليُستخدم Kimi تلقائيًا بعد نفاد الحصة، أو اضبط `AI_MODEL_PROVIDER=kimi` لاستخدامه مباشرة. الأسئلة السريرية تبقى على Gemini ما لم تضبط `AI_CLINICAL_PROVIDER=kimi`. لا تضع المفتاح في Git أو في المحادثة.
+- **OmniRoute AI gateway:** Set `OMNIROUTE_BASE_URL`, `OMNIROUTE_API_KEY`, and `OMNIROUTE_MODEL` in Railway Variables. All text-model calls use this gateway; optional manager/critic and image/video model IDs can be configured separately. Keep the key out of Git and chat.
 - خطوات الربط كاملة مع متغيرات البيئة المطلوبة: `docs/connection-guide.md` — **مفاتيح الربط توضع في متغيرات البيئة فقط، ولا تُرسل في أي محادثة**.
 - **Supabase (نسخ الحالة خارج الخادم — اختياري):** `docs/supabase-setup.md`. ضع `SUPABASE_URL` و`SUPABASE_SERVICE_ROLE_KEY` و`SUPABASE_WRITE_ENABLED=1` في Railway → Variables (لا في Git ولا في محادثة)، وشغّل SQL الإعداد مرة واحدة: `python3 -m connectors.supabase_client --sql`. ثم `/backup_now` من تيليجرام. المفتاح السري يبقى على الخادم فقط؛ ومفتاح anon/publishable للقراءة فقط ولا يكتب أبدًا.
 - نقل التشغيل إلى Railway، المتغيرات، الـVolume، وتشخيص انتهاء بيئة 24 ساعة: `docs/railway-migration.md`.
