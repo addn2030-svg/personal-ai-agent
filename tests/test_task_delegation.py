@@ -27,14 +27,14 @@ class TaskDelegationTests(unittest.TestCase):
             team.delegate(1, "gpt راجع حالة المريض رقم الملف 12345", bedrock_fallback=fallback)
         fallback.assert_not_called()
 
-    def test_auto_private_task_goes_to_bedrock(self):
+    def test_auto_private_task_uses_omniroute_manager(self):
         fallback = Mock(return_value=("protected", {}, 3, []))
         result = team.delegate(1, "راجع حالة المريض رقم الملف 12345", bedrock_fallback=fallback)
-        self.assertEqual(result.provider, "bedrock")
+        self.assertEqual(result.provider, "omniroute")
         self.assertEqual(result.answer, "protected")
         fallback.assert_called_once()
 
-    def test_auto_openrouter_failure_falls_back_to_bedrock(self):
+    def test_auto_model_failure_uses_omniroute_manager_retry(self):
         fallback = Mock(return_value=("fallback", {}, 4, []))
         with patch.object(team, "_openrouter_agent", side_effect=RuntimeError("HTTP 402")):
             result = team.delegate(1, "ابحث عن اتجاهات عامة", bedrock_fallback=fallback)
