@@ -70,7 +70,8 @@ class AudioDigestTests(unittest.TestCase):
     def test_render_audio_without_key_does_not_call_network(self):
         audio_digest.queue("عنوان تجريبي", "book", store=self.store)
         audio_digest.process(all_items=True, store=self.store)
-        os.environ.pop("ELEVENLABS_API_KEY", None)
+        for name in ("OMNIROUTE_BASE_URL", "OMNIROUTE_API_KEY", "OMNIROUTE_MODEL", "OMNIROUTE_TTS_MODEL"):
+            os.environ.pop(name, None)
         out = audio_digest.render_audio("AD-001", store=self.store)
         self.assertIsNone(out)
         d = next(x for x in self.store.reload().rows_all()["audio_digests"]
