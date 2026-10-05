@@ -108,7 +108,7 @@ def _openrouter_agent(agent: str, task: str, *, max_tokens: int = 900,
         temperature=temperature,
         response_format=response_format,
     )
-    return AgentResult(agent, agent, "openrouter", models.last_route().get("model") or model, answer)
+    return AgentResult(agent, agent, "omniroute", models.last_route().get("model") or model, answer)
 
 
 def _bedrock_manager(chat_id: int, task: str, bedrock_fallback, *, requested: str,
@@ -116,12 +116,12 @@ def _bedrock_manager(chat_id: int, task: str, bedrock_fallback, *, requested: st
     if bedrock_fallback is None:
         raise RuntimeError("Bedrock manager fallback is unavailable")
     prompt = (
-        "Delegated manager task. Execute as the protected Claude/Bedrock manager. "
+        "Delegated manager task. Execute as the protected OmniRoute manager manager. "
         "Do not claim external browsing or tool access unless evidence is included. "
         "Do not perform external actions; identify any action that needs user approval.\n\n" + task
     )
     answer, _usage, _latency, _sources = bedrock_fallback(chat_id, prompt, sheet_context="")
-    return AgentResult(requested, "claude", "bedrock", models.BEDROCK_MODEL_ID, answer, fallback=fallback)
+    return AgentResult(requested, "manager", "omniroute", models.OMNIROUTE_MANAGER_MODEL, answer, fallback=fallback)
 
 
 def delegate(chat_id: int, value: str, *, bedrock_fallback=None) -> AgentResult:
@@ -147,9 +147,9 @@ def agents_status_text() -> str:
     status = models.status()
     return "\n".join([
         "🧠 AI Team v0.7",
-        f"Claude — Manager/Orchestrator: {status['models']['manager']}",
-        f"GPT — Critic: {status['models']['critic']}",
-        f"Gemini — Researcher: {status['models']['google']}",
+        f"Manager/Orchestrator: {status['models']['manager']}",
+        f"Critic: {status['models']['critic']}",
+        f"Researcher: {status['models']['google']}",
         f"OpenRouter: {'configured ✅' if status['openrouter_configured'] else 'not configured'}",
         f"Bedrock protected manager/fallback: {'configured ✅' if status['bedrock_configured'] else 'not configured'}",
         "Auto routing: Research→Gemini | Review/Risk→GPT | Management→Claude",
@@ -275,7 +275,7 @@ def _plan_mission(chat_id: int, objective: str, bedrock_fallback=None) -> tuple[
         fallback = _bedrock_manager(
             chat_id, planner_prompt, bedrock_fallback, requested="mission-plan", fallback=True,
         )
-        return _normalise_plan(_extract_json_object(fallback.answer), objective), "Claude/Bedrock fallback"
+        return _normalise_plan(_extract_json_object(fallback.answer), objective), "OmniRoute manager"
 
 
 def _run_mission_specialists(plan: dict) -> tuple[dict[str, AgentResult], list[str]]:
@@ -352,13 +352,13 @@ def mission(chat_id: int, objective: str, *, bedrock_fallback=None) -> str:
     try:
         manager = _openrouter_agent("claude", synthesis_prompt, max_tokens=1400, temperature=0.15)
         final_answer = manager.answer
-        manager_source = f"Claude/OpenRouter | {manager.model}"
+        manager_source = f"OmniRoute | {manager.model}"
     except Exception:
         fallback = _bedrock_manager(
             chat_id, synthesis_prompt, bedrock_fallback, requested="mission", fallback=True,
         )
         final_answer = fallback.answer
-        manager_source = f"Claude/Bedrock fallback | {fallback.model}"
+        manager_source = f"OmniRoute manager | {fallback.model}"
 
     completed = ", ".join(ROLE_LABELS[a] for a in ("gemini", "gpt") if a in specialist_results)
     failures_note = ("\n\nUnavailable specialist(s):\n" + "\n".join(failures)) if failures else ""
