@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Gemini image/video generation -> Drive -> Sheet -> Buffer-ready URL."""
+"""OmniRoute image/video generation -> Drive -> Sheet -> Buffer-ready URL."""
 from __future__ import annotations
 
 import base64
@@ -14,18 +14,17 @@ import urllib.request
 from connectors import google_credentials
 from engine.store import Store, log_event
 
-API = "https://generativelanguage.googleapis.com/v1beta/interactions"
 FOLDER_ID = os.environ.get("CONTENT_MEDIA_FOLDER_ID", "").strip()
-IMAGE_MODEL = os.environ.get("GEMINI_IMAGE_MODEL", "gemini-3.1-flash-image").strip()
-VIDEO_MODEL = os.environ.get("GEMINI_VIDEO_MODEL", "gemini-omni-1.1-flash").strip()
+IMAGE_MODEL = os.environ.get("OMNIROUTE_IMAGE_MODEL", "").strip()
+VIDEO_MODEL = os.environ.get("OMNIROUTE_VIDEO_MODEL", "").strip()
 _DRIVE = None
 
 
-def _key() -> str:
-    value = os.environ.get("GEMINI_API_KEY", "").strip()
-    if not value:
-        raise RuntimeError("GEMINI_API_KEY is not configured")
-    return value
+def _gateway():
+    from connectors import model_gateway
+    if not model_gateway.configured():
+        raise RuntimeError("OmniRoute is not configured")
+    return model_gateway
 
 
 def _pending(action_id: str | None) -> dict:
@@ -64,29 +63,43 @@ def _prompt(row: dict, kind: str) -> str:
 
 
 def _generate(row: dict, kind: str) -> tuple[bytes, str]:
+    gateway = _gateway()
     model = IMAGE_MODEL if kind == "image" else VIDEO_MODEL
-    response_format = ({"type": "image", "mime_type": "image/png", "aspect_ratio": "4:5", "image_size": "2K"}
-                       if kind == "image" else
-                       {"type": "video", "aspect_ratio": "9:16", "resolution": "720p"})
-    body = json.dumps({"model": model, "input": _prompt(row, kind),
-                       "response_format": response_format}).encode("utf-8")
-    req = urllib.request.Request(
-        API + "?key=" + urllib.parse.quote(_key(), safe=""), data=body, method="POST",
-        headers={"Content-Type": "application/json", "User-Agent": "Abdulrahman-AI-OS"},
-    )
+    if not model:
+        raise RuntimeError(f"OMNIROUTE_{kind.upper()}_MODEL is required for {kind} generation")
+    endpoint = "/images/generations" if kind == "image" else "/videos/generations"
+    payload = {"model": model, "prompt": _prompt(row, kind)}
+    if kind == "image":
+        payload.update({"size": "1024x1280", "response_format": "b64_json"})
+    request = urllib.request.Request(
+        gateway.base_url() + endpoint,
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={"Authorization": "Bearer " + gateway.OMNIROUTE_API_KEY,
+                 "Content-Type": "application/json"},
+        method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=240) as response:
-            payload = json.loads(response.read().decode("utf-8"))
+        with urllib.request.urlopen(request, timeout=max(240, gateway.OMNIROUTE_TIMEOUT_SECONDS)) as response:
+            result = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", "replace")[:700]
-        raise RuntimeError(f"Gemini media HTTP {exc.code}: {detail}") from exc
-    wanted = "image" if kind == "image" else "video"
-    for step in reversed(payload.get("steps") or []):
-        for item in step.get("content") or []:
-            if item.get("type") == wanted and item.get("data"):
-                return base64.b64decode(item["data"]), item.get("mime_type") or (
-                    "image/png" if kind == "image" else "video/mp4")
-    raise RuntimeError("Gemini returned no generated media")
+        raise RuntimeError(f"OmniRoute {kind} generation failed (HTTP {exc.code})") from exc
+    items = result.get("data") or result.get("output") or []
+    if isinstance(items, dict):
+        items = [items]
+    item = next((x for x in items if isinstance(x, dict)), {})
+    encoded = item.get("b64_json") or item.get("base64") or item.get("data")
+    mime = item.get("mime_type") or ("image/png" if kind == "image" else "video/mp4")
+    if encoded:
+        try:
+            return base64.b64decode(encoded), mime
+        except Exception as exc:
+            raise RuntimeError("OmniRoute returned invalid base64 media") from exc
+    url = item.get("url") or item.get("video_url")
+    if url:
+        media_request = urllib.request.Request(url, headers={"User-Agent": "Abdulrahman-AI-OS"})
+        with urllib.request.urlopen(media_request, timeout=240) as response:
+            content_type = response.headers.get("Content-Type", "").split(";")[0]
+            return response.read(), content_type or mime
+    raise RuntimeError("OmniRoute returned no downloadable media; confirm selected model and response format")
 
 
 def _drive():
@@ -159,9 +172,15 @@ def generate(action_id: str | None, kind: str) -> dict:
             "sheet_sync_error": file.get("sheet_sync_error")}
 
 
+def _gateway_ready() -> bool:
+    try:
+        return _gateway().configured()
+    except Exception:
+        return False
+
 def status_text() -> str:
     info = google_credentials.service_account_info() or {}
-    configured = bool(os.environ.get("GEMINI_API_KEY", "").strip() and FOLDER_ID and info)
+    configured = bool(_gateway_ready() and FOLDER_ID and info)
     try:
         folder = _drive().files().get(fileId=FOLDER_ID, fields="id,name,mimeType").execute() if configured else {}
         drive_state = f"connected ✅ — {folder.get('name')}" if folder else "not tested"
@@ -169,5 +188,5 @@ def status_text() -> str:
         drive_state = "failed — " + str(exc)[:180]
     return "\n".join([
         "🎨 Content Media Agent", f"Configuration: {'ready ✅' if configured else 'incomplete ❌'}",
-        f"Drive: {drive_state}", f"Image model: {IMAGE_MODEL}", f"Video model: {VIDEO_MODEL}",
+        f"Drive: {drive_state}", f"Image model: {IMAGE_MODEL or \"not configured\"}", f"Video model: {VIDEO_MODEL or \"not configured\"}",
     ])
