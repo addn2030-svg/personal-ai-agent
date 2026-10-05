@@ -114,9 +114,9 @@ def _openrouter_agent(agent: str, task: str, *, max_tokens: int = 900,
 def _bedrock_manager(chat_id: int, task: str, bedrock_fallback, *, requested: str,
                      fallback: bool) -> AgentResult:
     if bedrock_fallback is None:
-        raise RuntimeError("Bedrock manager fallback is unavailable")
+        raise RuntimeError("OmniRoute manager route is unavailable")
     prompt = (
-        "Delegated manager task. Execute as the protected OmniRoute manager manager. "
+        "Delegated manager task. Execute as the OmniRoute manager. "
         "Do not claim external browsing or tool access unless evidence is included. "
         "Do not perform external actions; identify any action that needs user approval.\n\n" + task
     )
@@ -146,14 +146,13 @@ def delegate(chat_id: int, value: str, *, bedrock_fallback=None) -> AgentResult:
 def agents_status_text() -> str:
     status = models.status()
     return "\n".join([
-        "🧠 AI Team v0.7",
+        "🧠 AI Team",
         f"Manager/Orchestrator: {status['models']['manager']}",
         f"Critic: {status['models']['critic']}",
         f"Researcher: {status['models']['google']}",
-        f"OpenRouter: {'configured ✅' if status['openrouter_configured'] else 'not configured'}",
-        f"Bedrock protected manager/fallback: {'configured ✅' if status['bedrock_configured'] else 'not configured'}",
-        "Auto routing: Research→Gemini | Review/Risk→GPT | Management→Claude",
-        "Shared objective: /mission الهدف — Claude decomposes, delegates, reconciles, and synthesizes.",
+        f"OmniRoute: {'configured ✅' if status['omniroute_configured'] else 'not configured'}",
+        "Role routing uses model IDs from the OmniRoute catalog.",
+        "Shared objective: /mission الهدف — the manager model decomposes, delegates, reconciles, and synthesizes.",
         "Tools: model reasoning only; external connectors/actions keep their existing approval rules.",
     ])
 
