@@ -148,34 +148,31 @@ provider and is not listed as a self-test capability.
 Add only the integrations you have configured. An unset optional connector
 stays disabled or uses its documented no-key fallback.
 
-### Model providers
+### Model gateway
+
+All text inference, role calls, and optional generated media use OmniRoute. Keep
+upstream provider keys and provider selection in OmniRoute; this app uses only
+the configured gateway credential and model catalog IDs.
+
+Set these in Railway Variables (never in chat or git):
 
 ```text
-AI_MODEL_PROVIDER=gemini          # only normal AI route
-AI_CLINICAL_PROVIDER=gemini       # clinical route uses Gemini too
-GEMINI_API_KEY                    # secret
-GEMINI_MODEL=google/gemini-3.7-flash
+OMNIROUTE_BASE_URL=<service-reachable OpenAI-compatible endpoint>
+OMNIROUTE_API_KEY=<secret>
+OMNIROUTE_MODEL=<enabled model ID from OmniRoute catalog>
+OMNIROUTE_MANAGER_MODEL=<optional role-specific model ID>
+OMNIROUTE_CRITIC_MODEL=<optional role-specific model ID>
+OMNIROUTE_IMAGE_MODEL=<optional media model ID>
+OMNIROUTE_VIDEO_MODEL=<optional media model ID>
+OMNIROUTE_TIMEOUT_SECONDS=120
 ```
 
-Kimi is the optional overflow when Gemini hits its ~20 questions/day cap.
-Add these in Railway Variables (never in chat or git):
+The application appends `/v1` when the configured base URL omits it. Verify
+configuration with `python3 -m connectors.connection_setup`; use `--live` for
+a small test inference that may incur usage. The app's text route is
+`connectors/model_gateway.py` → `connectors/model_router.py`; optional media
+requests use OmniRoute's image/video generation endpoints before upload to Drive.
 
-```text
-KIMI_API_KEY                      # secret from platform.moonshot.ai
-KIMI_MODEL=kimi-k2.5              # optional; kimi-k3 / kimi-k2.6 also work
-KIMI_BASE_URL=https://api.moonshot.ai/v1
-GEMINI_FALLBACK_KIMI=1            # default; set 0 to disable overflow
-```
-
-Keep `AI_MODEL_PROVIDER=gemini` so ordinary questions use Gemini first and only
-switch to Kimi after a quota/429 error. To send ordinary questions to Kimi
-immediately (skip the 20/day cap), set `AI_MODEL_PROVIDER=kimi`. Clinical
-questions stay on Gemini unless you also set `AI_CLINICAL_PROVIDER=kimi`.
-
-OpenRouter and Claude/Bedrock are not required for normal operation and are not
-used by the primary Telegram route. Do not add `OPENROUTER_API_KEY` for this
-configuration. The direct Gemini adapter uses the Gemini API and falls back
-to Kimi only on quota errors when `KIMI_API_KEY` is set.
 
 ### Project memory and scheduling
 
@@ -211,10 +208,10 @@ BUFFER_DEFAULT_MODE=draft
 CONTENT_DEFAULT_PLATFORM=linkedin
 CONTENT_SHEET_ID
 CONTENT_QUEUE_TAB=PUBLISH_QUEUE
-GEMINI_API_KEY                       # primary Gemini key; also used by optional media tools
+OMNIROUTE_IMAGE_MODEL                # optional OmniRoute image-generation model ID
 CONTENT_MEDIA_FOLDER_ID              # Drive folder for generated media
-GEMINI_IMAGE_MODEL=gemini-3.1-flash-image
-GEMINI_VIDEO_MODEL=gemini-omni-1.1-flash
+OMNIROUTE_IMAGE_MODEL=<enabled image model ID>
+OMNIROUTE_VIDEO_MODEL=<enabled video model ID>
 ```
 
 Use `BUFFER_API_KEY`, not `BUFFER_ACCESS_TOKEN`; the connector reads the former.
