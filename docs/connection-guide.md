@@ -141,35 +141,25 @@ phones/e-mails/ID runs stripped from queries before any external call).
 
 ---
 
-## 8️⃣ Kimi API — optional overflow after Gemini's ~20 questions/day
-Code: `connectors/model_gateway.py`, `connectors/model_router.py`.
+## 8️⃣ OmniRoute model gateway
 
-Gemini free/low tiers often stop after about **20 questions per day**. Kimi
-(Moonshot) is the overflow route: ordinary Telegram questions keep working after
-Gemini returns 429/quota. Clinical questions stay on Gemini unless you
-explicitly set `AI_CLINICAL_PROVIDER=kimi`.
+All language-model inference (ordinary and clinical text, specialist roles, and optional generated media) goes through OmniRoute's OpenAI-compatible gateway. Provider API keys belong in OmniRoute; this app stores only the OmniRoute gateway key.
 
-1. Sign in at [platform.moonshot.ai](https://platform.moonshot.ai) (international)
-   or [platform.moonshot.cn](https://platform.moonshot.cn) (China).
-2. Console → **API Keys** → create a key. Copy it once.
-3. Add the variables in Railway → Variables. Never paste the key in chat or git.
+Set these Railway or local environment variables:
 
-| Variable | Required | Value |
+| Variable | Required | Purpose |
 |---|---|---|
-| `KIMI_API_KEY` | for overflow | Moonshot/Kimi secret. `MOONSHOT_API_KEY` is also accepted |
-| `KIMI_MODEL` | optional | default `kimi-k2.5` (`kimi-k3`, `kimi-k2.6`, `moonshot-v1-128k` also work) |
-| `KIMI_BASE_URL` | optional | default `https://api.moonshot.ai/v1` (China: `https://api.moonshot.cn/v1`) |
-| `GEMINI_FALLBACK_KIMI` | optional | default `1` — overflow on Gemini quota. Set `0` to disable |
-| `AI_MODEL_PROVIDER` | optional | keep `gemini` for overflow-only, or set `kimi` to skip Gemini entirely |
+| `OMNIROUTE_BASE_URL` | yes | Service-reachable OmniRoute endpoint; the client adds `/v1` if omitted |
+| `OMNIROUTE_API_KEY` | yes | Secret bearer credential for this application |
+| `OMNIROUTE_MODEL` | yes | Model ID enabled in your OmniRoute catalog |
+| `OMNIROUTE_MANAGER_MODEL`, `OMNIROUTE_CRITIC_MODEL` | optional | Role-specific IDs; default to `OMNIROUTE_MODEL` |
+| `OMNIROUTE_IMAGE_MODEL`, `OMNIROUTE_VIDEO_MODEL` | media only | Catalog IDs for image/video generation |
+| `OMNIROUTE_TIMEOUT_SECONDS` | optional | Chat request timeout (default 120) |
 
-```bash
-python3 -m connectors.connection_setup --guide kimi
-python3 -m connectors.connection_setup --live
-```
+Use the service's actual reachable URL and model catalog. For local development, the OmniRoute documentation shows a local gateway URL pattern; production deployments must use a URL reachable from the app container. Never commit the key or place it in a spreadsheet.
 
-Telegram: `/ai_status` and `/kimi_test`.
+Run `python3 -m connectors.connection_setup` to check configuration. `python3 -m connectors.connection_setup --live` sends a small “OK” inference request and may incur provider usage/cost. The model route is centralized in `connectors/model_gateway.py` and `connectors/model_router.py`.
 
----
 
 ## 9️⃣ Supabase — ☁️ نسخ الحالة خارج الخادم + 🪞 مرآة المهام (اختياري لكن موصى به)
 
@@ -228,8 +218,7 @@ Telegram: `/backup_now` نسخة الآن · `/backups` آخر النسخ · `/t
 | Docs | `GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_DOCS_DOCUMENT_ID` | `GOOGLE_DRIVE_FOLDER_ID` |
 | Calendar | `GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_CALENDAR_ID` | `MANAGER_TIMEZONE` |
 | GitHub | `GITHUB_TOKEN` | `AI_OS_GITHUB_REPO` |
-| Gemini API | `GEMINI_API_KEY` | `GEMINI_MODEL` |
-| Kimi API (Gemini 20/day overflow) | — | `KIMI_API_KEY`, `KIMI_MODEL`, `KIMI_BASE_URL` |
+| OmniRoute | `OMNIROUTE_BASE_URL`, `OMNIROUTE_API_KEY`, `OMNIROUTE_MODEL` | role and media model IDs are optional |
 | YouTube search | — | `YOUTUBE_API_KEY` |
 | Supabase backups + tasks mirror | `SUPABASE_URL` (+ `SUPABASE_SERVICE_ROLE_KEY` and `SUPABASE_WRITE_ENABLED=1` to write) | `SUPABASE_ANON_KEY`, `SUPABASE_STATE_TABLE`, `SUPABASE_TASKS_TABLE`, `SUPABASE_BACKUP_SCHEDULE_ENABLED`, `SUPABASE_BACKUP_HOUR` |
 
