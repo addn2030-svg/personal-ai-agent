@@ -83,10 +83,6 @@ service does not inherit them):
 | `TELEGRAM_WEBHOOK_SECRET` | recommended | A new random HTTPS-safe secret; keep it stable across restarts |
 | `AI_OS_DATA_DIR` | yes | `/data` |
 | `MANAGER_TIMEZONE` | recommended | `Asia/Riyadh` |
-| `AI_MODEL_PROVIDER` | yes | `gemini` — Gemini API is the only normal AI route |
-| `AI_CLINICAL_PROVIDER` | yes | `gemini` — clinical cases also use Gemini API |
-| `GEMINI_API_KEY` | for Gemini | Google Gemini API key; secret |
-| `GEMINI_MODEL` | recommended | `google/gemini-3.7-flash` or an enabled Gemini model ID |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | for direct Google access | Complete service-account JSON, preferably pasted as one value or base64; secret |
 | `GOOGLE_SHEET_ID` | for operational Sheets | ID between `/d/` and `/edit` in the general workbook URL |
 | `CLINICAL_SHEET_ID` | for clinical cases | Your approved restricted workbook ID; keep the actual ID in deployment configuration, not repository docs |
@@ -173,6 +169,13 @@ a small test inference that may incur usage. The app's text route is
 `connectors/model_gateway.py` → `connectors/model_router.py`; optional media
 requests use OmniRoute's image/video generation endpoints before upload to Drive.
 
+
+| `OMNIROUTE_BASE_URL` | yes | OpenAI-compatible OmniRoute URL reachable from this service |
+| `OMNIROUTE_API_KEY` | yes | OmniRoute bearer credential; secret |
+| `OMNIROUTE_MODEL` | yes | Enabled model ID from the OmniRoute catalog |
+| `OMNIROUTE_MANAGER_MODEL`, `OMNIROUTE_CRITIC_MODEL` | optional | Role-specific IDs; default to the main model |
+| `OMNIROUTE_IMAGE_MODEL`, `OMNIROUTE_VIDEO_MODEL` | media only | IDs for enabled media models |
+| `OMNIROUTE_TIMEOUT_SECONDS` | optional | Chat timeout; default 120 seconds |
 
 ### Project memory and scheduling
 
