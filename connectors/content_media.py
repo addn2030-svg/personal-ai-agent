@@ -188,5 +188,5 @@ def status_text() -> str:
         drive_state = "failed — " + str(exc)[:180]
     return "\n".join([
         "🎨 Content Media Agent", f"Configuration: {'ready ✅' if configured else 'incomplete ❌'}",
-        f"Drive: {drive_state}", f"Image model: {IMAGE_MODEL or \"not configured\"}", f"Video model: {VIDEO_MODEL or \"not configured\"}",
+        f"Drive: {drive_state}", "Image model: " + (IMAGE_MODEL or "not configured"), "Video model: " + (VIDEO_MODEL or "not configured"),
     ])
