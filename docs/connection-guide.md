@@ -25,9 +25,10 @@ Code: `connectors/telegram_live.py`, `connectors/telegram_bot.py`, webhook runti
 
 | Variable | Required |
 |---|---|
-| `TELEGRAM_BOT_TOKEN` | ✅ |
+| `TELEGRAM_BOT_TOKEN` | ✅ secret |
+| `TELEGRAM_ALLOWED_CHAT_ID` | ✅ private chat ID; all chats are denied if it is missing and no local owner file is provisioned |
 
-No action needed. The `--live` probe calls `getMe` (read-only, never sends).
+Set the private chat ID before starting the bot. It fails closed when no owner is configured; it never adopts the first private chat. The `--live` probe calls `getMe` (read-only, never sends).
 
 ## 2️⃣ Google Sheets — ⚠️ verify env
 Code: `connectors/sheet_intelligence.py` (read/search/update through the approval-safe layer).
@@ -51,12 +52,10 @@ Clinical questions/cases use a separate direct Sheets route and never write to
 
 | Variable | Value |
 |---|---|
-| `CLINICAL_SHEET_ID` | `1Te-dD6B9USOzURbTjMoZQgYtDeoygwR6QRGeHHGAzaQ` |
+| `CLINICAL_SHEET_ID` | your approved restricted workbook ID |
 | `CLINICAL_SHEET_TAB` | approved restricted tab name; optional, otherwise the first existing tab is resolved |
 
-Share this workbook with the same service-account email as **Editor**:
-
-`https://docs.google.com/spreadsheets/d/1Te-dD6B9USOzURbTjMoZQgYtDeoygwR6QRGeHHGAzaQ/edit`
+Share the configured workbook with the same service-account email as **Editor**. Keep its ID in the deployment secret/configuration store rather than in repository docs.
 
 The clinical connector uses `GOOGLE_SERVICE_ACCOUNT_JSON` directly. It does not
 use the general operational webhook as a fallback, so a sharing/API error must
@@ -222,7 +221,7 @@ Telegram: `/backup_now` نسخة الآن · `/backups` آخر النسخ · `/t
 
 | Integration | Required | Optional |
 |---|---|---|
-| Telegram | `TELEGRAM_BOT_TOKEN` | — |
+| Telegram | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_CHAT_ID` | — |
 | Operational Sheets | `GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_SHEET_ID` | webhook pair |
 | Clinical Sheets | `GOOGLE_SERVICE_ACCOUNT_JSON`, `CLINICAL_SHEET_ID` | `CLINICAL_SHEET_TAB` |
 | Drive | `GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_DRIVE_FOLDER_ID` | — |
