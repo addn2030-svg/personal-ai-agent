@@ -204,8 +204,8 @@ still writes state to the ephemeral container filesystem.
 GITHUB_TOKEN                         # secret; read-only connector needs repo access
 AI_OS_GITHUB_REPO=addn2030-svg/personal-ai-agent
 YOUTUBE_API_KEY                      # optional; DuckDuckGo fallback exists
-ELEVENLABS_API_KEY                   # optional audio-digest narration; secret
-ELEVENLABS_VOICE_ID                  # optional
+OMNIROUTE_TTS_MODEL                  # optional audio-digest TTS model ID
+OMNIROUTE_TTS_VOICE=alloy             # optional voice
 BUFFER_API_KEY                       # Buffer connector name; secret
 BUFFER_DEFAULT_MODE=draft
 CONTENT_DEFAULT_PLATFORM=linkedin
