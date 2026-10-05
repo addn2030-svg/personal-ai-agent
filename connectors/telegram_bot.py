@@ -134,6 +134,7 @@ def _command_start(chat_id: int):
     _legacy_command_start(chat_id)
     _impl.send(
         chat_id,
+        "🗨️ سؤال عام للنموذج: /ask سؤالك — أو اكتب سؤالك مباشرة\n\n"
         "🧠 فريق الوكلاء + Super Manager:\n"
         "/manager الطلب — رئيس الأركان: يربط، يكشف النقص، يوصي\n"
         "/manager_shadow الطلب — مقارنة Legacy مع Super Manager بلا أثر خارجي\n"
@@ -317,9 +318,9 @@ def _books_fast_path(raw: str, message: dict) -> bool:
 
 def _delegated_handle_message(message: dict):
     raw = (message.get("text") or message.get("caption") or "").strip()
-    if _books_fast_path(raw, message):
-        return
     command = raw.split()[0].split("@")[0].lower() if raw else ""
+    if command != "/ask" and _books_fast_path(raw, message):
+        return
     natural_manager, natural_objective = _natural_manager_request(raw)
 
     chat = message.get("chat") or {}
@@ -329,6 +330,21 @@ def _delegated_handle_message(message: dict):
     if not _impl._authorized(chat_id, chat.get("type", "")):
         _impl.send(chat_id, "⛔ هذه المحادثة غير مصرح لها باستخدام الوكيل.")
         return
+
+    if command == "/ask":
+        parts = raw.split(maxsplit=1)
+        question = parts[1].strip() if len(parts) > 1 else ""
+        if not question:
+            _impl.send(chat_id, "استخدم /ask متبوعًا بسؤالك، أو أرسل سؤالك مباشرة.")
+            return
+        # Reuse the normal authorized text path so /ask gets the same OmniRoute
+        # routing, privacy checks, conversation memory, and error handling.
+        message = dict(message)
+        message["text"] = question
+        message.pop("caption", None)
+        raw = question
+        command = ""
+        natural_manager, natural_objective = False, ""
 
     text, kind, attachment = _impl._message_payload(message)
     iid = _impl._local_capture(text, message, kind)
@@ -547,6 +563,7 @@ def _configure_commands():
         commands = _impl.api("getMyCommands") or []
         existing = {str(item.get("command", "")) for item in commands}
         additions = [
+            {"command": "ask", "description": "سؤال عام للنموذج عبر OmniRoute"},
             {"command": "youtube", "description": "بحث يوتيوب بروابط watch?v= موثقة"},
             {"command": "search", "description": "بحث يوتيوب موثّق (نفس /youtube)"},
             {"command": "books", "description": "قائمة كتبك من شيت «المصادر والتعلم» مباشرة"},
