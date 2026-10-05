@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from connectors import telegram_bot
+from connectors import telegram_bot_legacy
 
 
 class TelegramBotTests(unittest.TestCase):
@@ -218,12 +219,12 @@ class TelegramBotTests(unittest.TestCase):
 
 
     def test_system_prompt_applies_cognitive_os_protocol(self):
-        prompt = telegram_bot._impl.SYSTEM_PROMPT
+        prompt = telegram_bot_legacy.SYSTEM_PROMPT
         self.assertIn("COGNITIVE OPERATING PROTOCOL", prompt)
         self.assertIn("14-30 days", prompt)
         self.assertIn("48 hours", prompt)
         self.assertIn("Do not create schedules", prompt)
-        self.assertIn("clinician review", prompt)
+        self.assertIn("professional review", prompt)
 
 if __name__ == "__main__":
     unittest.main()
