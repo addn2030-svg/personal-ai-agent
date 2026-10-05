@@ -222,4 +222,4 @@ def status() -> dict:
             "gemini_model": OMNIROUTE_MODEL, "kimi_configured": False, "kimi_model": "",
             "openrouter_configured": False, "bedrock_configured": False,
             "desired_general_provider": "omniroute", "desired_clinical_provider": "omniroute",
-            "models": models_for_roles()}
+            "models": models_for_roles(), "general_policy": {}, "clinical_policy": {}}
