@@ -1,4 +1,4 @@
-# Railway Agent Runtime — Memory, separated Sheets, and Gemini API
+# Railway Agent Runtime — Memory, separated Sheets, and OmniRoute
 
 For the complete migration checklist, environment-variable inventory, safe transfer
 commands, and the 24-hour expiry diagnosis, see [`docs/railway-migration.md`](railway-migration.md).
@@ -26,13 +26,13 @@ If you override the start command in Railway, keep the `-m` form.
 ### Core
 - TELEGRAM_BOT_TOKEN
 - TELEGRAM_ALLOWED_CHAT_ID
-- AI_MODEL_PROVIDER=gemini
-- AI_CLINICAL_PROVIDER=gemini
-- GEMINI_API_KEY=<secret>
-- GEMINI_MODEL=google/gemini-3.7-flash
-- KIMI_API_KEY=<secret> (optional overflow after Gemini's ~20 questions/day)
-- KIMI_MODEL=kimi-k2.5
-- KIMI_BASE_URL=https://api.moonshot.ai/v1
+- OMNIROUTE_BASE_URL=<service-reachable URL>
+- OMNIROUTE_API_KEY=<secret>
+- OMNIROUTE_MODEL=<enabled model ID>
+- OMNIROUTE_MANAGER_MODEL=<optional role model ID>
+- OMNIROUTE_CRITIC_MODEL=<optional role model ID>
+- OMNIROUTE_IMAGE_MODEL=<optional media model ID>
+- OMNIROUTE_VIDEO_MODEL=<optional media model ID>
 
 ### Persistent state ⚠️ REQUIRED — deploy will lose all state without it
 
@@ -50,7 +50,7 @@ Attach a Railway Volume mounted at `/data`, then set:
 ### Google Sheets
 - GOOGLE_SERVICE_ACCOUNT_JSON=<complete service account JSON>
 - GOOGLE_SHEET_ID=<operational workbook ID>
-- CLINICAL_SHEET_ID=1Te-dD6B9USOzURbTjMoZQgYtDeoygwR6QRGeHHGAzaQ
+- CLINICAL_SHEET_ID=<restricted clinical workbook ID>
 - CLINICAL_SHEET_TAB=<approved restricted tab name, recommended>
 
 Share both workbooks with the service-account email as Editor. Clinical intake and
@@ -87,7 +87,7 @@ text-only response and are not sent to any transcription provider or model.
 ## Runtime flow
 
 Telegram -> privacy/category -> local Unified Inbox -> bounded conversation
-memory -> state + lexical knowledge retrieval -> Gemini API -> Telegram ->
+memory -> state + lexical knowledge retrieval -> OmniRoute -> Telegram ->
 Google Sheets audit.
 
 Voice/audio is intentionally outside the runtime; resend the request as text.

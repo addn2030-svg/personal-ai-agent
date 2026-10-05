@@ -47,11 +47,7 @@ def _guarded_run():
 
 def _unified_ask(chat_id: int, text: str, sheet_context: str = ""):
     """
-    Unified ask — all ordinary and clinical questions use model_router.call.
-    Gemini API is the normal Telegram AI route. Kimi is used when
-    AI_MODEL_PROVIDER=kimi, or as overflow after Gemini's daily quota.
-    Claude/Bedrock and OpenRouter are not used by the primary path.
-    """
+All ordinary and clinical model requests use the configured OmniRoute gateway.    """
     try:
         from connectors import model_router
         import os
@@ -59,15 +55,7 @@ def _unified_ask(chat_id: int, text: str, sheet_context: str = ""):
         sensitive = _impl._clinical_hint(text)
         domain = "clinical" if sensitive else "general"
         provider = _models.desired_provider(sensitive=sensitive)
-        model_name = (
-            _models.GEMINI_MODEL
-            if provider == "gemini"
-            else _models.KIMI_MODEL
-            if provider == "kimi"
-            else _models.BEDROCK_MODEL_ID
-            if provider == "bedrock"
-            else os.getenv("AI_MODEL_MANAGER", "anthropic/claude-sonnet-4.6")
-        )
+        model_name = _models.OMNIROUTE_MODEL
 
         # Build context via agent_runtime for sources
         try:
@@ -108,12 +96,12 @@ def _save_conversation(cid, iid, question, answer, usage, latency_ms, status, er
         return _legacy_save_conversation(cid, iid, question, answer, usage, latency_ms, status, error)
 
     route = _models.last_route()
-    if route.get("provider") != "openrouter":
+    if route.get("provider") != "omniroute":
         return _legacy_save_conversation(cid, iid, question, answer, usage, latency_ms, status, error)
 
     review = "NOT_REQUIRED"
     row = [
-        cid, iid, _impl._now(), "OPENROUTER", route.get("model", _models.AI_MANAGER_MODEL),
+        cid, iid, _impl._now(), "OMNIROUTE", route.get("model", _models.AI_MANAGER_MODEL),
         _impl._redact(question), _impl._redact(answer),
         usage.get("inputTokens", ""), usage.get("outputTokens", ""),
         latency_ms, status, review, str(error)[:500],
@@ -133,19 +121,12 @@ def _command_ai_status(chat_id: int):
         "🤖 Model Gateway",
         f"General: {status['desired_general_provider']}",
         f"Clinical: {status['desired_clinical_provider']}",
-        f"Gemini API: {'configured ✅' if status['gemini_configured'] else 'not configured'}",
-        f"Gemini model: {status['gemini_model']}",
-        f"Kimi API: {'configured ✅' if status.get('kimi_configured') else 'not configured (optional overflow)'}",
-        f"Kimi model: {status.get('kimi_model', 'kimi-k2.5')}",
-        f"Gemini→Kimi overflow: {'on' if status.get('gemini_fallback_kimi') else 'off'}",
-        f"Claude/Bedrock compatibility: {'configured' if status['bedrock_configured'] else 'not configured'}",
-        f"OpenRouter compatibility: {'configured' if status['openrouter_configured'] else 'not configured'}",
+        f"OmniRoute: {'configured ✅' if status['omniroute_configured'] else 'not configured'}",
+        f"Gateway: {status['omniroute_base_url'] or 'not configured'}",
+        f"Model: {status['omniroute_model'] or 'not configured'}",
         f"Manager: {role_models['manager']}",
         f"Critic: {role_models['critic']}",
-        f"Google adviser: {role_models['google']}",
     ]
-    if status["clinical_policy"].get("zdr"):
-        lines.append("Clinical OpenRouter compatibility policy: ZDR + data_collection=deny")
     _impl.send(chat_id, "\n".join(lines))
 
 
@@ -158,11 +139,10 @@ def _command_start(chat_id: int):
         "/manager_shadow الطلب — مقارنة Legacy مع Super Manager بلا أثر خارجي\n"
         "/manager_status — حالة طبقة المدير\n"
         "/agents — حالة فريق النماذج ومساراته\n"
-        "/gemini_test — اختبار صغير لـ Gemini API\n"
-        "/kimi_test — اختبار صغير لـ Kimi API (تجاوز حد 20 سؤال/يوم)\n"
+        "/gemini_test — اختبار اتصال OmniRoute (اسم قديم محفوظ للتوافق)\n"
         "/context_test tomorrow — اختبار Calendar/Sheets بدون AI tokens\n"
         "/delegate auto المهمة — المدير يختار الوكيل\n"
-        "/delegate claude|gpt|gemini المهمة — تكليف مباشر\n"
+        "/delegate auto|specialist المهمة — تكليف مباشر\n"
         "/council السؤال — مراجعة من الفريق\n"
         "/mission [lean|standard|deep] الهدف — مهمة بميزانية tokens\n\n"
         "🧭 لوحة Master OS (v0.9):\n"

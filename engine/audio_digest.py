@@ -7,7 +7,7 @@
   1) 🗺️ خريطة ذهنية (عبر engine/mindmap.py)
   2) 📄 نص الملخص + سكربت سردي 5–7 دقائق (reports/audio_digests/)
   3) 🔊 ملف صوتي عند توفر مزوّد TTS عبر متغيرات البيئة فقط
-     (ELEVENLABS_API_KEY — لا مفتاح في المستودع أبدًا)
+     (OMNIROUTE_TTS_MODEL و OMNIROUTE_API_KEY — بلا مفاتيح مزود منفصلة)
 
 آلة الحالة: QUEUED ← new · DIGESTED ← جاهز (خريطة + سكربت) · NARRATED ← ملف صوتي.
 
@@ -249,41 +249,43 @@ def render_audio(digest_id, store=None):
     if d.get("status") not in ("DIGESTED", "NARRATED"):
         raise SystemExit(f"❌ {digest_id} بحالة {d['status']} — شغّل process أولًا.")
     script = d.get("narrator_script") or build_script(d, {})
-    api_key = os.environ.get("ELEVENLABS_API_KEY", "")
-    voice_id = os.environ.get("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
+    from connectors import model_gateway
+    gateway = model_gateway
+    tts_model = os.environ.get("OMNIROUTE_TTS_MODEL", "").strip()
+    voice = os.environ.get("OMNIROUTE_TTS_VOICE", "alloy").strip() or "alloy"
     out_path = os.path.join(DIGEST_DIR, f"{digest_id.lower()}-narration.mp3")
-    if not api_key:
-        # لا شبكة ولا مفاتيح: نجّهز كل شيء ونتوقف عند السكربت
+    if not gateway.configured() or not tts_model:
         scr = os.path.join(DIGEST_DIR, f"{digest_id.lower()}-script.md")
         with open(scr, "w", encoding="utf-8") as fh:
-            fh.write(f"# 🎙️ سكربت {digest_id}\n\n```text\n{script}\n```\n")
-        print("🔇 لا يوجد ELEVENLABS_API_KEY في البيئة — لن أرسل النص لأي خدمة خارجية.")
+            fh.write(f"# Script {digest_id}\n\n{script}\n")
+        print("🔇 TTS غير مهيأ — لم يُرسل السكربت لأي خدمة خارجية.")
         print(f"   السكربت السردي جاهز: reports/audio_digests/{os.path.basename(scr)}")
-        print("   لتوليد الصوت: عرّف ELEVENLABS_API_KEY (واختياريًا ELEVENLABS_VOICE_ID)")
-        print("   ثم أعد الأمر نفسه.")
+        print("   لتوليد الصوت: اضبط OMNIROUTE_BASE_URL وOMNIROUTE_API_KEY وOMNIROUTE_TTS_MODEL.")
         return None
-    # هنا فقط يوجد مفتاح بيئة حقيقي — استدعاء ElevenLabs TTS
     try:
-        url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
-        req = urllib.request.Request(url, data=json.dumps({
-            "text": script, "model_id": "eleven_multilingual_v2",
-            "voice_settings": {"stability": 0.5, "similarity_boost": 0.75},
-        }).encode(), headers={"Content-Type": "application/json",
-                              "xi-api-key": api_key})
-        with urllib.request.urlopen(req, timeout=90) as resp:
+        url = gateway.base_url() + "/audio/speech"
+        payload = {"model": tts_model, "input": script, "voice": voice, "response_format": "mp3"}
+        req = urllib.request.Request(url, data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            headers={"Authorization": "Bearer " + gateway.OMNIROUTE_API_KEY,
+                     "Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=gateway.OMNIROUTE_TIMEOUT_SECONDS) as resp:
             data = resp.read()
+            content_type = resp.headers.get("Content-Type", "audio/mpeg")
+        if not data or not content_type.startswith("audio/"):
+            raise RuntimeError("OmniRoute TTS returned an empty or non-audio response")
         with open(out_path, "wb") as fh:
             fh.write(data)
         d["audio_path"] = os.path.relpath(out_path, BASE)
-        d["provider"] = "elevenlabs"
+        d["provider"] = "omniroute"
+        d["model"] = tts_model
         d["status"] = "NARRATED"
         store.commit(store.rows_all(), "audio_digest_narrated", digest_id=digest_id)
-        log_event("audio_digest_narrated", digest_id=digest_id)
+        log_event("audio_digest_narrated", digest_id=digest_id, model=tts_model)
         print(f"✅ ملف صوتي → reports/audio_digests/{os.path.basename(out_path)}")
         return out_path
     except Exception as exc:  # noqa: BLE001
-        log_event("audio_digest_tts_error", digest_id=digest_id, error=str(exc)[:160])
-        print(f"❌ فشل التوليد عبر ElevenLabs: {exc}")
+        log_event("audio_digest_tts_error", digest_id=digest_id, error=gateway._safe_error(exc))
+        print(f"❌ فشل التوليد عبر OmniRoute: {gateway._safe_error(exc)}")
         return None
 
 

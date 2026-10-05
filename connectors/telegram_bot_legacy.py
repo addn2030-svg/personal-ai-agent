@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Secure Telegram + Gemini API + Google Sheets intake pipeline."""
+"""Secure Telegram + OmniRoute + Google Sheets intake pipeline."""
 from __future__ import annotations
 
 import datetime as dt
@@ -19,13 +19,10 @@ sys.path.insert(0, str(BASE / "engine"))
 
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 ALLOWED_CHAT_ID = os.environ.get("TELEGRAM_ALLOWED_CHAT_ID", "").strip()
-AWS_REGION = os.environ.get("AWS_REGION", "us-east-1").strip()
-BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-6").strip()
-GEMINI_MODEL_ID = os.environ.get(
-    "GEMINI_MODEL",
-    os.environ.get("AI_GOOGLE_MODEL", "google/gemini-3.7-flash"),
-).strip()
-GOOGLE_SHEET_ID = os.environ.get("GOOGLE_SHEET_ID", "1ZXmC_3_OTYYtXglNMXRQiSWu2rjDDIzoqaK0SQuWcWc").strip()
+AWS_REGION = ""
+BEDROCK_MODEL_ID = os.environ.get("OMNIROUTE_MODEL", "").strip()
+GEMINI_MODEL_ID = BEDROCK_MODEL_ID
+GOOGLE_SHEET_ID = os.environ.get("GOOGLE_SHEET_ID", "").strip()
 GOOGLE_SERVICE_ACCOUNT_JSON = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
 GOOGLE_SHEETS_WEBHOOK_URL = os.environ.get("GOOGLE_SHEETS_WEBHOOK_URL", "").strip()
 GOOGLE_SHEETS_WEBHOOK_SECRET = os.environ.get("GOOGLE_SHEETS_WEBHOOK_SECRET", "").strip()
@@ -81,6 +78,15 @@ again until operational state, durable knowledge, recent conversation memory, an
 expanded Google Sheets evidence have been checked. If an original draft is missing,
 offer a useful replacement clearly labelled «مسودة مُعاد بناؤها». Never claim a
 write succeeded unless a concrete receipt (identifier and destination) is available.
+COGNITIVE OPERATING PROTOCOL
+Use constructive friction with respect: challenge weak premises, separate facts from assumptions, and protect the user's attention. Keep ordinary replies concise; apply the following only when relevant:
+- Initiative or hypothesis: identify the assumption most likely to break it, the trade-off, and a concrete metric or observation that would falsify it within 14-30 days.
+- Learning notes or source material: extract the durable model in 1-2 sentences, connect it to a current leadership, rehabilitation, or systems goal only when the supplied evidence supports the connection, then suggest a practical test within 48 hours.
+- Decisions: clarify the underlying problem, offer at least two viable alternatives beyond an apparent binary when evidence supports them, and note meaningful second-order effects over 3-6 months. Do not invent alternatives to fill a format.
+- Administrative, clinical, or public drafts: present a reviewable proposal with a brief rationale. Clinical content remains decision support requiring qualified clinician review; never invent findings or certainty.
+- Cadence is user-triggered or follows an already configured workflow: at morning intent, use two priorities to clarify success and focus boundaries; at midday, stress-test a proposed action; for evening notes, prepare a concise intellectual-ledger draft and a 48-hour test; weekly, review drift, delayed decisions, reading-to-action, and evidenced blind spots; monthly, compare decisions with outcomes, distinguish skill from luck, and suggest a bottleneck or focus adjustment.
+Do not create schedules, send reminders, write new durable knowledge, or claim a ledger entry was saved unless an existing authorized workflow performed it and returned a receipt.
+
 The RUNTIME CLOCK block in the context is the only authority for the current date,
 weekday and time. Never answer a date or time question from training data and never
 guess a year. If that block is absent, say the current date cannot be determined
@@ -129,26 +135,18 @@ def _owner_id():
 
 
 def _authorized(chat_id: int, chat_type: str):
+    """Authorize only the explicitly configured owner; never enroll callers implicitly."""
     owner = _owner_id()
-    if owner:
-        return str(chat_id) == owner
-    if chat_type != "private":
-        return False
-    OWNER_FILE.parent.mkdir(parents=True, exist_ok=True)
-    OWNER_FILE.write_text(str(chat_id), encoding="utf-8")
-    return True
+    return bool(owner) and str(chat_id) == owner
 
 
 def _bedrock_configured():
-    auth = bool(
-        os.environ.get("AWS_BEARER_TOKEN_BEDROCK")
-        or (os.environ.get("AWS_ACCESS_KEY_ID") and os.environ.get("AWS_SECRET_ACCESS_KEY"))
-    )
-    return auth and bool(AWS_REGION) and bool(BEDROCK_MODEL_ID)
+    from connectors import model_gateway
+    return model_gateway.configured()
 
 
 def _gemini_configured():
-    return bool(os.environ.get("GEMINI_API_KEY", "").strip() and GEMINI_MODEL_ID)
+    return _bedrock_configured()
 
 
 def _sheets_configured():
@@ -1007,9 +1005,9 @@ def command_sources(chat_id: int):
 
 def command_ai_status(chat_id: int):
     if _gemini_configured():
-        send(chat_id, f"🤖 Gemini API: configured ✅\nModel: {GEMINI_MODEL_ID}")
+        send(chat_id, f"🤖 OmniRoute: configured ✅\nModel: {GEMINI_MODEL_ID}")
     else:
-        send(chat_id, "❌ إعداد GEMINI_API_KEY أو GEMINI_MODEL غير مكتمل في Railway Variables.")
+        send(chat_id, "❌ إعداد OMNIROUTE_BASE_URL أو OMNIROUTE_API_KEY أو OMNIROUTE_MODEL غير مكتمل في Railway Variables.")
 
 
 def command_storage_status(chat_id: int):
@@ -1072,15 +1070,8 @@ def _selftest():
                        ("Knowledge", BASE/"knowledge"), ("Skills", BASE/"skills")]:
         checks.append((name, path.exists(), "موجود" if path.exists() else "مفقود"))
     checks.append(("Gemini API", _gemini_configured(), "مهيأ" if _gemini_configured() else "غير مهيأ"))
-    kimi_ok = bool(
-        os.environ.get("KIMI_API_KEY", "").strip()
-        or os.environ.get("MOONSHOT_API_KEY", "").strip()
-    )
-    checks.append((
-        "Kimi API",
-        True,
-        "مهيأ — تجاوز حد Gemini 20/يوم" if kimi_ok else "اختياري — أضف KIMI_API_KEY لتجاوز حد 20 سؤال/يوم",
-    ))
+    from connectors import model_gateway
+    checks.append(("OmniRoute", model_gateway.configured(), "مهيأ" if model_gateway.configured() else "أضف متغيرات OmniRoute المطلوبة"))
     checks.append(("Google Sheets", _sheets_configured(), "مهيأ" if _sheets_configured() else "غير مهيأ"))
     try:
         from connectors import clinical_sheet

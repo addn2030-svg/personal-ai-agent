@@ -79,19 +79,17 @@ service does not inherit them):
 | Variable | Required | Value |
 |---|---:|---|
 | `TELEGRAM_BOT_TOKEN` | yes | Current token from BotFather; secret |
-| `TELEGRAM_ALLOWED_CHAT_ID` | strongly recommended | Your private Telegram chat ID |
+| `TELEGRAM_ALLOWED_CHAT_ID` | yes | Your private Telegram chat ID; without it, the bot denies all chats unless an explicit local owner file is provisioned |
 | `TELEGRAM_WEBHOOK_SECRET` | recommended | A new random HTTPS-safe secret; keep it stable across restarts |
 | `AI_OS_DATA_DIR` | yes | `/data` |
 | `MANAGER_TIMEZONE` | recommended | `Asia/Riyadh` |
-| `AI_MODEL_PROVIDER` | yes | `gemini` — Gemini API is the only normal AI route |
-| `AI_CLINICAL_PROVIDER` | yes | `gemini` — clinical cases also use Gemini API |
-| `GEMINI_API_KEY` | for Gemini | Google Gemini API key; secret |
-| `GEMINI_MODEL` | recommended | `google/gemini-3.7-flash` or an enabled Gemini model ID |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | for direct Google access | Complete service-account JSON, preferably pasted as one value or base64; secret |
 | `GOOGLE_SHEET_ID` | for operational Sheets | ID between `/d/` and `/edit` in the general workbook URL |
-| `CLINICAL_SHEET_ID` | for clinical cases | `1Te-dD6B9USOzURbTjMoZQgYtDeoygwR6QRGeHHGAzaQ` |
+| `CLINICAL_SHEET_ID` | for clinical cases | Your approved restricted workbook ID; keep the actual ID in deployment configuration, not repository docs |
 | `CLINICAL_SHEET_TAB` | recommended | Approved clinical tab name; if omitted, the connector uses the workbook's first existing tab |
 | `GOOGLE_CALENDAR_ID` | for Calendar actions | Real Calendar ID from **Integrate calendar**; do not use `primary` with a service account |
+
+The bot requires `TELEGRAM_ALLOWED_CHAT_ID`; when it is missing and no local owner file is provisioned, all chats are denied. It never enrolls the first private chat automatically.
 
 The webhook secret is derived from the Telegram token when omitted, but an
 explicit secret avoids changing the webhook secret if the token is rotated.
@@ -112,7 +110,7 @@ Share each target Sheet, Drive folder, Doc, and Calendar with the
 clinical workbook:
 
 ```text
-https://docs.google.com/spreadsheets/d/1Te-dD6B9USOzURbTjMoZQgYtDeoygwR6QRGeHHGAzaQ/edit
+Configured clinical workbook ID: set `CLINICAL_SHEET_ID` in Railway Variables; do not put the actual ID in repository documentation.
 ```
 
 Give the service account Editor access to that workbook and set
@@ -146,34 +144,38 @@ provider and is not listed as a self-test capability.
 Add only the integrations you have configured. An unset optional connector
 stays disabled or uses its documented no-key fallback.
 
-### Model providers
+### Model gateway
+
+All text inference, role calls, and optional generated media use OmniRoute. Keep
+upstream provider keys and provider selection in OmniRoute; this app uses only
+the configured gateway credential and model catalog IDs.
+
+Set these in Railway Variables (never in chat or git):
 
 ```text
-AI_MODEL_PROVIDER=gemini          # only normal AI route
-AI_CLINICAL_PROVIDER=gemini       # clinical route uses Gemini too
-GEMINI_API_KEY                    # secret
-GEMINI_MODEL=google/gemini-3.7-flash
+OMNIROUTE_BASE_URL=<service-reachable OpenAI-compatible endpoint>
+OMNIROUTE_API_KEY=<secret>
+OMNIROUTE_MODEL=<enabled model ID from OmniRoute catalog>
+OMNIROUTE_MANAGER_MODEL=<optional role-specific model ID>
+OMNIROUTE_CRITIC_MODEL=<optional role-specific model ID>
+OMNIROUTE_IMAGE_MODEL=<optional media model ID>
+OMNIROUTE_VIDEO_MODEL=<optional media model ID>
+OMNIROUTE_TIMEOUT_SECONDS=120
 ```
 
-Kimi is the optional overflow when Gemini hits its ~20 questions/day cap.
-Add these in Railway Variables (never in chat or git):
+The application appends `/v1` when the configured base URL omits it. Verify
+configuration with `python3 -m connectors.connection_setup`; use `--live` for
+a small test inference that may incur usage. The app's text route is
+`connectors/model_gateway.py` → `connectors/model_router.py`; optional media
+requests use OmniRoute's image/video generation endpoints before upload to Drive.
 
-```text
-KIMI_API_KEY                      # secret from platform.moonshot.ai
-KIMI_MODEL=kimi-k2.5              # optional; kimi-k3 / kimi-k2.6 also work
-KIMI_BASE_URL=https://api.moonshot.ai/v1
-GEMINI_FALLBACK_KIMI=1            # default; set 0 to disable overflow
-```
 
-Keep `AI_MODEL_PROVIDER=gemini` so ordinary questions use Gemini first and only
-switch to Kimi after a quota/429 error. To send ordinary questions to Kimi
-immediately (skip the 20/day cap), set `AI_MODEL_PROVIDER=kimi`. Clinical
-questions stay on Gemini unless you also set `AI_CLINICAL_PROVIDER=kimi`.
-
-OpenRouter and Claude/Bedrock are not required for normal operation and are not
-used by the primary Telegram route. Do not add `OPENROUTER_API_KEY` for this
-configuration. The direct Gemini adapter uses the Gemini API and falls back
-to Kimi only on quota errors when `KIMI_API_KEY` is set.
+| `OMNIROUTE_BASE_URL` | yes | OpenAI-compatible OmniRoute URL reachable from this service |
+| `OMNIROUTE_API_KEY` | yes | OmniRoute bearer credential; secret |
+| `OMNIROUTE_MODEL` | yes | Enabled model ID from the OmniRoute catalog |
+| `OMNIROUTE_MANAGER_MODEL`, `OMNIROUTE_CRITIC_MODEL` | optional | Role-specific IDs; default to the main model |
+| `OMNIROUTE_IMAGE_MODEL`, `OMNIROUTE_VIDEO_MODEL` | media only | IDs for enabled media models |
+| `OMNIROUTE_TIMEOUT_SECONDS` | optional | Chat timeout; default 120 seconds |
 
 ### Project memory and scheduling
 
@@ -202,17 +204,17 @@ still writes state to the ephemeral container filesystem.
 GITHUB_TOKEN                         # secret; read-only connector needs repo access
 AI_OS_GITHUB_REPO=addn2030-svg/personal-ai-agent
 YOUTUBE_API_KEY                      # optional; DuckDuckGo fallback exists
-ELEVENLABS_API_KEY                   # optional audio-digest narration; secret
-ELEVENLABS_VOICE_ID                  # optional
+OMNIROUTE_TTS_MODEL                  # optional audio-digest TTS model ID
+OMNIROUTE_TTS_VOICE=alloy             # optional voice
 BUFFER_API_KEY                       # Buffer connector name; secret
 BUFFER_DEFAULT_MODE=draft
 CONTENT_DEFAULT_PLATFORM=linkedin
 CONTENT_SHEET_ID
 CONTENT_QUEUE_TAB=PUBLISH_QUEUE
-GEMINI_API_KEY                       # primary Gemini key; also used by optional media tools
+OMNIROUTE_IMAGE_MODEL                # optional OmniRoute image-generation model ID
 CONTENT_MEDIA_FOLDER_ID              # Drive folder for generated media
-GEMINI_IMAGE_MODEL=gemini-3.1-flash-image
-GEMINI_VIDEO_MODEL=gemini-omni-1.1-flash
+OMNIROUTE_IMAGE_MODEL=<enabled image model ID>
+OMNIROUTE_VIDEO_MODEL=<enabled video model ID>
 ```
 
 Use `BUFFER_API_KEY`, not `BUFFER_ACCESS_TOKEN`; the connector reads the former.
@@ -270,7 +272,7 @@ That avoids putting a secret in shell history or command-line arguments.
      AI_MODEL_PROVIDER=gemini \
      AI_CLINICAL_PROVIDER=gemini \
      GEMINI_MODEL=google/gemini-3.7-flash \
-     CLINICAL_SHEET_ID=1Te-dD6B9USOzURbTjMoZQgYtDeoygwR6QRGeHHGAzaQ \
+     CLINICAL_SHEET_ID="$CLINICAL_SHEET_ID" \
      --skip-deploys
    ```
 

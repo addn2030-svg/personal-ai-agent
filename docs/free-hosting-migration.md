@@ -137,7 +137,7 @@ installation)، وأي وكيل يتصرف نيابة عنك فيه تجاوز �
 4. سيسألك عن قيم المتغيرات المعلّمة `sync: false`. الصقها من Railway:
    `TELEGRAM_BOT_TOKEN` · `SUPABASE_URL` · `SUPABASE_SERVICE_ROLE_KEY` ·
    `GOOGLE_SERVICE_ACCOUNT_JSON` · `GOOGLE_SHEET_ID` · `GOOGLE_CALENDAR_ID` ·
-   `GEMINI_API_KEY` (وما تحتاجه من الاختيارية).
+   `OMNIROUTE_BASE_URL` · `OMNIROUTE_API_KEY` · `OMNIROUTE_MODEL` (وما تحتاجه من متغيرات الاختيارية).
 5. **Apply** → انتظر أول بناء (Docker، ~3–5 دقائق).
 
 ### 4) اربط رابط الخدمة بتيليجرام

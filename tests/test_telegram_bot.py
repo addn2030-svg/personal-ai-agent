@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from connectors import telegram_bot
+from connectors import telegram_bot_legacy
 
 
 class TelegramBotTests(unittest.TestCase):
@@ -13,15 +14,25 @@ class TelegramBotTests(unittest.TestCase):
         self.assertIn("المهارات", text)
         self.assertIn("الإجمالي", text)
 
-    def test_first_private_chat_claims_owner(self):
+    def test_unconfigured_bot_fails_closed_without_claiming_owner(self):
         with tempfile.TemporaryDirectory() as tmp:
             owner_file = Path(tmp) / "owner"
             with patch.object(telegram_bot, "ALLOWED_CHAT_ID", ""), patch.object(
                 telegram_bot, "OWNER_FILE", owner_file
             ):
+                self.assertFalse(telegram_bot._authorized(12345, "private"))
+                self.assertFalse(telegram_bot._authorized(12345, "group"))
+                self.assertFalse(owner_file.exists())
+
+    def test_owner_file_is_an_explicit_local_allowlist(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            owner_file = Path(tmp) / "owner"
+            owner_file.write_text("12345", encoding="utf-8")
+            with patch.object(telegram_bot, "ALLOWED_CHAT_ID", ""), patch.object(
+                telegram_bot, "OWNER_FILE", owner_file
+            ):
                 self.assertTrue(telegram_bot._authorized(12345, "private"))
                 self.assertFalse(telegram_bot._authorized(99999, "private"))
-                self.assertEqual(owner_file.read_text(encoding="utf-8"), "12345")
 
     def test_group_cannot_claim_unconfigured_bot(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -206,6 +217,14 @@ class TelegramBotTests(unittest.TestCase):
             self.assertTrue(len(answered) > 0)
             self.assertIn("رُفض", answered[-1].get("text", ""))
 
+
+    def test_system_prompt_applies_cognitive_os_protocol(self):
+        prompt = telegram_bot_legacy.SYSTEM_PROMPT
+        self.assertIn("COGNITIVE OPERATING PROTOCOL", prompt)
+        self.assertIn("14-30 days", prompt)
+        self.assertIn("48 hours", prompt)
+        self.assertIn("Do not create schedules", prompt)
+        self.assertIn("professional review", prompt)
 
 if __name__ == "__main__":
     unittest.main()
