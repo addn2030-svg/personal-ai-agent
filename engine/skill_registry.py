@@ -41,8 +41,9 @@ def slugify(name):
     return s[:70] or "skill"
 
 
-def create_candidate(name, domain, purpose, procedure, evidence_ids, confidence=0.6):
-    data = _load(); slug = slugify(name)
+def create_candidate(name, domain, purpose, procedure, evidence_ids, confidence=0.6, slug=None):
+    """`slug` صريح يسمح بفصل مصادر مختلفة تحمل الاسم نفسه (مثل design-system في مستودعين)."""
+    data = _load(); slug = slugify(slug or name)
     versions = [x for x in data["skills"] if x["slug"] == slug]
     v = 1 + max([x["version"] for x in versions] or [0])
     sid = f"SK-{hashlib.sha256((slug+str(v)).encode()).hexdigest()[:8].upper()}"
@@ -70,6 +71,20 @@ def set_status(skill_id, status, note=""):
             if x["slug"] == rec["slug"] and x["id"] != rec["id"] and x["status"] == "ACTIVE": x["status"] = "RETIRED"
     rec["status"] = status; rec["updated_at"] = dt.datetime.now().isoformat(timespec="seconds")
     if note: rec["note"] = note
+    _save(data); return rec
+
+
+def annotate(skill_id, **fields):
+    """يُلحق بيانات مصدر/وصف إضافية بسجل مهارة — بلا أي مساس بالحالة أو طبقة الخطر.
+
+    الحقول المحمية لا تُكتب من هنا إطلاقًا: ترقية المهارة تمر من set_status وحدها.
+    """
+    protected = {"id", "slug", "version", "status", "risk_tier", "domain", "file", "metrics"}
+    blocked = protected & set(fields)
+    if blocked:
+        raise PermissionError("annotate cannot modify protected fields: " + ", ".join(sorted(blocked)))
+    data = _load(); rec = next(x for x in data["skills"] if x["id"] == skill_id)
+    rec.update(fields); rec["updated_at"] = dt.datetime.now().isoformat(timespec="seconds")
     _save(data); return rec
 
 

@@ -1,0 +1,661 @@
+{
+  "schema": "skills/1",
+  "skills": [
+    {
+      "id": "SK-F9F30EA6",
+      "slug": "ecc-agent-self-evaluation",
+      "name": "agent-self-evaluation",
+      "domain": "external_execution",
+      "version": 1,
+      "status": "CANDIDATE",
+      "risk_tier": "locked",
+      "confidence": 0.5,
+      "evidence_ids": [
+        "ECC:agent-self-evaluation@5cb1ca903cf5"
+      ],
+      "created_at": "2026-09-26T13:05:18",
+      "updated_at": "2026-09-26T13:05:18",
+      "file": "skills/generated/ecc-agent-self-evaluation-v1.md",
+      "metrics": {
+        "tests": 0,
+        "passed": 0,
+        "uses": 0,
+        "successes": 0
+      },
+      "supersedes": null,
+      "source": {
+        "system": "ecc",
+        "slug": "agent-self-evaluation",
+        "sha256": "5cb1ca903cf53f97a97ffb49b8ff5b52809cdcccd9202a929e380eb7b8a26738",
+        "path": "vendor/ecc/skills/agent-self-evaluation/SKILL.md",
+        "license": "MIT (affaan-m/ecc)",
+        "escalated_for_executables": true,
+        "not_imported": {
+          "executables": 1,
+          "companions": 5
+        },
+        "warnings": [
+          "يتجاوز سقف التحميل 6000 حرفًا — لن يُحمَّل بالإعداد الحالي",
+          "1 ملف تنفيذي لا يُستورَد",
+          "5 مرافق (references/data) لا يُستورَد"
+        ]
+      }
+    },
+    {
+      "id": "SK-A8A5EABB",
+      "slug": "ecc-context-budget",
+      "name": "context-budget",
+      "domain": "projects",
+      "version": 1,
+      "status": "CANDIDATE",
+      "risk_tier": "review",
+      "confidence": 0.5,
+      "evidence_ids": [
+        "ECC:context-budget@c262b62ad27c"
+      ],
+      "created_at": "2026-09-26T13:05:18",
+      "updated_at": "2026-09-26T13:05:18",
+      "file": "skills/generated/ecc-context-budget-v1.md",
+      "metrics": {
+        "tests": 0,
+        "passed": 0,
+        "uses": 0,
+        "successes": 0
+      },
+      "supersedes": null,
+      "source": {
+        "system": "ecc",
+        "slug": "context-budget",
+        "sha256": "c262b62ad27c9d573e7481fd2e3cac02a544a95042f7dbde80e5f3bfdbd8d004",
+        "path": "vendor/ecc/skills/context-budget/SKILL.md",
+        "license": "MIT (affaan-m/ecc)",
+        "escalated_for_executables": false,
+        "not_imported": {
+          "executables": 0,
+          "companions": 0
+        },
+        "warnings": []
+      }
+    },
+    {
+      "id": "SK-43F19FF5",
+      "slug": "ecc-continuous-learning-v2",
+      "name": "continuous-learning-v2",
+      "domain": "external_execution",
+      "version": 1,
+      "status": "CANDIDATE",
+      "risk_tier": "locked",
+      "confidence": 0.5,
+      "evidence_ids": [
+        "ECC:continuous-learning-v2@759774868504"
+      ],
+      "created_at": "2026-09-26T13:05:18",
+      "updated_at": "2026-09-26T13:05:18",
+      "file": "skills/generated/ecc-continuous-learning-v2-v1.md",
+      "metrics": {
+        "tests": 0,
+        "passed": 0,
+        "uses": 0,
+        "successes": 0
+      },
+      "supersedes": null,
+      "source": {
+        "system": "ecc",
+        "slug": "continuous-learning-v2",
+        "sha256": "759774868504b28a4a11a294ac91482b851d5d2a8bf2764cd945227b8bd28a7f",
+        "path": "vendor/ecc/skills/continuous-learning-v2/SKILL.md",
+        "license": "MIT (affaan-m/ecc)",
+        "escalated_for_executables": true,
+        "not_imported": {
+          "executables": 9,
+          "companions": 2
+        },
+        "warnings": [
+          "يتجاوز سقف التحميل 6000 حرفًا — لن يُحمَّل بالإعداد الحالي",
+          "9 ملف تنفيذي لا يُستورَد",
+          "2 مرافق (references/data) لا يُستورَد"
+        ]
+      }
+    },
+    {
+      "id": "SK-309C075F",
+      "slug": "ecc-deep-research",
+      "name": "deep-research",
+      "domain": "projects",
+      "version": 1,
+      "status": "CANDIDATE",
+      "risk_tier": "review",
+      "confidence": 0.5,
+      "evidence_ids": [
+        "ECC:deep-research@08264f81eb64"
+      ],
+      "created_at": "2026-09-26T13:05:18",
+      "updated_at": "2026-09-26T13:05:18",
+      "file": "skills/generated/ecc-deep-research-v1.md",
+      "metrics": {
+        "tests": 0,
+        "passed": 0,
+        "uses": 0,
+        "successes": 0
+      },
+      "supersedes": null,
+      "source": {
+        "system": "ecc",
+        "slug": "deep-research",
+        "sha256": "08264f81eb6422a1e89ec1f1a7ae125918e2768fbae023b22a20897740349acf",
+        "path": "vendor/ecc/skills/deep-research/SKILL.md",
+        "license": "MIT (affaan-m/ecc)",
+        "escalated_for_executables": false,
+        "not_imported": {
+          "executables": 0,
+          "companions": 0
+        },
+        "warnings": []
+      }
+    },
+    {
+      "id": "SK-36D13697",
+      "slug": "ecc-eval-harness",
+      "name": "eval-harness",
+      "domain": "projects",
+      "version": 1,
+      "status": "CANDIDATE",
+      "risk_tier": "review",
+      "confidence": 0.5,
+      "evidence_ids": [
+        "ECC:eval-harness@107a530f227e"
+      ],
+      "created_at": "2026-09-26T13:05:18",
+      "updated_at": "2026-09-26T13:05:18",
+      "file": "skills/generated/ecc-eval-harness-v1.md",
+      "metrics": {
+        "tests": 0,
+        "passed": 0,
+        "uses": 0,
+        "successes": 0
+      },
+      "supersedes": null,
+      "source": {
+        "system": "ecc",
+        "slug": "eval-harness",
+        "sha256": "107a530f227e25436453707c8d63a4929d727aef0c3f5a6c8b14eec841ecd7c2",
+        "path": "vendor/ecc/skills/eval-harness/SKILL.md",
+        "license": "MIT (affaan-m/ecc)",
+        "escalated_for_executables": false,
+        "not_imported": {
+          "executables": 0,
+          "companions": 0
+        },
+        "warnings": [
+          "يتجاوز سقف التحميل 6000 حرفًا — لن يُحمَّل بالإعداد الحالي"
+        ]
+      }
+    },
+    {
+      "id": "SK-B82B5EB1",
+      "slug": "ecc-iterative-retrieval",
+      "name": "iterative-retrieval",
+      "domain": "projects",
+      "version": 1,
+      "status": "CANDIDATE",
+      "risk_tier": "review",
+      "confidence": 0.5,
+      "evidence_ids": [
+        "ECC:iterative-retrieval@0d055874ba19"
+      ],
+      "created_at": "2026-09-26T13:05:18",
+      "updated_at": "2026-09-26T13:05:18",
+      "file": "skills/generated/ecc-iterative-retrieval-v1.md",
+      "metrics": {
+        "tests": 0,
+        "passed": 0,
+        "uses": 0,
+        "successes": 0
+      },
+      "supersedes": null,
+      "source": {
+        "system": "ecc",
+        "slug": "iterative-retrieval",
+        "sha256": "0d055874ba199bb425beb622f0eddac1e87d5204b736a05004414ff1e86c991d",
+        "path": "vendor/ecc/skills/iterative-retrieval/SKILL.md",
+        "license": "MIT (affaan-m/ecc)",
+        "escalated_for_executables": false,
+        "not_imported": {
+          "executables": 0,
+          "companions": 0
+        },
+        "warnings": [
+          "يتجاوز سقف التحميل 6000 حرفًا — لن يُحمَّل بالإعداد الحالي"
+        ]
+      }
+    },
+    {
+      "id": "SK-A623383A",
+      "slug": "ecc-operator-approval-loop",
+      "name": "operator-approval-loop",
+      "domain": "external_execution",
+      "version": 1,
+      "status": "CANDIDATE",
+      "risk_tier": "locked",
+      "confidence": 0.5,
+      "evidence_ids": [
+        "ECC:operator-approval-loop@aeeff9dc8a4a"
+      ],
+      "created_at": "2026-09-26T13:05:18",
+      "updated_at": "2026-09-26T13:05:18",
+      "file": "skills/generated/ecc-operator-approval-loop-v1.md",
+      "metrics": {
+        "tests": 0,
+        "passed": 0,
+        "uses": 0,
+        "successes": 0
+      },
+      "supersedes": null,
+      "source": {
+        "system": "ecc",
+        "slug": "operator-approval-loop",
+        "sha256": "aeeff9dc8a4a4bb26f19082b8a34ff0ec2edc4ab04c78ee2c73828b09388af51",
+        "path": "vendor/ecc/skills/operator-approval-loop/SKILL.md",
+        "license": "MIT (affaan-m/ecc)",
+        "escalated_for_executables": true,
+        "not_imported": {
+          "executables": 1,
+          "companions": 1
+        },
+        "warnings": [
+          "يتجاوز سقف التحميل 6000 حرفًا — لن يُحمَّل بالإعداد الحالي",
+          "1 ملف تنفيذي لا يُستورَد",
+          "1 مرافق (references/data) لا يُستورَد"
+        ]
+      }
+    },
+    {
+      "id": "SK-14BDA9E7",
+      "slug": "ecc-prompt-optimizer",
+      "name": "prompt-optimizer",
+      "domain": "projects",
+      "version": 1,
+      "status": "CANDIDATE",
+      "risk_tier": "review",
+      "confidence": 0.5,
+      "evidence_ids": [
+        "ECC:prompt-optimizer@e3d44fd6d39c"
+      ],
+      "created_at": "2026-09-26T13:05:18",
+      "updated_at": "2026-09-26T13:05:18",
+      "file": "skills/generated/ecc-prompt-optimizer-v1.md",
+      "metrics": {
+        "tests": 0,
+        "passed": 0,
+        "uses": 0,
+        "successes": 0
+      },
+      "supersedes": null,
+      "source": {
+        "system": "ecc",
+        "slug": "prompt-optimizer",
+        "sha256": "e3d44fd6d39c283eeb870acc46a6406284449bf68b657e9af746ae8a99d24d8b",
+        "path": "vendor/ecc/skills/prompt-optimizer/SKILL.md",
+        "license": "MIT (affaan-m/ecc)",
+        "escalated_for_executables": false,
+        "not_imported": {
+          "executables": 0,
+          "companions": 0
+        },
+        "warnings": [
+          "يتجاوز سقف التحميل 6000 حرفًا — لن يُحمَّل بالإعداد الحالي"
+        ]
+      }
+    },
+    {
+      "id": "SK-84F4B575",
+      "slug": "ecc-unified-memory",
+      "name": "unified-memory",
+      "domain": "projects",
+      "version": 1,
+      "status": "CANDIDATE",
+      "risk_tier": "review",
+      "confidence": 0.5,
+      "evidence_ids": [
+        "ECC:unified-memory@797b6cebaf4b"
+      ],
+      "created_at": "2026-09-26T13:05:18",
+      "updated_at": "2026-09-26T13:05:18",
+      "file": "skills/generated/ecc-unified-memory-v1.md",
+      "metrics": {
+        "tests": 0,
+        "passed": 0,
+        "uses": 0,
+        "successes": 0
+      },
+      "supersedes": null,
+      "source": {
+        "system": "ecc",
+        "slug": "unified-memory",
+        "sha256": "797b6cebaf4b054bf55c8ad86fa07c56cc4f4bd6e313ae0b4e2a6377d7fcc864",
+        "path": "vendor/ecc/skills/unified-memory/SKILL.md",
+        "license": "MIT (affaan-m/ecc)",
+        "escalated_for_executables": false,
+        "not_imported": {
+          "executables": 0,
+          "companions": 0
+        },
+        "warnings": [
+          "يتجاوز سقف التحميل 6000 حرفًا — لن يُحمَّل بالإعداد الحالي"
+        ]
+      }
+    },
+    {
+      "id": "SK-25C15E64",
+      "slug": "ecc-verification-loop",
+      "name": "verification-loop",
+      "domain": "projects",
+      "version": 1,
+      "status": "CANDIDATE",
+      "risk_tier": "review",
+      "confidence": 0.5,
+      "evidence_ids": [
+        "ECC:verification-loop@05770c8c7cd4"
+      ],
+      "created_at": "2026-09-26T13:05:18",
+      "updated_at": "2026-09-26T13:05:18",
+      "file": "skills/generated/ecc-verification-loop-v1.md",
+      "metrics": {
+        "tests": 0,
+        "passed": 0,
+        "uses": 0,
+        "successes": 0
+      },
+      "supersedes": null,
+      "source": {
+        "system": "ecc",
+        "slug": "verification-loop",
+        "sha256": "05770c8c7cd4cf0c7f57c7445c173218a70b8f7d94473ac0306430056d6fc39c",
+        "path": "vendor/ecc/skills/verification-loop/SKILL.md",
+        "license": "MIT (affaan-m/ecc)",
+        "escalated_for_executables": false,
+        "not_imported": {
+          "executables": 0,
+          "companions": 0
+        },
+        "warnings": []
+      }
+    },
+    {
+      "id": "SK-FD8087DE",
+      "slug": "uiux-banner-design",
+      "name": "banner-design",
+      "domain": "projects",
+      "version": 1,
+      "status": "CANDIDATE",
+      "risk_tier": "review",
+      "confidence": 0.5,
+      "evidence_ids": [
+        "UIUX:banner-design@7ea45d2d65f6"
+      ],
+      "created_at": "2026-09-26T13:05:18",
+      "updated_at": "2026-09-26T13:05:18",
+      "file": "skills/generated/uiux-banner-design-v1.md",
+      "metrics": {
+        "tests": 0,
+        "passed": 0,
+        "uses": 0,
+        "successes": 0
+      },
+      "supersedes": null,
+      "source": {
+        "system": "uiux",
+        "slug": "banner-design",
+        "sha256": "7ea45d2d65f640c99e1932e659e025da58de7ebff730c2d950ded9894a56db31",
+        "path": "vendor/ui-ux-pro-max/.claude/skills/banner-design/SKILL.md",
+        "license": "MIT (nextlevelbuilder/ui-ux-pro-max-skill)",
+        "escalated_for_executables": false,
+        "not_imported": {
+          "executables": 0,
+          "companions": 1
+        },
+        "warnings": [
+          "يتجاوز سقف التحميل 6000 حرفًا — لن يُحمَّل بالإعداد الحالي",
+          "1 مرافق (references/data) لا يُستورَد"
+        ]
+      }
+    },
+    {
+      "id": "SK-0A68EED6",
+      "slug": "uiux-brand",
+      "name": "brand",
+      "domain": "external_execution",
+      "version": 1,
+      "status": "CANDIDATE",
+      "risk_tier": "locked",
+      "confidence": 0.5,
+      "evidence_ids": [
+        "UIUX:brand@5db8a6b98f18"
+      ],
+      "created_at": "2026-09-26T13:05:18",
+      "updated_at": "2026-09-26T13:05:18",
+      "file": "skills/generated/uiux-brand-v1.md",
+      "metrics": {
+        "tests": 0,
+        "passed": 0,
+        "uses": 0,
+        "successes": 0
+      },
+      "supersedes": null,
+      "source": {
+        "system": "uiux",
+        "slug": "brand",
+        "sha256": "5db8a6b98f18675400ee3b1554cd2564ff2932a0816eb03e0a161fba0f7dd292",
+        "path": "vendor/ui-ux-pro-max/.claude/skills/brand/SKILL.md",
+        "license": "MIT (nextlevelbuilder/ui-ux-pro-max-skill)",
+        "escalated_for_executables": true,
+        "not_imported": {
+          "executables": 5,
+          "companions": 12
+        },
+        "warnings": [
+          "5 ملف تنفيذي لا يُستورَد",
+          "12 مرافق (references/data) لا يُستورَد"
+        ]
+      }
+    },
+    {
+      "id": "SK-A3E39610",
+      "slug": "uiux-design",
+      "name": "design",
+      "domain": "external_execution",
+      "version": 1,
+      "status": "CANDIDATE",
+      "risk_tier": "locked",
+      "confidence": 0.5,
+      "evidence_ids": [
+        "UIUX:design@54dd96a67afc"
+      ],
+      "created_at": "2026-09-26T13:05:18",
+      "updated_at": "2026-09-26T13:05:18",
+      "file": "skills/generated/uiux-design-v1.md",
+      "metrics": {
+        "tests": 0,
+        "passed": 0,
+        "uses": 0,
+        "successes": 0
+      },
+      "supersedes": null,
+      "source": {
+        "system": "uiux",
+        "slug": "design",
+        "sha256": "54dd96a67afc583d39bedd360755e10255f183adda338a27beee5f0c0c75e7f4",
+        "path": "vendor/ui-ux-pro-max/.claude/skills/design/SKILL.md",
+        "license": "MIT (nextlevelbuilder/ui-ux-pro-max-skill)",
+        "escalated_for_executables": true,
+        "not_imported": {
+          "executables": 9,
+          "companions": 26
+        },
+        "warnings": [
+          "يتجاوز سقف التحميل 6000 حرفًا — لن يُحمَّل بالإعداد الحالي",
+          "9 ملف تنفيذي لا يُستورَد",
+          "26 مرافق (references/data) لا يُستورَد"
+        ]
+      }
+    },
+    {
+      "id": "SK-97DA3346",
+      "slug": "uiux-design-system",
+      "name": "design-system",
+      "domain": "external_execution",
+      "version": 1,
+      "status": "CANDIDATE",
+      "risk_tier": "locked",
+      "confidence": 0.5,
+      "evidence_ids": [
+        "UIUX:design-system@24c33393011d"
+      ],
+      "created_at": "2026-09-26T13:05:18",
+      "updated_at": "2026-09-26T13:05:18",
+      "file": "skills/generated/uiux-design-system-v1.md",
+      "metrics": {
+        "tests": 0,
+        "passed": 0,
+        "uses": 0,
+        "successes": 0
+      },
+      "supersedes": null,
+      "source": {
+        "system": "uiux",
+        "slug": "design-system",
+        "sha256": "24c33393011daf759cad3035e55bd1629eda95dcf82df0ae288f3eb674661cef",
+        "path": "vendor/ui-ux-pro-max/.claude/skills/design-system/SKILL.md",
+        "license": "MIT (nextlevelbuilder/ui-ux-pro-max-skill)",
+        "escalated_for_executables": true,
+        "not_imported": {
+          "executables": 10,
+          "companions": 16
+        },
+        "warnings": [
+          "يتجاوز سقف التحميل 6000 حرفًا — لن يُحمَّل بالإعداد الحالي",
+          "10 ملف تنفيذي لا يُستورَد",
+          "16 مرافق (references/data) لا يُستورَد"
+        ]
+      }
+    },
+    {
+      "id": "SK-C476D384",
+      "slug": "uiux-slides",
+      "name": "slides",
+      "domain": "communications",
+      "version": 1,
+      "status": "CANDIDATE",
+      "risk_tier": "review",
+      "confidence": 0.5,
+      "evidence_ids": [
+        "UIUX:slides@1f0ee8f460f7"
+      ],
+      "created_at": "2026-09-26T13:05:18",
+      "updated_at": "2026-09-26T13:05:18",
+      "file": "skills/generated/uiux-slides-v1.md",
+      "metrics": {
+        "tests": 0,
+        "passed": 0,
+        "uses": 0,
+        "successes": 0
+      },
+      "supersedes": null,
+      "source": {
+        "system": "uiux",
+        "slug": "slides",
+        "sha256": "1f0ee8f460f78499f6bfa22518a1d9a754b668dc66cec2f9ad0a08d12824859a",
+        "path": "vendor/ui-ux-pro-max/.claude/skills/slides/SKILL.md",
+        "license": "MIT (nextlevelbuilder/ui-ux-pro-max-skill)",
+        "escalated_for_executables": false,
+        "not_imported": {
+          "executables": 0,
+          "companions": 5
+        },
+        "warnings": [
+          "5 مرافق (references/data) لا يُستورَد"
+        ]
+      }
+    },
+    {
+      "id": "SK-48FCD6B1",
+      "slug": "uiux-ui-styling",
+      "name": "ui-styling",
+      "domain": "external_execution",
+      "version": 1,
+      "status": "CANDIDATE",
+      "risk_tier": "locked",
+      "confidence": 0.5,
+      "evidence_ids": [
+        "UIUX:ui-styling@d6c785a6c36f"
+      ],
+      "created_at": "2026-09-26T13:05:18",
+      "updated_at": "2026-09-26T13:05:18",
+      "file": "skills/generated/uiux-ui-styling-v1.md",
+      "metrics": {
+        "tests": 0,
+        "passed": 0,
+        "uses": 0,
+        "successes": 0
+      },
+      "supersedes": null,
+      "source": {
+        "system": "uiux",
+        "slug": "ui-styling",
+        "sha256": "d6c785a6c36f892c43f5fbede1d3820ee7b6a27dfcfe1be3a4307d6fc2ea5acb",
+        "path": "vendor/ui-ux-pro-max/.claude/skills/ui-styling/SKILL.md",
+        "license": "MIT (nextlevelbuilder/ui-ux-pro-max-skill)",
+        "escalated_for_executables": true,
+        "not_imported": {
+          "executables": 4,
+          "companions": 93
+        },
+        "warnings": [
+          "يتجاوز سقف التحميل 6000 حرفًا — لن يُحمَّل بالإعداد الحالي",
+          "4 ملف تنفيذي لا يُستورَد",
+          "93 مرافق (references/data) لا يُستورَد"
+        ]
+      }
+    },
+    {
+      "id": "SK-0051C806",
+      "slug": "uiux-ui-ux-pro-max",
+      "name": "ui-ux-pro-max",
+      "domain": "external_execution",
+      "version": 1,
+      "status": "CANDIDATE",
+      "risk_tier": "locked",
+      "confidence": 0.5,
+      "evidence_ids": [
+        "UIUX:ui-ux-pro-max@d82b45fb4a48"
+      ],
+      "created_at": "2026-09-26T13:05:18",
+      "updated_at": "2026-09-26T13:05:18",
+      "file": "skills/generated/uiux-ui-ux-pro-max-v1.md",
+      "metrics": {
+        "tests": 0,
+        "passed": 0,
+        "uses": 0,
+        "successes": 0
+      },
+      "supersedes": null,
+      "source": {
+        "system": "uiux",
+        "slug": "ui-ux-pro-max",
+        "sha256": "d82b45fb4a48588b9f70b5808b13fd3ba691db8e88e3022342d135f909c8f391",
+        "path": "vendor/ui-ux-pro-max/.claude/skills/ui-ux-pro-max/SKILL.md",
+        "license": "MIT (nextlevelbuilder/ui-ux-pro-max-skill)",
+        "escalated_for_executables": true,
+        "not_imported": {
+          "executables": 18,
+          "companions": 54
+        },
+        "warnings": [
+          "يتجاوز سقف التحميل 6000 حرفًا — لن يُحمَّل بالإعداد الحالي",
+          "18 ملف تنفيذي لا يُستورَد",
+          "54 مرافق (references/data) لا يُستورَد"
+        ]
+      }
+    }
+  ]
+}

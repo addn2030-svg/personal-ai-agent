@@ -27,3 +27,5 @@ data/.telegram*
 data/.rollout.json
 data/.last-state-snapshot.json
 data/rag-index.json
+# نسخ خارجية (repos مستنسخة) — لا تُرفع
+vendor/
