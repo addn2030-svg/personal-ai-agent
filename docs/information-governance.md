@@ -57,3 +57,18 @@ NEW → TRIAGED → IN_PROGRESS or WAITING → OVERDUE/BLOCKED when applicable �
 - Google Forms links are link-access forms, not per-patient authenticated secure
   portals. Use an approved authenticated clinical platform when identity-bound
   secure links are required.
+
+## Personal financial data in this repository
+- **Rule:** absolute personal money figures — salary/income, debt balances, fixed
+  obligations, living expenses, monthly deficit, and pipeline/opportunity values —
+  are **never reproduced in repository files** (docs, training material, prompts,
+  commit messages, reports). They live only in the private master sheet.
+- **Allowed in the repo:** ratios and indices (debt load %, financial health index
+  /100), the operational weekly spend cap (2,600 SAR) used as a training rule,
+  generic code thresholds, and pointers to the sheet tab that holds the number.
+- **Out of scope:** organisational/clinical service pricing published in
+  `knowledge/rcjy-rehabilitation-service-packages.md`, which is planning-document
+  information labelled as requiring verification before external quotation.
+- **On write:** when the agent drafts any document from the sheet, it must replace
+  an absolute personal figure with the ratio or with
+  «الرقم في الشيت — تبويب [اسم التبويب]».
