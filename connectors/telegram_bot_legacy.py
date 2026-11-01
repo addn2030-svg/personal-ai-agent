@@ -110,8 +110,34 @@ def api(method: str, payload: dict | None = None, timeout: int = 60):
     return data.get("result")
 
 
+def _plain(text: str) -> str:
+    """تغليف رد البوت: بلا عناوين (#)، بلا هاشتاغ، نص بسيط وواضح ومفيد.
+
+    - عناوين الماركداون (# عنوان) تصبح سطرًا نصيًا عاديًا.
+    - الهاشتاغ المعلّق في بداية السطر يُحذف ويبقى المعنى.
+    - لا نغيّر شيئًا داخل كتل الكود (```).
+    """
+    out_lines: list[str] = []
+    in_code = False
+    for raw in str(text).splitlines():
+        stripped = raw.lstrip()
+        if stripped.startswith("```"):
+            in_code = not in_code
+            out_lines.append(raw.rstrip())
+            continue
+        if not in_code and stripped.startswith("#"):
+            # عنوان ماركداون أو هاشتاغ → نص عادي بلا #
+            clean = stripped.lstrip("#").strip()
+            if clean:
+                indent = raw[: len(raw) - len(stripped)]
+                out_lines.append(f"{indent}{clean}")
+            continue
+        out_lines.append(raw.rstrip())
+    return "\n".join(out_lines).strip()
+
+
 def send(chat_id: int, text: str, reply_markup: dict | None = None):
-    text = str(text)
+    text = _plain(str(text))
     if not text:
         return
     for start in range(0, len(text), 3800):
