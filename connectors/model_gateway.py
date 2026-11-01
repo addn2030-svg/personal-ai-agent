@@ -21,6 +21,10 @@ OMNIROUTE_CRITIC_MODEL = os.environ.get("OMNIROUTE_CRITIC_MODEL", "").strip() or
 OMNIROUTE_IMAGE_MODEL = os.environ.get("OMNIROUTE_IMAGE_MODEL", "").strip()
 OMNIROUTE_VIDEO_MODEL = os.environ.get("OMNIROUTE_VIDEO_MODEL", "").strip()
 OMNIROUTE_TIMEOUT_SECONDS = int(os.environ.get("OMNIROUTE_TIMEOUT_SECONDS", "120"))
+# Reasoning-style models (e.g. Nemotron free) spend the whole max_tokens budget on
+# hidden reasoning and return an empty `content`, which _extract_text rejects.
+# Default: disable reasoning so answers land in `content`. Set OMNIROUTE_REASONING_ENABLED=1 to allow it.
+OMNIROUTE_REASONING_ENABLED = os.environ.get("OMNIROUTE_REASONING_ENABLED", "0").strip().lower() in {"1", "true", "yes"}
 AI_MANAGER_MODEL = OMNIROUTE_MANAGER_MODEL
 AI_CRITIC_MODEL = OMNIROUTE_CRITIC_MODEL
 AI_GOOGLE_MODEL = OMNIROUTE_MODEL
@@ -111,6 +115,9 @@ def openrouter_chat(*, model: str, messages: list[dict], sensitive: bool = False
                "max_tokens": int(max_tokens), "temperature": float(temperature)}
     if response_format:
         payload["response_format"] = response_format
+    if not OMNIROUTE_REASONING_ENABLED and "openrouter" in OMNIROUTE_BASE_URL.lower():
+        # OpenRouter-only parameter: stop reasoning models from hiding the answer.
+        payload["reasoning"] = {"enabled": False}
     request = urllib.request.Request(
         base_url() + "/chat/completions",
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
