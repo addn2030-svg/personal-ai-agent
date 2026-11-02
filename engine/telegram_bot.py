@@ -424,6 +424,9 @@ def handle(msg):
 
     if text.startswith("/brief"):
         api("sendMessage", chat_id=chat, text=brief_text())
+    elif text.startswith("/tasks_stats"):
+        # قبل /tasks حتى لا يبتلعها apply startswith
+        api("sendMessage", chat_id=chat, text=tasks_stats_text())
     elif text.startswith("/tasks"):
         api("sendMessage", chat_id=chat, text=tasks_text())
     elif text.startswith("/decisions"):
@@ -432,45 +435,18 @@ def handle(msg):
     elif text.startswith("/approve"):
         t, kb = approvals_keyboard()
         api("sendMessage", chat_id=chat, text=t, reply_markup=kb)
-    elif text.startswith("/reviews"):
-        api("sendMessage", chat_id=chat, text=reviews_text())
-    elif text.startswith("/door"):
-        api("sendMessage", chat_id=chat, text=door_text())
-    elif text.startswith("/masteros"):
-        api("sendMessage", chat_id=chat, text=masteros_text())
-    elif text.startswith("/schedule"):
-        api("sendMessage", chat_id=chat, text=schedule_text())
-    elif text.startswith("/mindmaps"):
-        api("sendMessage", chat_id=chat, text=maps_text())
-    elif text.startswith("/digests"):
-        api("sendMessage", chat_id=chat, text=digests_text())
-    elif text.startswith("/run"):
-        api("sendMessage", chat_id=chat, text=run_text())
-    elif text.startswith("/today-actions"):
-        api("sendMessage", chat_id=chat, text=today_actions_text())
+    elif text.startswith("/backup_now"):
+        api("sendMessage", chat_id=chat, text=supabase_text())
+    elif text.startswith("/backups"):
+        api("sendMessage", chat_id=chat, text=supabase_text("list"))
     elif text.startswith("/diag"):
         api("sendMessage", chat_id=chat, text=diag_text())
     elif text.startswith("/rollout_kill"):
         api("sendMessage", chat_id=chat, text=rollout_text(kill=True))
     elif text.startswith("/rollout"):
         api("sendMessage", chat_id=chat, text=rollout_text())
-    elif text.startswith("/tasks_stats"):
-        api("sendMessage", chat_id=chat, text=tasks_stats_text())
-    elif text.startswith("/backup_now"):
-        api("sendMessage", chat_id=chat, text=supabase_text())
-    elif text.startswith("/backups"):
-        api("sendMessage", chat_id=chat, text=supabase_text("list"))
     elif text.startswith("/proactive_test"):
         api("sendMessage", chat_id=chat, text=proactive_test_text())
-    elif text.startswith("/proactive"):
-        api("sendMessage", chat_id=chat, text=proactive_text())
-    elif text.startswith("/sweep"):
-        api("sendMessage", chat_id=chat, text=sweep_text())
-    elif text.startswith("/mastery"):
-        import subprocess
-        r = subprocess.run([sys.executable, os.path.join(BASE, "engine", "learning_engine.py"), "mastery"],
-                           capture_output=True, text=True)
-        api("sendMessage", chat_id=chat, text="🗺️ خريطة الإتقان:\n" + (r.stdout or "—")[:3000])
     elif text.startswith("/answer"):
         parts = text.split()
         try:
@@ -483,16 +459,14 @@ def handle(msg):
         except Exception as e:
             api("sendMessage", chat_id=chat, text=f"صيغة: /answer LR-001 85\n{e}")
     elif text.startswith("/help") or text.startswith("/start"):
-        api("sendMessage", chat_id=chat, text=("الأوامر:\n/brief البريف • /tasks المهام • /decisions القرارات بأزرار\n"
-                                               "/approve الاعتمادات بأزرار • /reviews مراجعات اليوم • /answer LR-001 85\n"
-                                               "/door باب اليوم • /mastery خريطة الإتقان • /okr الأهداف\n"
-                                               "🧭 Master OS (v0.9):\n"
-                                               "/masteros ملخص البنية • /schedule الجدول • /mindmaps الخرائط\n"
-                                               "/digests الملخصات الصوتية • /run تنفيذ المستحق الآن • /today-actions إجراءات اليوم\n"
+        api("sendMessage", chat_id=chat, text=("الأوامر:\n"
+                                               "/brief البريف اليومي • /tasks المهام المفتوحة\n"
+                                               "/tasks_stats الإحصاء (متأخرة/اليوم) • /decisions القرارات بأزرار\n"
+                                               "/approve الاعتمادات بأزرار • /answer LR-001 85\n"
                                                "/diag حالة قنوات الربط\n"
-                                               "☁️ النسخ الاحتياطي: /backup_now نسخة الآن • /backups آخر النسخ\n"
-                                               "📋 /tasks_stats إحصاء المهام (متأخرة/اليوم) فورًا من الجوال\n"
-                                               "🚦 /rollout مرحلة التشغيل التدريجي • /rollout_kill إيقاف فوري\n"
+                                               "☁️ /backup_now نسخة الآن • /backups آخر النسخ\n"
+                                               "🚦 /rollout مرحلة التشغيل • /rollout_kill إيقاف فوري\n"
+                                               "🛰️ /proactive_test اختبار قناة التنبيه\n"
                                                "وأي نص ترسله = يُلتقط في صندوق يومك تلقائيًا 📥"))
     elif text and re.match(r"^طاق[هة]?\s*(\d{1,2}).*ارهاق", text.replace("إرهاق", "ارهاق")):
         m = re.match(r"^طاق[هة]?\s*(\d{1,2}).*ارهاق\s*(\d{1,2})", text.replace("إرهاق", "ارهاق"))
