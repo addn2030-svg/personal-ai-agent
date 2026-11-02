@@ -25,6 +25,20 @@ from connectors import telegram_webhook_runtime as runtime
 bot = runtime.bot
 _original_handle_message = bot.handle_message
 
+# ── مهارات الوكيل المدير (قرار 2026-11-02) ─────────────────────────────────
+# 1) حماية الإقلاع: استعادة الحالة تلقائيًا إن كانت مفقودة/تالفة (fail-soft).
+# 2) البريف الصباحي المجدول: أولويتان يوميًا 06:30 بتوقيت الرياض (نص عادي).
+try:
+    from connectors import morning_brief
+    _boot = morning_brief.ensure_boot_state()
+    print(f"boot-safety: {_boot['detail'][:120]}", flush=True)
+    if morning_brief.MORNING_BRIEF_ENABLED:
+        morning_brief.start_scheduler()
+        print("morning-brief: scheduler active (06:30 Riyadh, 2 priorities)", flush=True)
+except Exception as _exc:  # noqa: BLE001 — المهارات لا تمنع الإقلاع أبدًا
+    print(f"manager-skills boot warning: {str(_exc)[:150]}", flush=True)
+# ─────────────────────────────────────────────────────────────────────────
+
 _MEMORY_COMMANDS = {"/memory", "/memory_status", "/update_memory", "/confirm_memory"}
 _NATURAL_UPDATE = re.compile(r"^(?:حدث|حدّث|تحديث)\s+ذاكرة\s+المشروع\s*[:：-]?\s*(.+)$", re.I | re.S)
 
