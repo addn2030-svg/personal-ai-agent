@@ -1,8 +1,11 @@
 # -*- coding: utf-8 -*-
-"""Single OmniRoute gateway for all language-model inference.
+"""Language-model gateway: OmniRoute (default) or direct AWS Bedrock.
 
-OmniRoute is OpenAI-compatible. Provider credentials belong in OmniRoute; this
-application stores only the gateway credential and catalog model IDs.
+OmniRoute is OpenAI-compatible. Set AI_BACKEND=bedrock to call Bedrock directly
+through the Converse API (boto3) with AWS_REGION, BEDROCK_MODEL_ID and either a
+Bedrock API key (AWS_BEARER_TOKEN) or AWS access keys. When Bedrock fails and
+OmniRoute is configured, calls fall back to OmniRoute unless
+BEDROCK_FALLBACK_OMNIROUTE=0.
 """
 from __future__ import annotations
 
@@ -25,13 +28,30 @@ OMNIROUTE_TIMEOUT_SECONDS = int(os.environ.get("OMNIROUTE_TIMEOUT_SECONDS", "120
 # hidden reasoning and return an empty `content`, which _extract_text rejects.
 # Default: disable reasoning so answers land in `content`. Set OMNIROUTE_REASONING_ENABLED=1 to allow it.
 OMNIROUTE_REASONING_ENABLED = os.environ.get("OMNIROUTE_REASONING_ENABLED", "0").strip().lower() in {"1", "true", "yes"}
+# ── Direct AWS Bedrock backend (AI_BACKEND=bedrock) ───────────────────────────
+# Auth: a Bedrock API key in AWS_BEARER_TOKEN_BEDROCK (boto3 reads it natively) or
+# AWS_BEARER_TOKEN (copied into the native name at import), else the usual
+# AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY pair.
+AI_BACKEND = os.environ.get("AI_BACKEND", "omniroute").strip().lower() or "omniroute"
+AWS_REGION = os.environ.get("AWS_REGION", "").strip()
+AWS_BEARER_TOKEN = (os.environ.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
+                    or os.environ.get("AWS_BEARER_TOKEN", "").strip())
+if AWS_BEARER_TOKEN and not os.environ.get("AWS_BEARER_TOKEN_BEDROCK"):
+    os.environ["AWS_BEARER_TOKEN_BEDROCK"] = AWS_BEARER_TOKEN
+AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID", "").strip()
+AWS_SECRET_ACCESS_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY", "").strip()
+BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "").strip() or OMNIROUTE_MODEL
+BEDROCK_MANAGER_MODEL_ID = os.environ.get("BEDROCK_MANAGER_MODEL_ID", "").strip() or BEDROCK_MODEL_ID
+BEDROCK_CRITIC_MODEL_ID = os.environ.get("BEDROCK_CRITIC_MODEL_ID", "").strip() or BEDROCK_MODEL_ID
+BEDROCK_TIMEOUT_SECONDS = int(os.environ.get("BEDROCK_TIMEOUT_SECONDS", str(OMNIROUTE_TIMEOUT_SECONDS)))
+# When Bedrock fails and OmniRoute is configured, fall back to OmniRoute (default on).
+BEDROCK_FALLBACK_OMNIROUTE = os.environ.get("BEDROCK_FALLBACK_OMNIROUTE", "1").strip().lower() in {"1", "true", "yes"}
+
 AI_MANAGER_MODEL = OMNIROUTE_MANAGER_MODEL
 AI_CRITIC_MODEL = OMNIROUTE_CRITIC_MODEL
 AI_GOOGLE_MODEL = OMNIROUTE_MODEL
 GEMINI_MODEL = OMNIROUTE_MODEL
 KIMI_MODEL = OMNIROUTE_MODEL
-BEDROCK_MODEL_ID = OMNIROUTE_MODEL
-AWS_REGION = ""
 GEMINI_API_KEY = ""
 KIMI_API_KEY = ""
 OPENROUTER_API_KEY = ""
@@ -49,8 +69,18 @@ def base_url() -> str:
     return base if base.endswith("/v1") else base + "/v1"
 
 
-def configured() -> bool:
+def omniroute_configured() -> bool:
     return bool(base_url() and OMNIROUTE_API_KEY and OMNIROUTE_MODEL)
+
+
+def bedrock_enabled() -> bool:
+    return AI_BACKEND == "bedrock"
+
+
+def configured() -> bool:
+    if bedrock_enabled():
+        return bedrock_configured() or (BEDROCK_FALLBACK_OMNIROUTE and omniroute_configured())
+    return omniroute_configured()
 
 
 def gemini_configured() -> bool:
@@ -62,16 +92,32 @@ def kimi_configured() -> bool:
 
 
 def bedrock_configured() -> bool:
-    return configured()
+    has_auth = bool(AWS_BEARER_TOKEN or (AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY))
+    return bool(AWS_REGION and BEDROCK_MODEL_ID and has_auth)
 
 
 def desired_provider(sensitive: bool = False) -> str:
-    return "omniroute"
+    return "bedrock" if bedrock_enabled() and bedrock_configured() else "omniroute"
 
 
 def models_for_roles() -> dict[str, str]:
+    if bedrock_enabled():
+        return {"manager": BEDROCK_MANAGER_MODEL_ID, "critic": BEDROCK_CRITIC_MODEL_ID,
+                "google": BEDROCK_MODEL_ID, "omniroute": OMNIROUTE_MODEL, "bedrock": BEDROCK_MODEL_ID}
     return {"manager": OMNIROUTE_MANAGER_MODEL, "critic": OMNIROUTE_CRITIC_MODEL,
             "google": OMNIROUTE_MODEL, "omniroute": OMNIROUTE_MODEL}
+
+
+def bedrock_model_for(model: str | None) -> str:
+    """Map a caller-supplied (possibly OmniRoute catalog) model name to a Bedrock model ID."""
+    value = str(model or "").strip()
+    if value in {BEDROCK_MODEL_ID, BEDROCK_MANAGER_MODEL_ID, BEDROCK_CRITIC_MODEL_ID}:
+        return value
+    if value and value == OMNIROUTE_MANAGER_MODEL and OMNIROUTE_MANAGER_MODEL != OMNIROUTE_MODEL:
+        return BEDROCK_MANAGER_MODEL_ID
+    if value and value == OMNIROUTE_CRITIC_MODEL and OMNIROUTE_CRITIC_MODEL != OMNIROUTE_MODEL:
+        return BEDROCK_CRITIC_MODEL_ID
+    return BEDROCK_MODEL_ID
 
 
 def last_route() -> dict:
@@ -79,12 +125,12 @@ def last_route() -> dict:
 
 
 def _set_route(provider: str, model: str, fallback: bool = False):
-    _ROUTE.value = {"provider": "omniroute", "model": model, "fallback": bool(fallback)}
+    _ROUTE.value = {"provider": provider or "omniroute", "model": model, "fallback": bool(fallback)}
 
 
 def _safe_error(exc: Exception) -> str:
     value = str(exc)
-    for secret in (OMNIROUTE_API_KEY,):
+    for secret in (OMNIROUTE_API_KEY, AWS_BEARER_TOKEN, AWS_SECRET_ACCESS_KEY):
         if secret:
             value = value.replace(secret, "[REDACTED]")
     return value[:240]
@@ -105,11 +151,106 @@ def _extract_text(result: dict) -> str:
     return answer
 
 
+_BEDROCK_CLIENT = None
+_BEDROCK_LOCK = threading.Lock()
+
+
+def _bedrock_client():
+    global _BEDROCK_CLIENT
+    with _BEDROCK_LOCK:
+        if _BEDROCK_CLIENT is None:
+            import boto3
+            from botocore.config import Config
+            _BEDROCK_CLIENT = boto3.client(
+                "bedrock-runtime", region_name=AWS_REGION,
+                config=Config(read_timeout=BEDROCK_TIMEOUT_SECONDS, connect_timeout=15,
+                              retries={"max_attempts": 2, "mode": "standard"}))
+        return _BEDROCK_CLIENT
+
+
+def _bedrock_payload(messages: list[dict], response_format: dict | None) -> tuple[list[dict], list[dict]]:
+    """Split OpenAI-style messages into Bedrock Converse `system` and `messages` blocks.
+
+    Bedrock requires alternating user/assistant turns starting with user; consecutive
+    same-role turns are merged and a leading assistant turn gets a user placeholder.
+    """
+    system_parts: list[str] = []
+    turns: list[dict] = []
+    for row in messages:
+        role = str(row.get("role", "user"))
+        content = row.get("content")
+        if isinstance(content, list):
+            text = "\n".join(str(p.get("text", "")) for p in content if isinstance(p, dict) and p.get("text"))
+        else:
+            text = str(content or "")
+        if role == "system":
+            if text.strip():
+                system_parts.append(text)
+            continue
+        role = "assistant" if role == "assistant" else "user"
+        if not text.strip():
+            text = "(empty)"
+        if turns and turns[-1]["role"] == role:
+            turns[-1]["content"][0]["text"] += "\n\n" + text
+        else:
+            turns.append({"role": role, "content": [{"text": text}]})
+    if not turns or turns[0]["role"] != "user":
+        turns.insert(0, {"role": "user", "content": [{"text": "(conversation start)"}]})
+    if response_format and str(response_format.get("type", "")).startswith("json"):
+        system_parts.append("Respond with valid JSON only. No prose, no code fences.")
+    system = [{"text": "\n\n".join(system_parts)}] if system_parts else []
+    return system, turns
+
+
+def bedrock_chat(*, model: str, messages: list[dict], max_tokens: int = 1200,
+                 temperature: float = 0.2, response_format: dict | None = None) -> tuple[str, dict, int]:
+    """Direct AWS Bedrock call through the Converse API (same return shape as openrouter_chat)."""
+    if not bedrock_configured():
+        raise RuntimeError("AWS_REGION, BEDROCK_MODEL_ID and AWS_BEARER_TOKEN (or AWS access keys) are required")
+    model_id = bedrock_model_for(model)
+    system, turns = _bedrock_payload(messages, response_format)
+    kwargs = {"modelId": model_id, "messages": turns,
+              "inferenceConfig": {"maxTokens": int(max_tokens), "temperature": float(temperature)}}
+    if system:
+        kwargs["system"] = system
+    started = time.monotonic()
+    try:
+        result = _bedrock_client().converse(**kwargs)
+    except Exception as exc:  # botocore ClientError and friends
+        raise RuntimeError(f"Bedrock error: {_safe_error(exc)}") from exc
+    blocks = ((result.get("output") or {}).get("message") or {}).get("content") or []
+    answer = "\n".join(str(b.get("text", "")) for b in blocks if isinstance(b, dict) and b.get("text")).strip()
+    if not answer:
+        raise RuntimeError("Bedrock returned an empty response")
+    usage_raw = result.get("usage") or {}
+    usage = {"inputTokens": usage_raw.get("inputTokens", ""), "outputTokens": usage_raw.get("outputTokens", "")}
+    _set_route("bedrock", model_id)
+    return answer, usage, int((time.monotonic() - started) * 1000)
+
+
 def openrouter_chat(*, model: str, messages: list[dict], sensitive: bool = False,
                     max_tokens: int = 1200, temperature: float = 0.2,
                     response_format: dict | None = None) -> tuple[str, dict, int]:
-    """Compatibility name; sends every chat request to the configured OmniRoute."""
-    if not configured():
+    """Compatibility name; routes to Bedrock when AI_BACKEND=bedrock, else OmniRoute."""
+    if bedrock_enabled() and bedrock_configured():
+        try:
+            return bedrock_chat(model=model, messages=messages, max_tokens=max_tokens,
+                                temperature=temperature, response_format=response_format)
+        except Exception as exc:
+            if not (BEDROCK_FALLBACK_OMNIROUTE and omniroute_configured()):
+                raise
+            print(f"Bedrock failed, falling back to OmniRoute: {_safe_error(exc)}", flush=True)
+            answer, usage, latency = _omniroute_chat(model=OMNIROUTE_MODEL, messages=messages,
+                max_tokens=max_tokens, temperature=temperature, response_format=response_format)
+            _set_route("omniroute", last_route().get("model", OMNIROUTE_MODEL), fallback=True)
+            return answer, usage, latency
+    return _omniroute_chat(model=model, messages=messages, max_tokens=max_tokens,
+                           temperature=temperature, response_format=response_format)
+
+
+def _omniroute_chat(*, model: str, messages: list[dict], max_tokens: int = 1200,
+                    temperature: float = 0.2, response_format: dict | None = None) -> tuple[str, dict, int]:
+    if not omniroute_configured():
         raise RuntimeError("OMNIROUTE_BASE_URL, OMNIROUTE_API_KEY, and OMNIROUTE_MODEL are required")
     payload = {"model": str(model or OMNIROUTE_MODEL), "messages": messages,
                "max_tokens": int(max_tokens), "temperature": float(temperature)}
@@ -141,14 +282,20 @@ def openrouter_chat(*, model: str, messages: list[dict], sensitive: bool = False
     return answer, usage, int((time.monotonic() - started) * 1000)
 
 
-def _probe(model: str) -> dict:
-    if not configured():
-        return {"configured": False, "ok": False,
-                "detail": "Set OMNIROUTE_BASE_URL, OMNIROUTE_API_KEY, and OMNIROUTE_MODEL"}
+def _probe(model: str, backend: str = "omniroute") -> dict:
+    ping = [{"role": "user", "content": "Reply with exactly: OK"}]
+    if backend == "bedrock":
+        if not bedrock_configured():
+            return {"configured": False, "ok": False,
+                    "detail": "Set AWS_REGION, BEDROCK_MODEL_ID and AWS_BEARER_TOKEN (or AWS access keys)"}
+        call = lambda: bedrock_chat(model=model, messages=ping, max_tokens=16, temperature=0)  # noqa: E731
+    else:
+        if not omniroute_configured():
+            return {"configured": False, "ok": False,
+                    "detail": "Set OMNIROUTE_BASE_URL, OMNIROUTE_API_KEY, and OMNIROUTE_MODEL"}
+        call = lambda: _omniroute_chat(model=model, messages=ping, max_tokens=16, temperature=0)  # noqa: E731
     try:
-        answer, usage, latency_ms = openrouter_chat(
-            model=model, messages=[{"role": "user", "content": "Reply with exactly: OK"}],
-            max_tokens=16, temperature=0)
+        answer, usage, latency_ms = call()
         return {"configured": True, "ok": bool(answer), "model": last_route().get("model"),
                 "latency_ms": latency_ms, "usage": usage}
     except Exception as exc:
@@ -172,12 +319,16 @@ def probe_kimi() -> dict:
 
 
 def probe_bedrock() -> dict:
-    return probe_omniroute()
+    return _probe(BEDROCK_MODEL_ID, backend="bedrock")
 
 
 def live_probe() -> dict:
-    return {"omniroute": probe_omniroute(),
-            "policy": {"general_primary": "omniroute", "clinical_primary": "omniroute"}}
+    primary = desired_provider()
+    out = {"omniroute": probe_omniroute(),
+           "policy": {"general_primary": primary, "clinical_primary": primary}}
+    if bedrock_enabled():
+        out["bedrock"] = probe_bedrock()
+    return out
 
 
 def mark_gemini_quota(exc: Exception | None = None) -> None:
@@ -223,10 +374,15 @@ def ask(chat_id: int, text: str, *, system_prompt: str, sheet_context: str = "",
 
 
 def status() -> dict:
-    return {"omniroute_configured": configured(), "omniroute_base_url": base_url(),
+    provider = desired_provider()
+    return {"omniroute_configured": omniroute_configured(), "omniroute_base_url": base_url(),
             "omniroute_model": OMNIROUTE_MODEL, "omniroute_manager_model": OMNIROUTE_MANAGER_MODEL,
             "omniroute_critic_model": OMNIROUTE_CRITIC_MODEL, "gemini_configured": configured(),
             "gemini_model": OMNIROUTE_MODEL, "kimi_configured": False, "kimi_model": "",
-            "openrouter_configured": False, "bedrock_configured": False,
-            "desired_general_provider": "omniroute", "desired_clinical_provider": "omniroute",
+            "openrouter_configured": False,
+            "ai_backend": AI_BACKEND, "bedrock_configured": bedrock_configured(),
+            "bedrock_region": AWS_REGION, "bedrock_model": BEDROCK_MODEL_ID,
+            "bedrock_auth": "bearer" if AWS_BEARER_TOKEN else ("access_keys" if AWS_ACCESS_KEY_ID else ""),
+            "bedrock_fallback_omniroute": BEDROCK_FALLBACK_OMNIROUTE,
+            "desired_general_provider": provider, "desired_clinical_provider": provider,
             "models": models_for_roles(), "general_policy": {}, "clinical_policy": {}}
