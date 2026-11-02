@@ -134,9 +134,10 @@ def api(method: str, payload: dict | None = None, timeout: int = 60):
 
 
 def _plain(text: str) -> str:
-    """تغليف رد البوت: بلا عناوين (#)، بلا هاشتاغ، نص بسيط وواضح ومفيد.
+    """تغليف رد البوت: بلا عناوين (#)، بلا نجوم (**/*)، بلا هاشتاغ، نص بسيط وواضح.
 
     - عناوين الماركداون (# عنوان) تصبح سطرًا نصيًا عاديًا.
+    - النجوم (_*_) للتخمين تُحذف ويبقى النص: **مهم** → مهم.
     - الهاشتاغ المعلّق في بداية السطر يُحذف ويبقى المعنى.
     - لا نغيّر شيئًا داخل كتل الكود (```).
     """
@@ -148,14 +149,22 @@ def _plain(text: str) -> str:
             in_code = not in_code
             out_lines.append(raw.rstrip())
             continue
-        if not in_code and stripped.startswith("#"):
-            # عنوان ماركداون أو هاشتاغ → نص عادي بلا #
-            clean = stripped.lstrip("#").strip()
-            if clean:
-                indent = raw[: len(raw) - len(stripped)]
-                out_lines.append(f"{indent}{clean}")
-            continue
-        out_lines.append(raw.rstrip())
+        line = raw
+        if not in_code:
+            if stripped.startswith("#"):
+                # عنوان ماركداون أو هاشتاغ → نص عادي بلا #
+                clean = stripped.lstrip("#").strip()
+                if clean:
+                    indent = raw[: len(raw) - len(stripped)]
+                    line = f"{indent}{clean}"
+                else:
+                    continue
+            # إزالة علامات التخمين: **نص** / __نص__ → نص ، *نص* / _نص_ → نص
+            line = re.sub(r"\*\*(.+?)\*\*", r"\1", line)
+            line = re.sub(r"__(.+?)__", r"\1", line)
+            line = re.sub(r"(?<!\w)\*([^*\n]+?)\*(?!\w)", r"\1", line)
+            line = re.sub(r"(?<!\w)_([^_\n]+?)_(?!\w)", r"\1", line)
+        out_lines.append(line.rstrip())
     return "\n".join(out_lines).strip()
 
 
