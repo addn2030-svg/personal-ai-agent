@@ -1444,6 +1444,20 @@ def run():
                 if update.get("message"):
                     try:
                         handle_message(update["message"])
+                    except RuntimeError as exc:
+                        if "تعارض كتابة" in str(exc):
+                            # تعارض نسخ متزامن (read-modify-write legacy): أعد القراءة وحاول مرة واحدة
+                            time.sleep(0.5)
+                            try:
+                                handle_message(update["message"])
+                            except Exception as exc2:
+                                chat_id = (update["message"].get("chat") or {}).get("id")
+                                if chat_id is not None:
+                                    send(chat_id, f"❌ تعذر تنفيذ الطلب: {str(exc2)[:220]}")
+                        else:
+                            chat_id = (update["message"].get("chat") or {}).get("id")
+                            if chat_id is not None:
+                                send(chat_id, f"❌ تعذر تنفيذ الطلب: {str(exc)[:220]}")
                     except Exception as exc:
                         chat_id = (update["message"].get("chat") or {}).get("id")
                         if chat_id is not None:
