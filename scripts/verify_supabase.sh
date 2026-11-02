@@ -15,6 +15,15 @@ export AI_OS_DATA_DIR="$(mktemp -d)"
 export PYTHONPATH="engine:connectors:${PYTHONPATH:-}"
 trap 'rm -rf "$AI_OS_DATA_DIR"' EXIT
 
+# عزل الإعداد الحقيقي: هذا التحقق لا يتصل بأي مشروع Supabase ولا يحتاج أي مفتاح.
+# وجود `.env` محلي بمفاتيح حقيقية كان يجعل قسم BOT يحاول دفعًا فعليًا ثم يفشل
+# (بلا state.json) — والنتيجة «❌» كاذبة عن كود سليم. الحل: وجّه محمّل `.env`
+# إلى ملف فارغ، وأزل أي متغيرات Supabase موروثة من الصدفة.
+export AI_OS_ENV_FILE="$(mktemp)"
+unset SUPABASE_URL SUPABASE_ANON_KEY SUPABASE_PUBLISHABLE_KEY SUPABASE_KEY \
+      SUPABASE_SERVICE_ROLE_KEY SUPABASE_SECRET_KEY SUPABASE_SERVICE_KEY \
+      SUPABASE_WRITE_ENABLED SUPABASE_SCHEMA SUPABASE_STATE_TABLE SUPABASE_TASKS_TABLE
+
 run_tests() {  # run_tests <module> <label>
   local out status count
   out=$(python3 -m unittest "$1" 2>&1)

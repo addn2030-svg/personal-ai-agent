@@ -1,0 +1,18 @@
+# Supabase CLI — ربط المشروع (linked project)
+#
+#   supabase link --project-ref oxslkjmjavxxkdpmjkal
+#
+# `project_id` هو نفسه project-ref، وهو **معرّف عام** لا سر: يظهر في رابط المشروع
+# وفي المتغير SUPABASE_URL. المفاتيح السرية لا تدخل هذا الملف أبدًا — مكانها
+# `.env` محليًا أو Railway → Variables.
+#
+# ملاحظة: هذا الملف مكتوب يدويًا (نسخة مختصرة من ناتج `supabase init`). لو أردت
+# تشغيل Supabase محليًا بالكامل (`supabase start` للاختبار بلا شبكة) شغّل
+# `supabase init` في مجلد مؤقت وانسخ الأقسام [api]/[db]/[studio]/[auth] هنا،
+# أو احذف هذا الملف وشغّل `supabase init` ثم `supabase link --project-ref …`.
+#
+# ملفات SQL في هذا المجلد (01/02/03) ليست migrations رسمية للـCLI — تُلصق في
+# SQL Editor كما في docs/supabase-setup.md، أو:
+#   python3 -m connectors.supabase_client --sql all
+
+project_id = "oxslkjmjavxxkdpmjkal"

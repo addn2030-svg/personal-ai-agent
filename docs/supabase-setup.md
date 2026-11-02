@@ -30,7 +30,68 @@
 
 ---
 
-## 1️⃣ الحصول على القيم — الواجهة الحالية
+## 🗂️ المشروع الحالي — `personal-ai-agent-hermes`
+
+هذا هو المشروع المرتبط بهذا المستودع (بديل أي مشروع سابق):
+
+| البند | القيمة |
+|---|---|
+| الاسم | `personal-ai-agent-hermes` |
+| project-ref | `oxslkjmjavxxkdpmjkal` |
+| Project URL | `https://oxslkjmjavxxkdpmjkal.supabase.co` |
+| اللوحة | `https://supabase.com/dashboard/project/oxslkjmjavxxkdpmjkal` |
+| المفتاح العام | `sb_publishable_…` → `SUPABASE_PUBLISHABLE_KEY` (أو `SUPABASE_ANON_KEY`) |
+| المفتاح السري | `sb_secret_…` → `SUPABASE_SECRET_KEY` (أو `SUPABASE_SERVICE_ROLE_KEY`) |
+
+القيم الحقيقية تعيش في **`.env` محليًا** (مستثنى في `.gitignore`) و**Railway → Variables**
+في الإنتاج. المستودع يحمل معرّف المشروع فقط (`supabase/config.toml`) لأنه معرّف عام
+يظهر أصلًا في رابط المشروع — ولا يحمل أي مفتاح.
+
+### ربط الـCLI
+
+```bash
+supabase login
+supabase init                                   # مرة واحدة (config.toml موجود مسبقًا هنا)
+supabase link --project-ref oxslkjmjavxxkdpmjkal
+```
+
+### الاتصال المباشر بقاعدة البيانات (psql)
+
+```
+postgresql://postgres:<PASSWORD>@db.oxslkjmjavxxkdpmjkal.supabase.co:5432/postgres
+```
+
+⚠️ كلمة المرور تحتاج **ترميز URL** قبل وضعها في الرابط: الرمز `#` يصير `%23`
+(و`@` → `%40`، و`:` → `%3A`). البديل الأسلم الذي لا يحتاج ترميزًا:
+
+```bash
+PGPASSWORD='<PASSWORD>' psql \
+  "host=db.oxslkjmjavxxkdpmjkal.supabase.co port=5432 dbname=postgres user=postgres sslmode=require" \
+  -c 'select 1'
+```
+
+كلمة مرور قاعدة البيانات **ليست** بديلًا عن مفاتيح الـAPI: الموصل يعمل عبر REST
+بالمفتاح السري، والـpsql للتصحيح اليدوي فقط. ولا تُحفظ كلمة المرور في أي ملف داخل Git.
+
+### الجداول — الترتيب المطلوب
+
+| # | الملف | الأثر |
+|---|---|---|
+| 01 | `supabase/01_state_snapshots.sql` | `state_snapshots` — النسخ الكاملة، RLS بلا سياسات |
+| 02 | `supabase/02_tasks_mirror.sql` | `tasks_mirror` — مرآة المهام + فهارس + عرض قراءة |
+| 03 | `supabase/03_operational_mirrors.sql` | مرايا المشاريع/الصندوق/القرارات (بلا أي أرقام مالية) |
+
+```bash
+python3 -m connectors.supabase_client --sql all   # يُطبع الثلاثة بالترتيب → الصقه في SQL Editor
+python3 -m connectors.supabase_client --check     # فحص الإعداد (بلا شبكة)
+python3 -m connectors.supabase_client --live      # فحص حي: هل الجداول موجودة؟
+```
+
+الدفعة اليومية تبقى **مغلقة** (`SUPABASE_BACKUP_SCHEDULE_ENABLED=0`) حتى تتقدّم مرحلة
+التشغيل التدريجي إلى `dual` — التفاصيل في `docs/supabase-rollout.md`.
+
+---
+
 
 > ملاحظة: الخطوات القديمة تقول **Settings → API**. هذه الصفحة لم تعد موجودة بهذا الاسم؛
 > صارت **Settings → API Keys**، وأصبح زر **Connect** يظهر الرابط والمفتاح مباشرةً.

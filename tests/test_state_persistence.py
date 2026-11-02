@@ -9,6 +9,7 @@ from unittest import mock
 
 from connectors import state_persistence, supabase_state
 from connectors.supabase_client import SupabaseError
+from engine import env_file
 
 
 def sample_state(version=1, tasks=None):
@@ -26,6 +27,12 @@ class PersistenceTestCase(unittest.TestCase):
         patcher = mock.patch.dict(os.environ, {"AI_OS_DATA_DIR": self.tmp.name}, clear=True)
         patcher.start()
         self.addCleanup(patcher.stop)
+        # عزل `.env`: الاختبارات تفترض بيئة فارغة (`clear=True`) بينما `load_config()`
+        # يستدعي `load_env()` ويعود للمسار الافتراضي عند غياب `AI_OS_ENV_FILE` — فيقرأ
+        # مفاتيح المطوّر الحقيقية ويقلب «غير مضبوط» إلى «مضبوط». الوجهة هنا ملف فارغ.
+        env_patcher = mock.patch.object(env_file, "DEFAULT_ENV_PATH", os.devnull)
+        env_patcher.start()
+        self.addCleanup(env_patcher.stop)
 
     def write_state(self, state):
         with open(os.path.join(self.tmp.name, "state.json"), "w", encoding="utf-8") as handle:
