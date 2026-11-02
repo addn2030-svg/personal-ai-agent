@@ -360,6 +360,21 @@ def _save_intake(iid, message, text, kind, attachment, status, response_id="", e
             return False
 
     safe_text = _redact(text)
+    # مرآة Supabase (وفق قرار الانتقال 2026-11-02) — كتابة مزدوجة بلا تعطيل
+    try:
+        from connectors import supabase_ops
+        if supabase_ops.enabled():
+            supabase_ops.save_intake_row(
+                intake_id=iid, occurred_at=_now(), source="TELEGRAM",
+                chat_user_id=str((message.get("chat") or {}).get("id", "")),
+                input_type=kind, raw_message=safe_text, language=_language(text),
+                classification=category, privacy="NORMAL", status=status,
+                response_id=response_id,
+                processed_at=_now() if status in {"COMPLETED", "ERROR"} else "",
+                error=str(error)[:500],
+            )
+    except Exception as exc:  # noqa: BLE001 — المرآة لا تعطّل المسار الأساسي
+        print(f"Supabase intake mirror error: {str(exc)[:150]}", flush=True)
     row = [
         iid, _now(), "TELEGRAM", str((message.get("chat") or {}).get("id", "")),
         kind, safe_text, _language(text), category, "NORMAL", status,
@@ -407,6 +422,24 @@ def _save_conversation(cid, iid, question, answer, usage, latency_ms, status, er
         usage.get("inputTokens", ""), usage.get("outputTokens", ""),
         latency_ms, status, "NOT_REQUIRED", str(error)[:500],
     ]
+    # مرآة Supabase (قرار الانتقال 2026-11-02) — كتابة مزدوجة بلا تعطيل
+    try:
+        from connectors import supabase_ops
+        if supabase_ops.enabled():
+            from connectors import model_gateway
+            route = model_gateway.last_route()
+            supabase_ops.save_conversation_row(
+                conversation_id=cid, intake_id=iid, occurred_at=_now(),
+                provider=route.get("provider", "AWS_BEDROCK"),
+                model_id=route.get("model", BEDROCK_MODEL_ID),
+                question=safe_question, answer=safe_answer,
+                input_tokens=usage.get("inputTokens", ""),
+                output_tokens=usage.get("outputTokens", ""),
+                duration_ms=latency_ms, status=status,
+                human_approval="NOT_REQUIRED", error=str(error)[:500],
+            )
+    except Exception as exc:  # noqa: BLE001 — المرآة لا تعطّل المسار الأساسي
+        print(f"Supabase conversation mirror error: {str(exc)[:150]}", flush=True)
     try:
         _append(CONVERSATION_TAB, row)
         return True
