@@ -78,7 +78,9 @@ def check(base: str, head: str) -> list[str]:
         problems.append(f"حجم كبير: {stat['added']} سطر مضاف (حد {MAX_ADDED_LINES}) — قسّم الـ PR.")
     total = stat["added"] + stat["deleted"]
     if total and stat["deleted"] / total > MAX_DELETE_RATIO:
-        problems.append(f"نسبة حذف عالية: {stat['deleted']}/{total} — تأكد أن الحذف مقصود.")
+        # قاعدة نسبة الحذف للـ PRs الكبيرة؛ الإصلاحات الصغيرة (سطران) تمر بلا تعطيل
+        if stat["added"] + stat["deleted"] > 20:
+            problems.append(f"نسبة حذف عالية: {stat['deleted']}/{total} — تأكد أن الحذف مقصود.")
     for p in stat["touched"]:
         if p.strip() in PROTECTED_FILES:
             problems.append(f"ملف محمي مُعدّل: {p} — يحتاج مراجعة صريحة.")
