@@ -4,41 +4,22 @@ on:
   pull_request:
   workflow_dispatch:
 jobs:
-  secret-guard:
+  gates:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with: {fetch-depth: 0}
       - uses: actions/setup-python@v5
         with: {python-version: "3.12"}
-      - name: حرس الأسرار — فحص التغييرات في هذا الـ push/PR
+      - name: بوابة الأسرار
+        run: python scripts/secret_guard.py
+      - name: بوابة جودة PR (حجم/حذف/ملفات محمية)
         run: |
           BASE="${{ github.event.pull_request.base.sha || 'HEAD~1' }}"
-          git diff --no-color -U0 "$BASE" HEAD > /tmp/push.diff || git diff --no-color -U0 HEAD~1 HEAD > /tmp/push.diff
-          python scripts/secret_guard.py --scan-history || true
-          # الفحص الحاسم: آخر diff
-          git diff --no-color -U0 "$BASE" HEAD > /dev/null 2>&1 || true
-          python - <<'PY'
-          import subprocess, sys
-          diff = subprocess.run(["git","diff","--no-color","-U0","HEAD~1","HEAD"],capture_output=True,text=True).stdout
-          sys.path.insert(0,"scripts")
-          from secret_guard import _check_content
-          findings=[]
-          file=""; line=0
-          for l in diff.splitlines():
-              if l.startswith("+++ b/"): file=l[6:]
-              elif l.startswith("@@"):
-                  import re; m=re.search(r"\+(\d+)",l); line=int(m.group(1)) if m else 0
-              elif l.startswith("+") and not l.startswith("+++"):
-                  findings += _check_content(l[1:], f"{file}:{line}"); line+=1
-          if findings:
-              print("secret-guard: أسرار في هذا الـ push — ممنوع الدمج"); [print(" ",w,"|",n,"|",h) for w,n,h in findings[:30]]
-              sys.exit(1)
-          print("secret-guard: OK")
-          PY
+          python scripts/pr_check.py --base "$BASE" --head HEAD
   smoke:
     runs-on: ubuntu-latest
-    needs: secret-guard
+    needs: gates
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
