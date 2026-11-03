@@ -29,13 +29,13 @@ from secret_guard import PATTERNS, PLACEHOLDER  # noqa: E402
 BASE_DIR = Path(__file__).resolve().parents[1]
 
 # ملفات لا يجوز تعديلها في PR عادي (تستدعي مراجعة صريحة)
+# ملاحظة: ci.yml نفسها مسموحة (وإلا فكيف نطور البوابات؟) — البوابات الأخرى تحرسها.
 PROTECTED_FILES = {
     ".env", ".env.local", ".env.production",
     "connectors/clinical_sheet.py",       # مسار السريري المحمي
     "supabase/01_state_snapshots.sql",    # migrations قديمة — لا تعديل رجعي
     "supabase/02_tasks_mirror.sql",
     "supabase/03_operational_mirrors.sql",
-    ".github/workflows/ci.yml",
     "Dockerfile",
 }
 
