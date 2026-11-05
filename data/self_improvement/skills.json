@@ -656,6 +656,121 @@
           "54 مرافق (references/data) لا يُستورَد"
         ]
       }
+    },
+    {
+      "id": "SK-40330C7B",
+      "slug": "clinical-red-flags",
+      "name": "clinical-red-flags",
+      "domain": "clinical",
+      "version": 1,
+      "status": "CANDIDATE",
+      "risk_tier": "locked",
+      "confidence": 0.6,
+      "evidence_ids": [
+        "EXP-SESSION-2026-11-CLINICAL-ROUTING"
+      ],
+      "created_at": "2026-11-05T20:42:57",
+      "updated_at": "2026-11-05T20:42:57",
+      "file": "skills/generated/clinical-red-flags-v1.md",
+      "metrics": {
+        "tests": 0,
+        "passed": 0,
+        "uses": 0,
+        "successes": 0
+      },
+      "supersedes": null
+    },
+    {
+      "id": "SK-7A2854AC",
+      "slug": "patient-education-arabic",
+      "name": "patient-education-arabic",
+      "domain": "clinical",
+      "version": 1,
+      "status": "CANDIDATE",
+      "risk_tier": "locked",
+      "confidence": 0.6,
+      "evidence_ids": [
+        "EXP-SESSION-2026-11-CLINICAL-ROUTING"
+      ],
+      "created_at": "2026-11-05T20:42:57",
+      "updated_at": "2026-11-05T20:42:57",
+      "file": "skills/generated/patient-education-arabic-v1.md",
+      "metrics": {
+        "tests": 0,
+        "passed": 0,
+        "uses": 0,
+        "successes": 0
+      },
+      "supersedes": null
+    },
+    {
+      "id": "SK-F1E486EB",
+      "slug": "hep-builder",
+      "name": "hep-builder",
+      "domain": "clinical",
+      "version": 1,
+      "status": "CANDIDATE",
+      "risk_tier": "locked",
+      "confidence": 0.6,
+      "evidence_ids": [
+        "EXP-SESSION-2026-11-CLINICAL-ROUTING"
+      ],
+      "created_at": "2026-11-05T20:42:57",
+      "updated_at": "2026-11-05T20:42:57",
+      "file": "skills/generated/hep-builder-v1.md",
+      "metrics": {
+        "tests": 0,
+        "passed": 0,
+        "uses": 0,
+        "successes": 0
+      },
+      "supersedes": null
+    },
+    {
+      "id": "SK-EE3855D8",
+      "slug": "outcome-measures-rehab",
+      "name": "outcome-measures-rehab",
+      "domain": "clinical",
+      "version": 1,
+      "status": "CANDIDATE",
+      "risk_tier": "locked",
+      "confidence": 0.6,
+      "evidence_ids": [
+        "EXP-SESSION-2026-11-CLINICAL-ROUTING"
+      ],
+      "created_at": "2026-11-05T20:42:57",
+      "updated_at": "2026-11-05T20:42:57",
+      "file": "skills/generated/outcome-measures-rehab-v1.md",
+      "metrics": {
+        "tests": 0,
+        "passed": 0,
+        "uses": 0,
+        "successes": 0
+      },
+      "supersedes": null
+    },
+    {
+      "id": "SK-2DFDE308",
+      "slug": "clinical-note-drafting",
+      "name": "clinical-note-drafting",
+      "domain": "clinical",
+      "version": 1,
+      "status": "CANDIDATE",
+      "risk_tier": "locked",
+      "confidence": 0.6,
+      "evidence_ids": [
+        "EXP-SESSION-2026-11-CLINICAL-ROUTING"
+      ],
+      "created_at": "2026-11-05T20:42:57",
+      "updated_at": "2026-11-05T20:42:57",
+      "file": "skills/generated/clinical-note-drafting-v1.md",
+      "metrics": {
+        "tests": 0,
+        "passed": 0,
+        "uses": 0,
+        "successes": 0
+      },
+      "supersedes": null
     }
   ]
 }
