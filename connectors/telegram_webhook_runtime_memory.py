@@ -32,9 +32,10 @@ try:
     from connectors import morning_brief
     _boot = morning_brief.ensure_boot_state()
     print(f"boot-safety: {_boot['detail'][:120]}", flush=True)
-    if morning_brief.MORNING_BRIEF_ENABLED:
+    if morning_brief.MORNING_BRIEF_ENABLED or morning_brief.EVENING_BRIEF_ENABLED:
         morning_brief.start_scheduler()
-        print("morning-brief: scheduler active (06:30 Riyadh, 2 priorities)", flush=True)
+        print(f"daily-briefs: scheduler active (morning {morning_brief.MORNING_BRIEF_HOUR}:{morning_brief.MORNING_BRIEF_MINUTE:02d}"
+              f" + evening {morning_brief.EVENING_BRIEF_HOUR}:{morning_brief.EVENING_BRIEF_MINUTE:02d} Riyadh)", flush=True)
 except Exception as _exc:  # noqa: BLE001 — المهارات لا تمنع الإقلاع أبدًا
     print(f"manager-skills boot warning: {str(_exc)[:150]}", flush=True)
 # ─────────────────────────────────────────────────────────────────────────
