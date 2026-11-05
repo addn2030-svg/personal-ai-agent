@@ -26,8 +26,9 @@ class RouterResponse:
     def __repr__(self): return f"RouterResponse(provider={self.provider}, model={self.model}, len={len(self.text)})"
 
 def _set_route(provider: str, model: str, fallback: bool = False):
-    _ROUTE.value = {"provider": "omniroute", "model": model, "fallback": bool(fallback)}
-    gateway._set_route("omniroute", model, fallback)
+    provider = provider or "omniroute"
+    _ROUTE.value = {"provider": provider, "model": model, "fallback": bool(fallback)}
+    gateway._set_route(provider, model, fallback)
 
 def last_route() -> dict:
     return dict(getattr(_ROUTE, "value", {}) or gateway.last_route())
@@ -64,11 +65,15 @@ def _bedrock_system(*, system: str, prompt: str, chat_id: int | None, sheet_cont
 
 def _omniroute(*, model: str, messages: list[dict], sensitive: bool = False, max_tokens: int = 1200,
                temperature: float = 0.2, response_format: dict | None = None) -> RouterResponse:
+    gateway._set_route("omniroute", model)  # reset so a stale route from an earlier call cannot leak
     answer, usage, latency = gateway.openrouter_chat(model=model, messages=messages, sensitive=sensitive,
         max_tokens=max_tokens, temperature=temperature, response_format=response_format)
-    actual = gateway.last_route().get("model") or model
-    _set_route("omniroute", actual)
-    return RouterResponse(answer, actual, usage, latency)
+    route = gateway.last_route()
+    actual = route.get("model") or model
+    provider = route.get("provider") or "omniroute"
+    fallback = bool(route.get("fallback"))
+    _set_route(provider, actual, fallback)
+    return RouterResponse(answer, actual, usage, latency, provider, fallback)
 
 def _bedrock_converse(*, model_id: str, system: str, prompt: str, max_tokens: int = 1200,
                       temperature: float = 0.2, role: str = "general") -> RouterResponse:
